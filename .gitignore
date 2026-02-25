@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+dist/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node.js / Frontend
+node_modules/
+frontend/dist/
+*.log
+
+# Environment
+.env*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pressarr runtime
+**/config/pressarr.db*
+**/config/pressarr.yml
+**/config/logs/
+
+# Build artifacts
+*.tsbuildinfo
