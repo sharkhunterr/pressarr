@@ -116,6 +116,13 @@ async def update_magazine(
         magazine.title_slug = generate_title_slug(data["title"])
 
     await db.flush()
+
+    # Regenerate forecasts if frequency changed
+    if "frequency" in data:
+        from app.services.calendar_service import generate_forecasts
+
+        await generate_forecasts(db, magazine)
+
     return magazine
 
 

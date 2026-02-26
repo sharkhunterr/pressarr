@@ -52,8 +52,34 @@ export const batchMonitor = (issueIds: number[], monitored: boolean) =>
     body: JSON.stringify({ issueIds, monitored }),
   })
 
-export const deleteIssueFile = (id: number) =>
-  apiFetch<void>(`/issue/${id}/file`, { method: 'DELETE' })
+export interface IssueUpdate {
+  number?: number | null
+  volume?: number | null
+  title?: string | null
+  year?: number | null
+  month?: number | null
+  monitored?: boolean
+  isSpecial?: boolean
+  quality?: string | null
+  format?: string | null
+  releaseGroup?: string | null
+  language?: string | null
+}
+
+export const updateIssue = (id: number, data: IssueUpdate) =>
+  apiFetch<Issue>(`/issue/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+
+export const deleteIssueFile = (id: number, unmonitor = false) =>
+  apiFetch<void>(`/issue/${id}/file?unmonitor=${unmonitor}`, { method: 'DELETE' })
+
+export const deleteIssue = (id: number) =>
+  apiFetch<void>(`/issue/${id}`, { method: 'DELETE' })
+
+export const refreshIssue = (id: number) =>
+  apiFetch<unknown>(`/issue/${id}/refresh`, { method: 'POST' })
 
 export const getIssueCoverUrl = (id: number) =>
   `/api/v1/issue/${id}/cover`

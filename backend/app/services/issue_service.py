@@ -69,7 +69,38 @@ async def batch_monitor(
     return count
 
 
-async def delete_issue_file(db: AsyncSession, issue_id: int) -> bool:
+async def update_issue(
+    db: AsyncSession, issue_id: int, data: dict
+) -> Issue | None:
+    """Update issue fields (and optionally its file's fields)."""
+    issue = await get_issue(db, issue_id)
+    if not issue:
+        return None
+
+    # Issue-level fields
+    issue_fields = {"number", "volume", "title", "year", "month", "monitored", "is_special"}
+    for field in issue_fields:
+        if field in data and data[field] is not None:
+            setattr(issue, field, data[field])
+
+    # Sync status when monitored changes
+    if "monitored" in data and data["monitored"] is not None and issue.status in ("wanted", "missing"):
+        issue.status = "wanted" if data["monitored"] else "missing"
+
+    # File-level fields
+    if issue.file:
+        file_fields = {"quality", "format", "release_group", "language"}
+        for field in file_fields:
+            if field in data and data[field] is not None:
+                setattr(issue.file, field, data[field])
+
+    await db.flush()
+    return issue
+
+
+async def delete_issue_file(
+    db: AsyncSession, issue_id: int, unmonitor: bool = False
+) -> bool:
     issue = await get_issue(db, issue_id)
     if not issue or not issue.file:
         return False
@@ -79,9 +110,91 @@ async def delete_issue_file(db: AsyncSession, issue_id: int) -> bool:
         file_path.unlink()
 
     await db.delete(issue.file)
-    issue.status = "wanted" if issue.monitored else "missing"
+
+    if unmonitor:
+        issue.monitored = False
+        issue.status = "missing"
+    else:
+        issue.status = "wanted" if issue.monitored else "missing"
+
     await db.flush()
     return True
+
+
+async def delete_issue(db: AsyncSession, issue_id: int) -> bool:
+    """Delete an issue and its file entirely."""
+    issue = await get_issue(db, issue_id)
+    if not issue:
+        return False
+
+    # Remove physical file if present
+    if issue.file:
+        file_path = Path(issue.file.path)
+        if file_path.exists():
+            file_path.unlink()
+
+    await db.delete(issue)
+    await db.flush()
+    return True
+
+
+async def refresh_issue_metadata(db: AsyncSession, issue_id: int) -> str | None:
+    """Refresh metadata for a single issue via its magazine's metadata provider."""
+    issue = await get_issue(db, issue_id)
+    if issue is None:
+        return f"Issue {issue_id} not found"
+
+    magazine = await db.get(Magazine, issue.magazine_id)
+    if magazine is None:
+        return f"Magazine for issue {issue_id} not found"
+
+    if not magazine.metadata_provider or not magazine.metadata_provider_id:
+        return "No metadata provider configured for this magazine"
+
+    from app.metadata.base import IssueMetadata
+    from app.metadata.google_books import GoogleBooksProvider
+    from app.metadata.internet_archive import InternetArchiveProvider
+
+    provider_issues: list[IssueMetadata] = []
+    try:
+        if magazine.metadata_provider == "google_books":
+            from app.dependencies import get_config
+            config = get_config()
+            api_key = getattr(config, "google_books_api_key", None)
+            gp = GoogleBooksProvider(api_key=api_key)
+            provider_issues = await gp.get_issues(magazine.metadata_provider_id)
+        elif magazine.metadata_provider == "internet_archive":
+            ia = InternetArchiveProvider()
+            provider_issues = await ia.get_issues(magazine.metadata_provider_id)
+    except Exception:
+        logger.warning("Failed to fetch issue metadata for issue %d", issue_id, exc_info=True)
+        return f"Failed to fetch metadata for issue {issue_id}"
+
+    # Try to match the fetched issue data by number
+    matched: IssueMetadata | None = None
+    for pi in provider_issues:
+        if pi.number == issue.number:
+            matched = pi
+            break
+
+    if matched:
+        if matched.title and not issue.title:
+            issue.title = matched.title
+        if matched.publication_date and not issue.publication_date:
+            from datetime import date as date_type
+            try:
+                d = date_type.fromisoformat(matched.publication_date)
+                issue.publication_date = d
+                if not issue.year:
+                    issue.year = d.year
+                if not issue.month:
+                    issue.month = d.month
+            except ValueError:
+                pass
+        await db.flush()
+        return f"Metadata refreshed for issue #{issue.number}"
+
+    return f"No matching metadata found for issue #{issue.number}"
 
 
 async def scan_magazine_folder(

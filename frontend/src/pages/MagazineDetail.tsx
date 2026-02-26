@@ -11,6 +11,8 @@ import {
   Pencil,
   Trash2,
   Search,
+  HelpCircle,
+  CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -25,9 +27,13 @@ import {
 import {
   getIssues,
   updateIssueMonitored,
+  updateIssue,
   batchMonitor,
   deleteIssueFile,
+  deleteIssue,
+  refreshIssue,
   type Issue,
+  type IssueUpdate,
 } from '@/api/issues'
 import {
   searchIssue,
@@ -107,13 +113,33 @@ export default function MagazineDetail() {
   const [editMonitored, setEditMonitored] = useState(true)
   const [editQualityProfileId, setEditQualityProfileId] = useState('')
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
+  const [editFrequency, setEditFrequency] = useState('monthly')
 
-  // Delete modal state
+  // Delete modal state (magazine)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteFiles, setDeleteFiles] = useState(false)
 
+  // Delete file dialog state (issue)
+  const [deleteFileOpen, setDeleteFileOpen] = useState(false)
+  const [deleteFileIssueId, setDeleteFileIssueId] = useState<number | null>(null)
+
+  // Edit issue dialog state
+  const [editIssueOpen, setEditIssueOpen] = useState(false)
+  const [editingIssue, setEditingIssue] = useState<Issue | null>(null)
+  const [editIssueNumber, setEditIssueNumber] = useState('')
+  const [editIssueVolume, setEditIssueVolume] = useState('')
+  const [editIssueTitle, setEditIssueTitle] = useState('')
+  const [editIssueYear, setEditIssueYear] = useState('')
+  const [editIssueMonth, setEditIssueMonth] = useState('')
+  const [editIssueSpecial, setEditIssueSpecial] = useState(false)
+  const [editIssueQuality, setEditIssueQuality] = useState('')
+  const [editIssueFormat, setEditIssueFormat] = useState('')
+  const [editIssueReleaseGroup, setEditIssueReleaseGroup] = useState('')
+  const [editIssueLanguage, setEditIssueLanguage] = useState('')
+
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false)
+  const [refreshingIssueId, setRefreshingIssueId] = useState<number | null>(null)
 
   // Manual Research modal state
   const [manualSearchOpen, setManualSearchOpen] = useState(false)
@@ -197,13 +223,83 @@ export default function MagazineDetail() {
   })
 
   const deleteFileMutation = useMutation({
-    mutationFn: (issueId: number) => deleteIssueFile(issueId),
+    mutationFn: ({ issueId, unmonitor }: { issueId: number; unmonitor: boolean }) =>
+      deleteIssueFile(issueId, unmonitor),
     onSuccess: () => {
       invalidateIssues()
+      setDeleteFileOpen(false)
+      setDeleteFileIssueId(null)
       toast.success(t('issues.fileDeleted'))
     },
     onError: () => toast.error(t('issues.deleteFileError')),
   })
+
+  const deleteIssueMutation = useMutation({
+    mutationFn: (issueId: number) => deleteIssue(issueId),
+    onSuccess: () => {
+      invalidateIssues()
+      setDeleteFileOpen(false)
+      setDeleteFileIssueId(null)
+      toast.success(t('issues.fileDeleted'))
+    },
+    onError: () => toast.error(t('issues.deleteFileError')),
+  })
+
+  const updateIssueMutation = useMutation({
+    mutationFn: ({ issueId, data }: { issueId: number; data: IssueUpdate }) =>
+      updateIssue(issueId, data),
+    onSuccess: () => {
+      invalidateIssues()
+      setEditIssueOpen(false)
+      setEditingIssue(null)
+      toast.success(t('issues.issueUpdated'))
+    },
+    onError: () => toast.error(t('issues.issueUpdateError')),
+  })
+
+  const handleEditIssue = (issue: Issue) => {
+    setEditingIssue(issue)
+    setEditIssueNumber(issue.number != null ? String(issue.number) : '')
+    setEditIssueVolume(issue.volume != null ? String(issue.volume) : '')
+    setEditIssueTitle(issue.title ?? '')
+    setEditIssueYear(issue.year != null ? String(issue.year) : '')
+    setEditIssueMonth(issue.month != null ? String(issue.month) : '')
+    setEditIssueSpecial(issue.isSpecial)
+    setEditIssueQuality(issue.file?.quality ?? '')
+    setEditIssueFormat(issue.file?.format ?? '')
+    setEditIssueReleaseGroup(issue.file?.releaseGroup ?? '')
+    setEditIssueLanguage(issue.file?.language ?? '')
+    setEditIssueOpen(true)
+  }
+
+  const handleSaveIssue = () => {
+    if (!editingIssue) return
+    const data: IssueUpdate = {}
+    const num = editIssueNumber.trim() ? parseInt(editIssueNumber) : null
+    const vol = editIssueVolume.trim() ? parseInt(editIssueVolume) : null
+    const yr = editIssueYear.trim() ? parseInt(editIssueYear) : null
+    const mo = editIssueMonth.trim() ? parseInt(editIssueMonth) : null
+
+    if (num !== editingIssue.number) data.number = num
+    if (vol !== editingIssue.volume) data.volume = vol
+    if ((editIssueTitle || null) !== editingIssue.title) data.title = editIssueTitle || null
+    if (yr !== editingIssue.year) data.year = yr
+    if (mo !== editingIssue.month) data.month = mo
+    if (editIssueSpecial !== editingIssue.isSpecial) data.isSpecial = editIssueSpecial
+
+    if (editingIssue.file) {
+      if (editIssueQuality !== editingIssue.file.quality) data.quality = editIssueQuality || null
+      if (editIssueFormat !== editingIssue.file.format) data.format = editIssueFormat || null
+      if ((editIssueReleaseGroup || null) !== editingIssue.file.releaseGroup) data.releaseGroup = editIssueReleaseGroup || null
+      if ((editIssueLanguage || null) !== editingIssue.file.language) data.language = editIssueLanguage || null
+    }
+
+    if (Object.keys(data).length === 0) {
+      setEditIssueOpen(false)
+      return
+    }
+    updateIssueMutation.mutate({ issueId: editingIssue.id, data })
+  }
 
   const updateMagazineMutation = useMutation({
     mutationFn: (data: Partial<Magazine>) => updateMagazine(magazineId, data),
@@ -254,6 +350,88 @@ export default function MagazineDetail() {
     return counts
   }, [issues])
 
+  // Deduce missing issue fields from frequency pattern
+  const deductions = useMemo(() => {
+    const map = new Map<number, { deducedNumber?: number; deducedYear?: number; deducedMonth?: number }>()
+    if (!magazine) return map
+
+    const frequencyMonths: Record<string, number> = {
+      weekly: 7 / 30.44,
+      biweekly: 14 / 30.44,
+      monthly: 1,
+      bimonthly: 2,
+      quarterly: 3,
+      semiannual: 6,
+      annual: 12,
+    }
+
+    const freqMonths = frequencyMonths[magazine.frequency]
+    if (!freqMonths) return map // irregular or unknown
+
+    // Find best anchor: most recent non-forecast issue with both number and year/month
+    let anchor: { number: number; year: number; month: number } | null = null
+    for (const issue of issues) {
+      if (issue.isForecast || issue.number === null) continue
+      let y: number | null = issue.year
+      let m: number | null = issue.month
+      if (y === null && issue.publicationDate) {
+        const d = new Date(issue.publicationDate)
+        y = d.getFullYear()
+        m = d.getMonth() + 1
+      }
+      if (y === null) continue
+      if (m === null) m = 1 // default to January if only year known
+      if (!anchor || issue.number > anchor.number) {
+        anchor = { number: issue.number, year: y, month: m }
+      }
+    }
+
+    if (!anchor) return map
+
+    const anchorTotalMonths = anchor.year * 12 + (anchor.month - 1)
+
+    for (const issue of issues) {
+      if (issue.isForecast) continue
+
+      const hasNumber = issue.number !== null
+      let hasDate = !!(issue.year || issue.publicationDate)
+
+      if (hasNumber && !hasDate) {
+        // Deduce year+month from number
+        const totalMonths = anchorTotalMonths + (issue.number! - anchor.number) * freqMonths
+        const deducedYear = Math.floor(totalMonths / 12)
+        const deducedMonth = Math.round(totalMonths % 12) + 1
+        // Handle month overflow from rounding
+        if (deducedMonth > 12) {
+          map.set(issue.id, { deducedYear: deducedYear + 1, deducedMonth: deducedMonth - 12 })
+        } else {
+          map.set(issue.id, { deducedYear, deducedMonth })
+        }
+      } else if (!hasNumber && hasDate) {
+        // Deduce number from date
+        let y = issue.year
+        let m = issue.month
+        if (y === null && issue.publicationDate) {
+          const d = new Date(issue.publicationDate)
+          y = d.getFullYear()
+          m = d.getMonth() + 1
+        }
+        if (y !== null) {
+          const issueTotalMonths = y * 12 + ((m ?? 1) - 1)
+          const monthsDiff = issueTotalMonths - anchorTotalMonths
+          const deducedNumber = anchor.number + Math.round(monthsDiff / freqMonths)
+          if (deducedNumber > 0) {
+            map.set(issue.id, { deducedNumber })
+          }
+        }
+      }
+    }
+
+    return map
+  }, [issues, magazine])
+
+  const hasDeductions = deductions.size > 0
+
   const completionPercent = issues.length > 0
     ? Math.round((statusCounts.available / issues.length) * 100)
     : 0
@@ -289,6 +467,7 @@ export default function MagazineDetail() {
     setEditMonitored(magazine.monitored)
     setEditQualityProfileId(String(magazine.qualityProfileId))
     setEditRootFolderPath(rootFolders.find((f) => f.id === magazine.rootFolderId)?.path ?? '')
+    setEditFrequency(magazine.frequency)
     setEditOpen(true)
   }
 
@@ -299,6 +478,7 @@ export default function MagazineDetail() {
       monitored: editMonitored,
       qualityProfileId: Number(editQualityProfileId),
       rootFolderId: folder?.id,
+      frequency: editFrequency,
     })
   }
 
@@ -314,6 +494,19 @@ export default function MagazineDetail() {
       toast.error(t('magazineDetail.refreshError'))
     } finally {
       setRefreshing(false)
+    }
+  }
+
+  async function handleRefreshIssue(issueId: number) {
+    setRefreshingIssueId(issueId)
+    try {
+      await refreshIssue(issueId)
+      invalidateIssues()
+      toast.success(t('issues.refreshed'))
+    } catch {
+      toast.error(t('issues.refreshError'))
+    } finally {
+      setRefreshingIssueId(null)
     }
   }
 
@@ -476,8 +669,8 @@ export default function MagazineDetail() {
                 )}
               </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-2 shrink-0">
+              {/* Action buttons — desktop only */}
+              <div className="hidden sm:flex items-center gap-2 shrink-0">
                 <Button variant="outline" size="sm" onClick={openEdit}>
                   <Pencil className="size-3.5" />
                   {t('common.edit')}
@@ -512,6 +705,43 @@ export default function MagazineDetail() {
                   {t('common.delete')}
                 </Button>
               </div>
+            </div>
+
+            {/* Action buttons — mobile only, below cover+description */}
+            <div className="flex flex-wrap items-center gap-2 mt-3 sm:hidden">
+              <Button variant="outline" size="sm" onClick={openEdit}>
+                <Pencil className="size-3.5" />
+                {t('common.edit')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={refreshing}
+              >
+                <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                {t('magazineDetail.refresh')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleOpenManualSearch}
+              >
+                <Search className="size-3.5" />
+                {t('magazineDetail.manualResearch')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDeleteFiles(false)
+                  setDeleteOpen(true)
+                }}
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="size-3.5" />
+                {t('common.delete')}
+              </Button>
             </div>
 
             {/* Statistics overview */}
@@ -594,6 +824,14 @@ export default function MagazineDetail() {
         </div>
       )}
 
+      {/* Deduction legend */}
+      {hasDeductions && (
+        <div className="flex items-center gap-2 mb-3 text-xs text-amber-400">
+          <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+          <span className="italic">{t('issues.deducedLegend')}</span>
+        </div>
+      )}
+
       {/* Issues Table */}
       {groupedIssues.length === 0 ? (
         <p className="text-zinc-500 text-center py-8">
@@ -635,12 +873,19 @@ export default function MagazineDetail() {
                       issue={issue}
                       selected={selectedIds.has(issue.id)}
                       queueItem={queueByIssueId.get(issue.id)}
+                      deduced={deductions.get(issue.id)}
                       onSelect={handleSelect}
                       onToggleMonitor={(issueId, monitored) =>
                         monitorMutation.mutate({ issueId, monitored })
                       }
-                      onDeleteFile={(issueId) => deleteFileMutation.mutate(issueId)}
+                      onEdit={handleEditIssue}
+                      onDeleteFile={(issueId) => {
+                        setDeleteFileIssueId(issueId)
+                        setDeleteFileOpen(true)
+                      }}
                       onSearch={handleSearch}
+                      onRefresh={handleRefreshIssue}
+                      refreshingId={refreshingIssueId}
                     />
                   ))}
                 </TableBody>
@@ -920,6 +1165,43 @@ export default function MagazineDetail() {
 
             <div className="grid gap-1.5">
               <label className="text-sm font-medium text-zinc-300">
+                {t('addMagazine.frequency')}
+              </label>
+              <Select value={editFrequency} onValueChange={setEditFrequency}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="weekly">{t('addMagazine.weekly')}</SelectItem>
+                  <SelectItem value="biweekly">{t('addMagazine.biweekly')}</SelectItem>
+                  <SelectItem value="monthly">{t('addMagazine.monthly')}</SelectItem>
+                  <SelectItem value="bimonthly">{t('addMagazine.bimonthly')}</SelectItem>
+                  <SelectItem value="quarterly">{t('addMagazine.quarterly')}</SelectItem>
+                  <SelectItem value="semiannual">{t('addMagazine.semiannual')}</SelectItem>
+                  <SelectItem value="annual">{t('addMagazine.annual')}</SelectItem>
+                  <SelectItem value="irregular">{t('addMagazine.irregular')}</SelectItem>
+                </SelectContent>
+              </Select>
+              {(() => {
+                const forecastableCount = issues.filter(
+                  (i) => !i.isForecast && i.number !== null && (i.year !== null || i.publicationDate !== null)
+                ).length
+                return forecastableCount >= 2 ? (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>{t('magazineDetail.forecastConfirmed', { count: forecastableCount })}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                    <span>{t('magazineDetail.forecastInsufficient')}</span>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
                 {t('addMagazine.rootFolder')}
               </label>
               <Select value={editRootFolderPath} onValueChange={setEditRootFolderPath}>
@@ -946,6 +1228,201 @@ export default function MagazineDetail() {
               disabled={!editTitle.trim() || updateMagazineMutation.isPending}
             >
               {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Issue Dialog */}
+      <Dialog open={editIssueOpen} onOpenChange={(open) => {
+        setEditIssueOpen(open)
+        if (!open) setEditingIssue(null)
+      }}>
+        <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800">
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">
+              {t('issues.editIssueTitle')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-zinc-400">{t('issues.editNumber')}</label>
+              <Input
+                type="number"
+                value={editIssueNumber}
+                onChange={(e) => setEditIssueNumber(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('issues.editVolume')}</label>
+              <Input
+                type="number"
+                value={editIssueVolume}
+                onChange={(e) => setEditIssueVolume(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-zinc-400">{t('issues.editTitle')}</label>
+              <Input
+                value={editIssueTitle}
+                onChange={(e) => setEditIssueTitle(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('issues.editYear')}</label>
+              <Input
+                type="number"
+                value={editIssueYear}
+                onChange={(e) => setEditIssueYear(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('issues.editMonth')}</label>
+              <Input
+                type="number"
+                min={1}
+                max={12}
+                value={editIssueMonth}
+                onChange={(e) => setEditIssueMonth(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div className="col-span-2 flex items-center gap-2">
+              <Switch
+                checked={editIssueSpecial}
+                onCheckedChange={setEditIssueSpecial}
+              />
+              <label className="text-sm text-zinc-300">{t('issues.editSpecial')}</label>
+            </div>
+            {editingIssue?.file && (
+              <>
+                <div>
+                  <label className="text-xs text-zinc-400">{t('issues.editQuality')}</label>
+                  <Input
+                    value={editIssueQuality}
+                    onChange={(e) => setEditIssueQuality(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400">{t('issues.editFormat')}</label>
+                  <Input
+                    value={editIssueFormat}
+                    onChange={(e) => setEditIssueFormat(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400">{t('issues.editReleaseGroup')}</label>
+                  <Input
+                    value={editIssueReleaseGroup}
+                    onChange={(e) => setEditIssueReleaseGroup(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400">{t('issues.editLanguage')}</label>
+                  <Input
+                    value={editIssueLanguage}
+                    onChange={(e) => setEditIssueLanguage(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditIssueOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleSaveIssue}
+              disabled={updateIssueMutation.isPending}
+            >
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Issue / File Confirmation Dialog */}
+      <Dialog open={deleteFileOpen} onOpenChange={(open) => {
+        setDeleteFileOpen(open)
+        if (!open) setDeleteFileIssueId(null)
+      }}>
+        <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800">
+          {(() => {
+            const targetIssue = issues.find((i) => i.id === deleteFileIssueId)
+            const hasFile = !!targetIssue?.file
+            const isBusy = deleteFileMutation.isPending || deleteIssueMutation.isPending
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-zinc-100">
+                    {hasFile ? t('issues.deleteFileTitle') : t('issues.deleteIssueTitle')}
+                  </DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-zinc-400">
+                  {hasFile ? t('issues.deleteFileConfirm') : t('issues.deleteIssueConfirm')}
+                </p>
+                <div className="flex flex-col gap-2 mt-2">
+                  {hasFile && (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="justify-start text-left h-auto py-3"
+                        disabled={isBusy}
+                        onClick={() => {
+                          if (deleteFileIssueId != null)
+                            deleteFileMutation.mutate({ issueId: deleteFileIssueId, unmonitor: false })
+                        }}
+                      >
+                        <div>
+                          <div className="font-medium text-zinc-100">{t('issues.deleteFileOnly')}</div>
+                          <div className="text-xs text-zinc-500 font-normal">{t('issues.deleteFileOnlyDesc')}</div>
+                        </div>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="justify-start text-left h-auto py-3"
+                        disabled={isBusy}
+                        onClick={() => {
+                          if (deleteFileIssueId != null)
+                            deleteFileMutation.mutate({ issueId: deleteFileIssueId, unmonitor: true })
+                        }}
+                      >
+                        <div>
+                          <div className="font-medium text-zinc-100">{t('issues.deleteFileAndUnmonitor')}</div>
+                          <div className="text-xs text-zinc-500 font-normal">{t('issues.deleteFileAndUnmonitorDesc')}</div>
+                        </div>
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    variant="destructive"
+                    className="justify-start text-left h-auto py-3"
+                    disabled={isBusy}
+                    onClick={() => {
+                      if (deleteFileIssueId != null)
+                        deleteIssueMutation.mutate(deleteFileIssueId)
+                    }}
+                  >
+                    <div>
+                      <div className="font-medium">{t('issues.deleteIssue')}</div>
+                      <div className="text-xs opacity-80 font-normal">{t('issues.deleteIssueDesc')}</div>
+                    </div>
+                  </Button>
+                </div>
+              </>
+            )
+          })()}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteFileOpen(false)}>
+              {t('common.cancel')}
             </Button>
           </DialogFooter>
         </DialogContent>

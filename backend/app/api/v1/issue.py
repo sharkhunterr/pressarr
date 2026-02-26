@@ -7,10 +7,27 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
-from app.schemas.issue import IssueBatchMonitorRequest, IssueResource
+from app.schemas.issue import IssueBatchMonitorRequest, IssueResource, IssueUpdateRequest
 from app.services import issue_service
+from app.services.command_service import execute_command, register_command
 
 router = APIRouter(prefix="/api/v1/issue", tags=["Issues"])
+
+
+async def _handle_refresh_issue(issue_id: int) -> str | None:
+    """Command handler for RefreshIssue."""
+    from app.database import async_session_factory
+
+    if async_session_factory is None:
+        return "Database not initialized"
+
+    async with async_session_factory() as session:
+        result = await issue_service.refresh_issue_metadata(session, issue_id)
+        await session.commit()
+        return result
+
+
+register_command("RefreshIssue", _handle_refresh_issue)
 
 
 @router.get("", response_model=list[IssueResource])
@@ -52,28 +69,44 @@ async def get_issue(
 
 
 @router.put("/{issue_id}", response_model=IssueResource)
-async def update_issue_monitored(
+async def update_issue(
     issue_id: int,
-    body: dict,
+    body: IssueUpdateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update issue monitoring status."""
-    monitored = body.get("monitored")
-    if monitored is None:
-        raise HTTPException(422, "monitored field is required")
-    issue = await issue_service.update_issue_monitored(db, issue_id, monitored)
+    """Update issue fields. Only provided (non-null) fields are updated."""
+    data = body.model_dump(exclude_none=True)
+    if not data:
+        raise HTTPException(422, "No fields to update")
+    issue = await issue_service.update_issue(db, issue_id, data)
     if issue is None:
         raise HTTPException(404, "Issue not found")
     return issue
 
 
-@router.delete("/{issue_id}/file")
-async def delete_issue_file(
+@router.delete("/{issue_id}")
+async def delete_issue(
     issue_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete the file associated with an issue."""
-    deleted = await issue_service.delete_issue_file(db, issue_id)
+    """Delete an issue and its associated file entirely."""
+    deleted = await issue_service.delete_issue(db, issue_id)
+    if not deleted:
+        raise HTTPException(404, "Issue not found")
+    return {}
+
+
+@router.delete("/{issue_id}/file")
+async def delete_issue_file(
+    issue_id: int,
+    unmonitor: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete the file associated with an issue.
+
+    When unmonitor=true, also sets the issue as unmonitored.
+    """
+    deleted = await issue_service.delete_issue_file(db, issue_id, unmonitor=unmonitor)
     if not deleted:
         raise HTTPException(404, "Issue or file not found")
     return {}
@@ -126,3 +159,20 @@ async def get_issue_cover(
         raise HTTPException(404, "Cover file not found on disk")
 
     return FileResponse(cover_path)
+
+
+@router.post("/{issue_id}/refresh", status_code=200)
+async def refresh_issue(
+    issue_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger a RefreshIssue command."""
+    issue = await issue_service.get_issue(db, issue_id)
+    if issue is None:
+        raise HTTPException(404, "Issue not found")
+
+    command = await execute_command(
+        "RefreshIssue",
+        body={"issue_id": issue_id},
+    )
+    return command

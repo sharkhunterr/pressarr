@@ -36,6 +36,22 @@ class IssueResource(CamelModel):
     file: IssueFileResource | None = None
 
 
+class IssueUpdateRequest(CamelModel):
+    """Partial update for an issue. Only provided fields are updated."""
+    number: int | None = None
+    volume: int | None = None
+    title: str | None = None
+    year: int | None = None
+    month: int | None = None
+    monitored: bool | None = None
+    is_special: bool | None = None
+    # File fields (applied when issue has a file)
+    quality: str | None = None
+    format: str | None = None
+    release_group: str | None = None
+    language: str | None = None
+
+
 class IssueBatchMonitorRequest(CamelModel):
     issue_ids: list[int]
     monitored: bool

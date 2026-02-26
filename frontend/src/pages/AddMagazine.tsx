@@ -273,6 +273,8 @@ export default function AddMagazine() {
                   <SelectItem value="monthly">{t('addMagazine.monthly')}</SelectItem>
                   <SelectItem value="bimonthly">{t('addMagazine.bimonthly')}</SelectItem>
                   <SelectItem value="quarterly">{t('addMagazine.quarterly')}</SelectItem>
+                  <SelectItem value="semiannual">{t('addMagazine.semiannual')}</SelectItem>
+                  <SelectItem value="annual">{t('addMagazine.annual')}</SelectItem>
                   <SelectItem value="irregular">{t('addMagazine.irregular')}</SelectItem>
                 </SelectContent>
               </Select>

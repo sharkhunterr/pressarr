@@ -1,5 +1,6 @@
 """Download management service."""
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,25 @@ from app.schemas.search import GrabResponse
 from app.services.history_service import create_event
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _GrabInfo:
+    """Tracks which issue a torrent/usenet download belongs to."""
+    issue_id: int
+    magazine_id: int
+
+
+# download_id → GrabInfo — populated at grab time, consumed at import time
+_grab_registry: dict[str, _GrabInfo] = {}
+
+# download_ids that have already been imported (prevents re-processing)
+_processed_downloads: set[str] = set()
+
+
+def get_grab_info(download_id: str) -> _GrabInfo | None:
+    """Look up grab metadata for a download. Used by the queue API."""
+    return _grab_registry.get(download_id)
 
 
 async def grab_release(
@@ -46,6 +66,17 @@ async def grab_release(
             download_id = await client.add_torrent(download_url, category="pressarr")
         else:
             download_id = await client.add_nzb(download_url, category="pressarr")
+
+        # Register grab for later import tracking
+        if download_id:
+            _grab_registry[download_id] = _GrabInfo(
+                issue_id=issue.id,
+                magazine_id=issue.magazine_id,
+            )
+            logger.info(
+                "Registered grab: download_id=%s → issue_id=%d, magazine_id=%d",
+                download_id, issue.id, issue.magazine_id,
+            )
 
         # Update issue status
         issue.status = "snatched"
@@ -145,6 +176,10 @@ async def monitor_downloads(db: AsyncSession) -> None:
             items = await client.get_all(category=client_record.category)
             for item in items:
                 if item.status == "completed" and item.save_path:
+                    # Skip already-processed downloads
+                    if item.download_id and item.download_id in _processed_downloads:
+                        continue
+
                     from pathlib import Path
                     from app.services.import_service import process_downloaded_file
                     from app.dependencies import get_config
@@ -156,9 +191,34 @@ async def monitor_downloads(db: AsyncSession) -> None:
                         if save_path.is_dir()
                         else [save_path]
                     )
+
+                    # Look up grab registry for issue association
+                    grab = _grab_registry.get(item.download_id) if item.download_id else None
+                    issue_id = grab.issue_id if grab else None
+                    magazine_id = grab.magazine_id if grab else None
+
+                    imported_any = False
                     for f in files:
                         if f.suffix.lower() in {".pdf", ".epub", ".cbr", ".cbz"}:
-                            await process_downloaded_file(db, f, config)
+                            result_info = await process_downloaded_file(
+                                db, f, config,
+                                magazine_id=magazine_id,
+                                issue_id=issue_id,
+                            )
+                            if result_info.get("success"):
+                                imported_any = True
+
+                    # Mark as processed and clean up registry
+                    if imported_any and item.download_id:
+                        _processed_downloads.add(item.download_id)
+                        _grab_registry.pop(item.download_id, None)
+                        try:
+                            await client.remove(item.download_id)
+                        except Exception:
+                            logger.warning(
+                                "Failed to remove completed download %s",
+                                item.download_id, exc_info=True,
+                            )
         except Exception:
             logger.warning(
                 "Monitor error for %s", client_record.name, exc_info=True

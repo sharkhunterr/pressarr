@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Trash2, Search, Loader2, Download } from 'lucide-react'
+import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil } from 'lucide-react'
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
@@ -36,32 +36,53 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   }
 }
 
+export interface DeducedFields {
+  deducedNumber?: number
+  deducedYear?: number
+  deducedMonth?: number
+}
+
 interface IssueRowProps {
   issue: Issue
   selected: boolean
   queueItem?: QueueEntry
+  deduced?: DeducedFields
   onSelect: (id: number, checked: boolean) => void
   onToggleMonitor: (id: number, monitored: boolean) => void
+  onEdit: (issue: Issue) => void
   onDeleteFile: (id: number) => void
   onSearch: (id: number) => void
+  onRefresh: (id: number) => void
+  refreshingId?: number | null
 }
 
 export function IssueRow({
   issue,
   selected,
   queueItem,
+  deduced,
   onSelect,
   onToggleMonitor,
+  onEdit,
   onDeleteFile,
   onSearch,
+  onRefresh,
+  refreshingId,
 }: IssueRowProps) {
   const { t } = useTranslation()
 
+  const hasRealNumber = issue.number !== null
+  const hasRealDate = !!(issue.year || issue.publicationDate)
+
   const displayNumber = issue.isSpecial
     ? t('issues.special')
-    : issue.number !== null
+    : hasRealNumber
       ? `#${issue.number}`
-      : '-'
+      : deduced?.deducedNumber != null
+        ? `#${deduced.deducedNumber}`
+        : '-'
+
+  const isNumberDeduced = !hasRealNumber && deduced?.deducedNumber != null
 
   const displayDate = issue.year
     ? issue.month
@@ -69,7 +90,13 @@ export function IssueRow({
       : String(issue.year)
     : issue.publicationDate
       ? new Date(issue.publicationDate).toLocaleDateString()
-      : '-'
+      : deduced?.deducedYear != null
+        ? deduced.deducedMonth != null
+          ? `${String(deduced.deducedMonth).padStart(2, '0')}/${deduced.deducedYear}`
+          : String(deduced.deducedYear)
+        : '-'
+
+  const isDateDeduced = !hasRealDate && deduced?.deducedYear != null
 
   // Queue progress
   const isInQueue = !!queueItem
@@ -89,10 +116,10 @@ export function IssueRow({
           className="size-4 rounded border-zinc-600 bg-zinc-900 text-[#E85D04] focus:ring-[#E85D04] accent-[#E85D04]"
         />
       </TableCell>
-      <TableCell className="text-zinc-100 font-medium">
+      <TableCell className={`font-medium ${isNumberDeduced ? 'text-amber-400 italic' : 'text-zinc-100'}`}>
         {displayNumber}
       </TableCell>
-      <TableCell className="text-zinc-400">
+      <TableCell className={isDateDeduced ? 'text-amber-400 italic' : 'text-zinc-400'}>
         {displayDate}
       </TableCell>
       <TableCell>
@@ -140,8 +167,12 @@ export function IssueRow({
         {issue.file ? (
           <div className="flex items-center gap-2">
             <span className="uppercase text-zinc-300">{issue.file.format}</span>
-            <span className="text-zinc-500">|</span>
-            <span>{issue.file.quality}</span>
+            {issue.file.quality && issue.file.quality !== 'unknown' && (
+              <>
+                <span className="text-zinc-500">|</span>
+                <span>{issue.file.quality}</span>
+              </>
+            )}
             <span className="text-zinc-500">|</span>
             <span>{formatBytes(issue.file.size)}</span>
             {issue.file.releaseGroup && (
@@ -177,31 +208,46 @@ export function IssueRow({
           <Button
             variant="ghost"
             size="icon-xs"
+            onClick={() => onEdit(issue)}
+            title={t('issues.editIssue')}
+          >
+            <Pencil className="size-3.5 text-zinc-400" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={() => onSearch(issue.id)}
             title={t('issues.searchRelease')}
           >
             <Search className="size-3.5 text-zinc-400" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onRefresh(issue.id)}
+            disabled={refreshingId === issue.id}
+            title={t('issues.refreshIssue')}
+          >
+            <RefreshCw className={`size-3.5 text-zinc-400 ${refreshingId === issue.id ? 'animate-spin' : ''}`} />
+          </Button>
           {issue.file && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => window.open(`/api/v1/issue/${issue.id}/file`, '_blank')}
-                title={t('issues.downloadFile')}
-              >
-                <Download className="size-3.5 text-zinc-400" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => onDeleteFile(issue.id)}
-                title={t('issues.deleteFile')}
-              >
-                <Trash2 className="size-3.5 text-destructive" />
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => window.open(`/api/v1/issue/${issue.id}/file`, '_blank')}
+              title={t('issues.downloadFile')}
+            >
+              <Download className="size-3.5 text-zinc-400" />
+            </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onDeleteFile(issue.id)}
+            title={t('issues.deleteFile')}
+          >
+            <Trash2 className="size-3.5 text-destructive" />
+          </Button>
         </div>
       </TableCell>
     </TableRow>

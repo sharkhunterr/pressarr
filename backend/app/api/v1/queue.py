@@ -29,6 +29,11 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
     item_id = 0
 
     # 1. Regular download clients (torrent/usenet)
+    # Collect all download_ids first, then batch-load issue/magazine metadata
+    from app.services.download_service import get_grab_info
+
+    pending_enrichments: dict[int, tuple[int, int]] = {}  # item_index → (issue_id, magazine_id)
+
     for client_record in clients:
         try:
             client = _instantiate_client(client_record)
@@ -37,7 +42,7 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
             for entry in status_list:
                 item_id += 1
                 size_left = int(entry.size * (1.0 - entry.progress)) if entry.size else 0
-                items.append(QueueItemResource(
+                resource = QueueItemResource(
                     id=item_id,
                     title=entry.name,
                     status=entry.status,
@@ -50,11 +55,42 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
                     progress=round(entry.progress * 100, 1),
                     speed=entry.speed,
                     eta=entry.eta,
-                ))
+                )
+                items.append(resource)
+
+                # Check grab registry for issue association
+                if entry.download_id:
+                    grab = get_grab_info(entry.download_id)
+                    if grab:
+                        pending_enrichments[len(items) - 1] = (grab.issue_id, grab.magazine_id)
+
         except Exception:
             logger.warning(
                 "Failed to poll queue for %s", client_record.name, exc_info=True
             )
+
+    # Batch-load issue + magazine metadata for all grab-registered downloads
+    if pending_enrichments:
+        from sqlalchemy.orm import selectinload
+        from app.models.issue import Issue
+
+        issue_ids = [eid for eid, _ in pending_enrichments.values()]
+        issue_result = await db.execute(
+            select(Issue)
+            .options(selectinload(Issue.magazine))
+            .where(Issue.id.in_(issue_ids))
+        )
+        issues_by_id = {iss.id: iss for iss in issue_result.scalars().all()}
+
+        for idx, (iss_id, mag_id) in pending_enrichments.items():
+            resource = items[idx]
+            issue = issues_by_id.get(iss_id)
+            if issue:
+                resource.issue_id = issue.id
+                resource.magazine_id = issue.magazine_id
+                resource.issue_number = issue.number
+                if issue.magazine:
+                    resource.magazine_title = issue.magazine.title
 
     # 2. Direct downloads (Internet Archive, Anna's Archive)
     for tracked in dd_tracker.get_all():

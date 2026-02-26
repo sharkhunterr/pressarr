@@ -221,11 +221,16 @@ async def process_downloaded_file(
     file_path: Path,
     config,
     magazine_id: int | None = None,
+    issue_id: int | None = None,
 ) -> dict:
     """Full import pipeline: parse → match → rename → move → update DB → cover → notify.
 
-    When magazine_id is provided (e.g. from Manual Research), the fuzzy title
-    matching step is skipped and the magazine is loaded directly by ID.
+    When issue_id is provided (e.g. from grab registry), the issue is loaded
+    directly and both magazine fuzzy matching and issue number/date matching
+    are skipped entirely.
+
+    When only magazine_id is provided (e.g. from Manual Research), the fuzzy
+    title matching step is skipped and the magazine is loaded directly by ID.
 
     Returns a dict with keys: success, issue_id, message.
     """
@@ -247,77 +252,98 @@ async def process_downloaded_file(
     # 1. Parse filename
     parsed = parse_magazine_filename(file_path.name)
 
-    # 2. Resolve magazine — either by ID (fast path) or fuzzy match
-    magazine = None
-    if magazine_id:
-        mag_result = await db.execute(
-            select(Magazine).where(Magazine.id == magazine_id)
-        )
-        magazine = mag_result.scalars().first()
-        if magazine:
-            logger.info("Resolved magazine by ID: %s (id=%d)", magazine.title, magazine_id)
-
-    if not magazine:
-        # Need a parseable title for fuzzy matching
-        if not parsed.title:
-            logger.warning("Could not parse title from %s", file_path.name)
-            return {"success": False, "issue_id": None, "message": "Unparseable filename"}
-
-        mag_result = await db.execute(select(Magazine))
-        magazines = mag_result.scalars().all()
-        known_titles = [m.title for m in magazines]
-
-        match = fuzzy_match_title(parsed.title, known_titles, threshold=80.0)
-        if not match:
-            # Move to unmatched directory
-            unmatched_dir = Path(config.download_path) / "unmatched" if hasattr(config, "download_path") else file_path.parent / "unmatched"
-            unmatched_dir.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(file_path), str(unmatched_dir / file_path.name))
-            await create_event(db, "unmatched", details=f"Unmatched file: {file_path.name}")
-            return {"success": False, "issue_id": None, "message": f"No matching magazine for '{parsed.title}'"}
-
-        matched_title, match_score = match
-        magazine = next(m for m in magazines if m.title == matched_title)
-
-    # 3. Match issue by number or date
-    issue = None
-    if parsed.number is not None:
+    # Fast path: when issue_id is known (from grab registry), load directly
+    # and skip fuzzy title matching + issue number/date matching entirely
+    if issue_id:
         issue_result = await db.execute(
             select(Issue)
-            .options(selectinload(Issue.file))
-            .where(Issue.magazine_id == magazine.id, Issue.number == parsed.number)
+            .options(selectinload(Issue.file), selectinload(Issue.magazine))
+            .where(Issue.id == issue_id)
         )
         issue = issue_result.scalars().first()
-
-    if not issue and parsed.year and parsed.month:
-        issue_result = await db.execute(
-            select(Issue)
-            .options(selectinload(Issue.file))
-            .where(
-                Issue.magazine_id == magazine.id,
-                Issue.year == parsed.year,
-                Issue.month == parsed.month,
+        if issue and issue.magazine:
+            magazine = issue.magazine
+            existing_file = issue.file
+            logger.info(
+                "Direct issue lookup: issue_id=%d → %s #%s",
+                issue_id, magazine.title, issue.number,
             )
-        )
-        issue = issue_result.scalars().first()
+        else:
+            logger.warning("issue_id=%d not found, falling back to filename parsing", issue_id)
+            issue_id = None  # fall through to normal path
 
-    # Save eagerly-loaded file reference before potentially creating a new issue
-    # (avoids lazy-load MissingGreenlet errors in background tasks)
-    existing_file = None if issue is None else issue.file
+    if not issue_id:
+        # 2. Resolve magazine — either by ID (fast path) or fuzzy match
+        magazine = None
+        if magazine_id:
+            mag_result = await db.execute(
+                select(Magazine).where(Magazine.id == magazine_id)
+            )
+            magazine = mag_result.scalars().first()
+            if magazine:
+                logger.info("Resolved magazine by ID: %s (id=%d)", magazine.title, magazine_id)
 
-    if not issue:
-        # Create a new issue for this file
-        issue = Issue(
-            magazine_id=magazine.id,
-            number=parsed.number,
-            year=parsed.year,
-            month=parsed.month,
-            is_special=parsed.is_special,
-            status="available",
-            monitored=True,
-        )
-        db.add(issue)
-        await db.flush()
+        if not magazine:
+            # Need a parseable title for fuzzy matching
+            if not parsed.title:
+                logger.warning("Could not parse title from %s", file_path.name)
+                return {"success": False, "issue_id": None, "message": "Unparseable filename"}
+
+            mag_result = await db.execute(select(Magazine))
+            magazines = mag_result.scalars().all()
+            known_titles = [m.title for m in magazines]
+
+            match = fuzzy_match_title(parsed.title, known_titles, threshold=80.0)
+            if not match:
+                # Move to unmatched directory
+                unmatched_dir = Path(config.download_path) / "unmatched" if hasattr(config, "download_path") else file_path.parent / "unmatched"
+                unmatched_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(file_path), str(unmatched_dir / file_path.name))
+                await create_event(db, "unmatched", details=f"Unmatched file: {file_path.name}")
+                return {"success": False, "issue_id": None, "message": f"No matching magazine for '{parsed.title}'"}
+
+            matched_title, match_score = match
+            magazine = next(m for m in magazines if m.title == matched_title)
+
+        # 3. Match issue by number or date
+        issue = None
+        if parsed.number is not None:
+            issue_result = await db.execute(
+                select(Issue)
+                .options(selectinload(Issue.file))
+                .where(Issue.magazine_id == magazine.id, Issue.number == parsed.number)
+            )
+            issue = issue_result.scalars().first()
+
+        if not issue and parsed.year and parsed.month:
+            issue_result = await db.execute(
+                select(Issue)
+                .options(selectinload(Issue.file))
+                .where(
+                    Issue.magazine_id == magazine.id,
+                    Issue.year == parsed.year,
+                    Issue.month == parsed.month,
+                )
+            )
+            issue = issue_result.scalars().first()
+
+        # Save eagerly-loaded file reference before potentially creating a new issue
+        # (avoids lazy-load MissingGreenlet errors in background tasks)
+        existing_file = None if issue is None else issue.file
+
+        if not issue:
+            # Create a new issue for this file
+            issue = Issue(
+                magazine_id=magazine.id,
+                number=parsed.number,
+                year=parsed.year,
+                month=parsed.month,
+                is_special=parsed.is_special,
+                status="available",
+                monitored=True,
+            )
+            db.add(issue)
+            await db.flush()
 
     # 4. Check quality upgrade
     if existing_file:
