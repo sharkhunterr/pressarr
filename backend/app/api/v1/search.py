@@ -126,6 +126,7 @@ async def search_internet_archive(
 class IADownloadRequest(CamelModel):
     identifier: str
     filename: str = ""
+    title: str = ""
     issue_id: int | None = None
     magazine_id: int | None = None
     preferred_format: str = "pdf"
@@ -251,6 +252,75 @@ async def _lookup_issue_info(
     return row[0], row[2], row[1]  # magazine_id, magazine_title, issue_number
 
 
+async def _resolve_or_create_issue(
+    db: AsyncSession,
+    magazine_id: int,
+    release_title: str,
+) -> tuple[int, int | None]:
+    """Parse a release title and find or create the matching issue.
+
+    ALWAYS returns a valid (issue_id, issue_number). Creates a new issue
+    if no existing match is found — even if the parser extracts nothing.
+    """
+    from sqlalchemy import select
+    from app.models.issue import Issue
+    from app.parser.magazine_parser import parse_magazine_filename
+
+    parsed = parse_magazine_filename(release_title)
+    logger.info(
+        "[resolve_issue] Parsed '%s' → title=%r, number=%s, year=%s, month=%s, volume=%s",
+        release_title, parsed.title, parsed.number, parsed.year, parsed.month, parsed.volume,
+    )
+
+    issue = None
+
+    # Try matching by issue number first
+    if parsed.number is not None:
+        result = await db.execute(
+            select(Issue).where(
+                Issue.magazine_id == magazine_id,
+                Issue.number == parsed.number,
+            )
+        )
+        issue = result.scalars().first()
+
+    # Try matching by year + month
+    if not issue and parsed.year and parsed.month:
+        result = await db.execute(
+            select(Issue).where(
+                Issue.magazine_id == magazine_id,
+                Issue.year == parsed.year,
+                Issue.month == parsed.month,
+            )
+        )
+        issue = result.scalars().first()
+
+    if issue:
+        logger.info("[resolve_issue] Matched existing issue id=%d", issue.id)
+        return issue.id, issue.number
+
+    # No match found — ALWAYS create a new issue with whatever data we have
+    issue = Issue(
+        magazine_id=magazine_id,
+        number=parsed.number,
+        volume=parsed.volume,
+        title=parsed.title or None,
+        year=parsed.year,
+        month=parsed.month,
+        is_special=parsed.is_special,
+        status="snatched",
+        monitored=True,
+    )
+    db.add(issue)
+    await db.flush()
+    logger.info(
+        "[resolve_issue] Created issue id=%d (number=%s, year=%s, month=%s) for magazine %d",
+        issue.id, parsed.number, parsed.year, parsed.month, magazine_id,
+    )
+
+    return issue.id, issue.number
+
+
 @router.post("/internetarchive/download", response_model=GrabResponse)
 async def download_from_internet_archive(
     body: IADownloadRequest,
@@ -292,8 +362,9 @@ async def download_from_internet_archive(
     )
 
     # Look up issue info for queue display
+    issue_id = body.issue_id
     magazine_id, magazine_title, issue_number = await _lookup_issue_info(
-        db, body.issue_id
+        db, issue_id
     )
     # Use body.magazine_id as fallback (Manual Research modal)
     if not magazine_id and body.magazine_id:
@@ -307,13 +378,24 @@ async def download_from_internet_archive(
         if row:
             magazine_title = row[0]
 
+    # If no issue_id but we have a magazine, resolve/create issue from title
+    if not issue_id and magazine_id:
+        resolve_title = body.title or body.identifier or filename
+        issue_id, issue_number = await _resolve_or_create_issue(
+            db, magazine_id, resolve_title,
+        )
+        await db.commit()
+        # Notify frontend to refresh issue list immediately
+        from app.api.v1.websocket import manager as ws_manager
+        await ws_manager.broadcast("library:updated", {"magazineId": magazine_id})
+
     # Register in tracker
     tracked = tracker.register(
         download_id=download_id,
         name=filename,
         protocol="ia",
         source="Internet Archive",
-        issue_id=body.issue_id,
+        issue_id=issue_id,
         magazine_id=magazine_id,
         magazine_title=magazine_title,
         issue_number=issue_number,
@@ -323,7 +405,7 @@ async def download_from_internet_archive(
     task = asyncio.create_task(
         _ia_download_task(
             download_id, body.identifier, filename,
-            download_dir, body.issue_id, magazine_id, config,
+            download_dir, issue_id, magazine_id, config,
         )
     )
     tracked.task = task
@@ -333,7 +415,7 @@ async def download_from_internet_archive(
     await manager.broadcast("queue:added", {})
 
     return GrabResponse(
-        issue_id=body.issue_id or 0,
+        issue_id=issue_id or 0,
         download_id=download_id,
         message=f"Queued download: {filename}",
     )
@@ -592,6 +674,7 @@ def _parse_size(size_str: str) -> int:
 
 class AADownloadRequest(CamelModel):
     md5: str
+    title: str = ""
     issue_id: int | None = None
     magazine_id: int | None = None
     preferred_format: str = "pdf"
@@ -626,8 +709,9 @@ async def download_from_annas_archive(
     )
 
     # Look up issue info for queue display
+    issue_id = body.issue_id
     magazine_id, magazine_title, issue_number = await _lookup_issue_info(
-        db, body.issue_id
+        db, issue_id
     )
     # Use body.magazine_id as fallback (Manual Research modal)
     if not magazine_id and body.magazine_id:
@@ -641,13 +725,22 @@ async def download_from_annas_archive(
         if row:
             magazine_title = row[0]
 
+    # If no issue_id but we have a magazine, resolve/create issue from title
+    if not issue_id and magazine_id:
+        issue_id, issue_number = await _resolve_or_create_issue(
+            db, magazine_id, body.title or body.md5,
+        )
+        await db.commit()
+        from app.api.v1.websocket import manager as ws_manager
+        await ws_manager.broadcast("library:updated", {"magazineId": magazine_id})
+
     # Register in tracker
     tracked = tracker.register(
         download_id=download_id,
         name=f"{body.md5}.pdf",
         protocol="aa",
         source="Anna's Archive",
-        issue_id=body.issue_id,
+        issue_id=issue_id,
         magazine_id=magazine_id,
         magazine_title=magazine_title,
         issue_number=issue_number,
@@ -657,7 +750,7 @@ async def download_from_annas_archive(
     task = asyncio.create_task(
         _aa_download_task(
             download_id, body.md5, download_dir,
-            body.issue_id, magazine_id, mirror, config,
+            issue_id, magazine_id, mirror, config,
         )
     )
     tracked.task = task
@@ -667,7 +760,7 @@ async def download_from_annas_archive(
     await manager.broadcast("queue:added", {})
 
     return GrabResponse(
-        issue_id=body.issue_id or 0,
+        issue_id=issue_id or 0,
         download_id=download_id,
         message=f"Queued download: {body.md5}",
     )

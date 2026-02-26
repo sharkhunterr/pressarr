@@ -32,6 +32,15 @@ const SAMPLE_DATA: Record<string, string> = {
   '{format}': 'pdf',
   '{group}': 'TeamRelease',
   '{language}': 'en',
+  // French aliases
+  '{titre_magazine}': 'National Geographic',
+  '{titre}': 'National Geographic',
+  '{numero}': '42',
+  '{annee}': '2025',
+  '{mois}': '03',
+  '{qualite}': 'TruePDF',
+  '{groupe}': 'TeamRelease',
+  '{langue}': 'en',
 }
 
 function applyTemplate(template: string): string {

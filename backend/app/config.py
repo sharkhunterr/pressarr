@@ -32,7 +32,7 @@ class Config:
 
         # Naming template
         self.naming_template: str = (
-            "{titre_magazine}/{titre_magazine} - {numero} ({annee}-{mois}).{format}"
+            "{magazine_title}/{magazine_title} - {number} ({year}-{month:02d}).{format}"
         )
 
         # Metadata sources

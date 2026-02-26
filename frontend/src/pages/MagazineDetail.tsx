@@ -153,14 +153,6 @@ export default function MagazineDetail() {
         map.set(item.issueId, item)
       }
     }
-    // Also match by magazine ID for items without issue ID
-    // (from Manual Research where issue_id is unknown)
-    for (const item of queue) {
-      if (!item.issueId && item.magazineId === magazineId) {
-        // Show as a magazine-level queue item (not tied to specific issue)
-        map.set(-item.id, item) // negative key = not issue-matched
-      }
-    }
     return map
   }, [queue, magazineId])
 
@@ -379,12 +371,13 @@ export default function MagazineDetail() {
     try {
       if (result.protocol === 'aa') {
         // Anna's Archive direct download - guid = md5 hash
-        await downloadFromAA(result.guid, targetIssueId || undefined, magazineId)
+        await downloadFromAA(result.guid, result.title, targetIssueId || undefined, magazineId)
       } else if (result.protocol === 'ia') {
         // Internet Archive direct download
         await downloadFromIA(
           result.guid,
           `${result.guid}.pdf`,
+          result.title,
           targetIssueId || undefined,
           magazineId,
         )
@@ -598,43 +591,6 @@ export default function MagazineDetail() {
             <EyeOff className="size-3.5" />
             {t('issues.unmonitorAll')}
           </Button>
-        </div>
-      )}
-
-      {/* Active downloads for this magazine (not matched to a specific issue) */}
-      {queue.filter((q) => q.magazineId === magazineId && !q.issueId).length > 0 && (
-        <div className="mb-4 space-y-2">
-          {queue
-            .filter((q) => q.magazineId === magazineId && !q.issueId)
-            .map((item) => {
-              const progress = item.size > 0
-                ? Math.round(((item.size - item.sizeLeft) / item.size) * 100)
-                : 0
-              return (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 rounded-md border border-[#E85D04]/30 bg-[#E85D04]/5 px-4 py-2"
-                >
-                  <Loader2 className="size-4 animate-spin text-[#E85D04] shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-zinc-200 truncate">{item.title}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden max-w-[200px]">
-                        <div
-                          className="h-full rounded-full bg-[#E85D04] transition-all"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-zinc-500">{progress}%</span>
-                      <span className="text-xs text-zinc-500">{item.downloadClient}</span>
-                      <Badge variant="outline" className="text-xs border-[#E85D04]/50 text-[#E85D04]">
-                        {item.status}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
         </div>
       )}
 

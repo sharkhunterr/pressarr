@@ -27,6 +27,7 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
     case 'available':
       return 'default'
     case 'wanted':
+    case 'snatched':
       return 'secondary'
     case 'missing':
       return 'destructive'

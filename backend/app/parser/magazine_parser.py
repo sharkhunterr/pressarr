@@ -327,6 +327,15 @@ def parse_magazine_filename(filename: str) -> ParseResult:
         title = working.strip(" -–")
         # Collapse whitespace
         title = re.sub(r"\s+", " ", title).strip()
+
+        # 11. Fallback: if no issue number found, check for a bare trailing
+        #     number in the title (e.g. "Picsou Magazine 328")
+        if result.number is None and title:
+            bare_trail = re.search(r"\s(\d{1,5})$", title)
+            if bare_trail:
+                result.number = int(bare_trail.group(1))
+                title = title[:bare_trail.start()].strip()
+
         result.title = title
 
     except Exception:

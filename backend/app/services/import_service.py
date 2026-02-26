@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # Default naming template
 DEFAULT_TEMPLATE = "{magazine_title}/{magazine_title} - {number} ({year}-{month:02d}).{format}"
 
-# Valid template variables
+# Valid template variables (English canonical names)
 TEMPLATE_VARIABLES = {
     "magazine_title": "Magazine title",
     "number": "Issue number",
@@ -21,6 +21,18 @@ TEMPLATE_VARIABLES = {
     "format": "File format (pdf, epub, etc.)",
     "group": "Release group name",
     "language": "Language code",
+}
+
+# French aliases → canonical English name
+_FRENCH_ALIASES = {
+    "titre_magazine": "magazine_title",
+    "titre": "magazine_title",
+    "numero": "number",
+    "annee": "year",
+    "mois": "month",
+    "qualite": "quality",
+    "groupe": "group",
+    "langue": "language",
 }
 
 # Characters not allowed in filenames
@@ -35,10 +47,11 @@ def validate_template(template: str) -> tuple[bool, str]:
     if INVALID_CHARS.search(template.replace("{", "").replace("}", "")):
         return False, "Template contains invalid filesystem characters"
 
-    # Check all variables are recognized
+    # Check all variables are recognized (English or French)
     found_vars = re.findall(r"\{(\w+)(?::[^}]*)?\}", template)
+    all_known = set(TEMPLATE_VARIABLES) | set(_FRENCH_ALIASES)
     for var in found_vars:
-        if var not in TEMPLATE_VARIABLES:
+        if var not in all_known:
             return False, f"Unknown template variable: {{{var}}}"
 
     if not found_vars:
@@ -74,8 +87,12 @@ def apply_template(
         "language": language,
     }
 
+    # Build reverse alias map: french_name -> same value as the canonical english name
+    alias_values = {alias: values[canonical] for alias, canonical in _FRENCH_ALIASES.items()}
+    all_values = {**values, **alias_values}
+
     # Handle format specifiers like {month:02d}
-    for var_name, value in values.items():
+    for var_name, value in all_values.items():
         # Simple replacement without format spec
         result = result.replace(f"{{{var_name}}}", value)
         # Also handle format specs by replacing them with the pre-formatted value
@@ -395,6 +412,10 @@ async def process_downloaded_file(
     cover = await extract_cover(dest, covers_dir)
     if cover:
         issue.cover_path = cover
+        # Use as magazine cover if magazine has none
+        if not magazine.cover_path:
+            magazine.cover_path = cover
+            logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()
 
     # 10. Create history event
@@ -558,6 +579,10 @@ async def import_file_for_issue(
     cover = await extract_cover(dest, covers_dir)
     if cover:
         issue.cover_path = cover
+        # Use as magazine cover if magazine has none
+        if not magazine.cover_path:
+            magazine.cover_path = cover
+            logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()
 
     # 9. Create history event
