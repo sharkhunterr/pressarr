@@ -3,32 +3,41 @@ import { apiFetch } from './client'
 export interface Magazine {
   id: number
   title: string
-  year: number | null
+  titleSlug: string
+  issn: string | null
   publisher: string | null
-  frequency: string | null
+  country: string | null
+  frequency: string
   description: string | null
   coverPath: string | null
-  rootFolderPath: string
+  rootFolderId: number
   qualityProfileId: number
   monitored: boolean
   monitoringStartDate: string | null
-  issueCount: number
-  availableCount: number
-  missingCount: number
+  searchTerms: string | null
+  metadataProvider: string | null
+  metadataProviderId: string | null
   addedAt: string
-  lastRefreshed: string | null
-  metadataSource: string | null
-  metadataId: string | null
+  lastSearchedAt: string | null
+  lastMetadataRefresh: string | null
+  statistics: {
+    issueCount: number
+    availableCount: number
+    missingCount: number
+    percentComplete: number
+  }
 }
 
 export interface MetadataSearchResult {
-  metadataId: string
+  provider: string
+  providerId: string
   title: string
-  year: number | null
   publisher: string | null
+  country: string | null
   description: string | null
   coverUrl: string | null
-  source: string
+  issn: string | null
+  frequency: string | null
   alreadyInLibrary: boolean
 }
 
@@ -56,7 +65,7 @@ export const deleteMagazine = (id: number, deleteFiles?: boolean) =>
   })
 
 export const searchMetadata = (query: string) =>
-  apiFetch<MetadataSearchResult[]>(`/magazine/search?query=${encodeURIComponent(query)}`)
+  apiFetch<MetadataSearchResult[]>(`/magazine/lookup?query=${encodeURIComponent(query)}`)
 
 export const refreshMetadata = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}/refresh`, { method: 'POST' })

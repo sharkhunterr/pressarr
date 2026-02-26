@@ -40,9 +40,10 @@ register_command("RefreshMagazine", _handle_refresh_magazine)
 async def lookup_metadata(
     query: str = Query(..., min_length=1),
     config=Depends(get_config),
+    db: AsyncSession = Depends(get_db),
 ):
     """Search metadata providers for magazine information."""
-    results = await magazine_service.search_metadata(query, config)
+    results = await magazine_service.search_metadata(query, config, db=db)
     return results
 
 

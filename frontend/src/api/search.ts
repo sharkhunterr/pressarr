@@ -32,3 +32,23 @@ export const grabRelease = (
     method: 'POST',
     body: JSON.stringify({ issueId, downloadUrl, title, protocol, guid }),
   })
+
+// Internet Archive
+export const searchInternetArchive = (query: string, magazineId?: number) => {
+  const params = new URLSearchParams({ query })
+  if (magazineId) params.set('magazineId', String(magazineId))
+  return apiFetch<SearchResult[]>(`/search/internetarchive?${params}`)
+}
+
+export const downloadFromIA = (
+  identifier: string,
+  filename: string,
+  issueId?: number,
+) =>
+  apiFetch<{ issueId: number; downloadId: string; message: string }>(
+    '/search/internetarchive/download',
+    {
+      method: 'POST',
+      body: JSON.stringify({ identifier, filename, issueId }),
+    },
+  )

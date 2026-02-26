@@ -35,10 +35,12 @@ class GoogleBooksProvider(MetadataProviderBase):
             if cached is not None:
                 return self._parse_cached(cached)
 
-        # Build request
+        # Build request — use intitle: for better title matching.
+        # printType=magazines is too restrictive (misses most non-English
+        # magazines), so we search all print types and filter client-side.
         params: dict[str, str] = {
-            "q": query,
-            "printType": "magazines",
+            "q": f'intitle:"{query}"',
+            "maxResults": "20",
         }
         if self.api_key:
             params["key"] = self.api_key

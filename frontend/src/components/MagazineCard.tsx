@@ -5,8 +5,9 @@ import { type Magazine, getMagazineCoverUrl } from '@/api/magazines'
 import { Badge } from '@/components/ui/badge'
 
 function completionPercent(magazine: Magazine): number {
-  if (magazine.issueCount === 0) return 0
-  return Math.round((magazine.availableCount / magazine.issueCount) * 100)
+  const stats = magazine.statistics
+  if (!stats || stats.issueCount === 0) return 0
+  return Math.round((stats.availableCount / stats.issueCount) * 100)
 }
 
 interface MagazineCardProps {
@@ -57,8 +58,8 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
         {/* Issue count stats */}
         <p className="text-xs text-zinc-500 mt-1">
           {t('library.issueStats', {
-            available: magazine.availableCount,
-            total: magazine.issueCount,
+            available: magazine.statistics?.availableCount ?? 0,
+            total: magazine.statistics?.issueCount ?? 0,
           })}
         </p>
 

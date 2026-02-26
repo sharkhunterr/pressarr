@@ -51,9 +51,9 @@ class InternetArchiveProvider(MetadataProviderBase):
                 return self._parse_cached_search(cached)
 
         params = {
-            "q": f"collection:magazinerack {query}",
+            "q": f'collection:magazine_rack "{query}"',
             "output": "json",
-            "rows": "20",
+            "rows": "50",
             "fl[]": "identifier,title,description,creator,subject",
         }
 
@@ -104,27 +104,93 @@ class InternetArchiveProvider(MetadataProviderBase):
     # Parsing helpers
     # ------------------------------------------------------------------
 
+    _MONTH_PATTERN = (
+        r"Jan(?:uary|vier)?|F[eé]b(?:ruary)?|F[eé]vr(?:ier)?|"
+        r"Mar(?:ch|s|zo)?|Apr(?:il)?|Avr(?:il)?|Ma[iyo]?|June?|Juin|"
+        r"Jul(?:y|illet)?|Aug(?:ust)?|Ao[uû]t|"
+        r"Sep(?:t(?:emb(?:er|re))?)?|Oct(?:ob(?:er|re))?|"
+        r"Nov(?:emb(?:er|re))?|D[eé]c(?:emb(?:er|re))?"
+    )
+
+    @classmethod
+    def _extract_base_title(cls, title: str) -> str:
+        """Extract base magazine title by stripping issue numbers and dates.
+
+        "Science et vie micro 245" -> "Science et vie micro"
+        "National Geographic 1986 10 170 4 Oct" -> "National Geographic"
+        "Wired 1997 03 OCR" -> "Wired"
+        "National Geographic December 2014 USA" -> "National Geographic"
+        """
+        import re
+        # Strip parenthesized content at end
+        cleaned = re.sub(r"\s*\(.*?\)\s*$", "", title).strip()
+
+        # Strip from the first occurrence of: a bare number, a month name,
+        # or issue indicators like #/No/N°/Vol that start the "metadata" part.
+        pattern = (
+            r"[\s._-]+(?:"
+            r"(?:No\.?\s*|N[°ºr.]\.?\s*|#|Vol\.?\s*)\d"
+            r"|\d{2,}"
+            rf"|(?:{cls._MONTH_PATTERN})\b"
+            r")"
+        )
+        m = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if m:
+            cleaned = cleaned[:m.start()]
+
+        # Strip trailing tags: OCR, USA, UK, HQ, PDF, etc.
+        cleaned = re.sub(
+            r"[\s._-]+(?:OCR|USA|UK|HQ|PDF|FRENCH|ENGLISH)\s*$",
+            "", cleaned, flags=re.IGNORECASE,
+        )
+        # Strip trailing separators
+        cleaned = re.sub(r"[\s._-]+$", "", cleaned).strip()
+        return cleaned if len(cleaned) >= 2 else title
+
     def _parse_search_response(self, data: dict) -> list[MetadataResult]:
-        results: list[MetadataResult] = []
+        """Parse search results and group by base magazine title."""
         response = data.get("response", {})
+
+        # Group items by base title to deduplicate individual issues
+        grouped: dict[str, dict] = {}
         for doc in response.get("docs", []):
             title = doc.get("title")
             identifier = doc.get("identifier")
             if not title or not identifier:
                 continue
 
-            # description can be a string or a list
-            description = doc.get("description")
-            if isinstance(description, list):
-                description = " ".join(description)
+            base_title = self._extract_base_title(title)
+            key = base_title.lower().strip()
+
+            if key not in grouped:
+                description = doc.get("description")
+                if isinstance(description, list):
+                    description = " ".join(description)
+
+                grouped[key] = {
+                    "title": base_title,
+                    "identifier": identifier,
+                    "description": description,
+                    "publisher": doc.get("creator") if isinstance(doc.get("creator"), str) else None,
+                    "count": 1,
+                }
+            else:
+                grouped[key]["count"] += 1
+
+        results: list[MetadataResult] = []
+        for info in grouped.values():
+            count = info["count"]
+            desc = info["description"] or ""
+            if count > 1:
+                desc = f"{count} issues on Internet Archive. {desc}".strip()
 
             results.append(
                 MetadataResult(
                     provider=PROVIDER_NAME,
-                    provider_id=identifier,
-                    title=title,
-                    description=description,
-                    publisher=doc.get("creator") if isinstance(doc.get("creator"), str) else None,
+                    provider_id=info["identifier"],
+                    title=info["title"],
+                    description=desc if desc else None,
+                    publisher=info["publisher"],
                 )
             )
         return results

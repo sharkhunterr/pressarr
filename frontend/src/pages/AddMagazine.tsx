@@ -104,6 +104,7 @@ export default function AddMagazine() {
   function openAddFromResult(result: MetadataSearchResult) {
     setSelectedResult(result)
     setManualTitle(result.title)
+    if (result.frequency) setManualFrequency(result.frequency)
     setManualOpen(true)
   }
 
@@ -117,15 +118,14 @@ export default function AddMagazine() {
     if (!manualTitle.trim()) return
     setAdding(true)
     try {
-      const folder = rootFolders.find((f) => String(f.id) === rootFolderId)
       const magazine = await createMagazine({
         title: manualTitle.trim(),
         frequency: manualFrequency,
-        rootFolderPath: folder?.path ?? '',
+        rootFolderId: rootFolderId ? Number(rootFolderId) : undefined,
         qualityProfileId: qualityProfileId ? Number(qualityProfileId) : undefined,
         monitoringStartDate: monitoringStartDate || undefined,
-        metadataSource: selectedResult?.source ?? undefined,
-        metadataId: selectedResult?.metadataId ?? undefined,
+        metadataProvider: selectedResult?.provider ?? undefined,
+        metadataProviderId: selectedResult?.providerId ?? undefined,
         searchForMissingIssues: searchForMissing,
       })
       toast.success(t('addMagazine.added'))
@@ -161,7 +161,7 @@ export default function AddMagazine() {
         <div className="space-y-2 mb-6">
           {results.map((result) => (
             <div
-              key={result.metadataId}
+              key={`${result.provider}-${result.providerId}`}
               className="flex items-center gap-4 rounded-md border border-zinc-800 bg-zinc-950 px-4 py-3"
             >
               {/* Cover thumbnail */}
@@ -185,9 +185,9 @@ export default function AddMagazine() {
                   <p className="text-sm font-medium text-zinc-100 truncate">
                     {result.title}
                   </p>
-                  {result.year && (
-                    <span className="text-xs text-zinc-500">({result.year})</span>
-                  )}
+                  <Badge variant="outline" className="text-xs shrink-0">
+                    {result.provider === 'internet_archive' ? 'Internet Archive' : 'Google Books'}
+                  </Badge>
                   {result.alreadyInLibrary && (
                     <Badge variant="secondary" className="text-xs">
                       <Library className="size-3" />

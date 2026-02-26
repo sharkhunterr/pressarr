@@ -44,15 +44,32 @@ class DelugeClient(DownloadClientBase):
         if not result:
             await self._call("auth.login", [self.password])
 
+    async def _ensure_label(self, label: str) -> None:
+        """Ensure the Label plugin label exists (create if needed)."""
+        try:
+            await self._call("label.add", [label])
+        except RuntimeError:
+            # Label already exists — ignore
+            pass
+
     async def add_torrent(self, url: str, category: str = "pressarr") -> str:
-        """Add a torrent by URL. Returns the torrent hash."""
+        """Add a torrent by URL and tag it with the given label."""
         await self._ensure_auth()
-        options = {"move_completed_path": category}
+        options: dict = {}
         torrent_id = await self._call(
             "core.add_torrent_url", [url, options]
         )
         if not torrent_id:
             raise RuntimeError("Failed to add torrent to Deluge")
+
+        # Tag with label (requires Label plugin enabled in Deluge)
+        try:
+            await self._ensure_label(category)
+            await self._call("label.set_torrent", [torrent_id, category])
+        except RuntimeError:
+            # Label plugin not available — continue without labeling
+            pass
+
         return torrent_id
 
     async def add_nzb(self, url: str, category: str = "pressarr") -> str:
@@ -74,15 +91,22 @@ class DelugeClient(DownloadClientBase):
         return self._parse_status(download_id, result)
 
     async def get_all(self, category: str = "pressarr") -> list[DownloadStatus]:
-        """Get status of all torrents."""
+        """Get torrents filtered by label (requires Label plugin)."""
         await self._ensure_auth()
         fields = [
             "name", "state", "progress", "total_size",
-            "download_payload_rate", "eta", "save_path",
+            "download_payload_rate", "eta", "save_path", "label",
         ]
-        result = await self._call(
-            "core.get_torrents_status", [{}, fields]
-        )
+        # Try filtering by label via the Label plugin
+        try:
+            result = await self._call(
+                "core.get_torrents_status", [{"label": category}, fields]
+            )
+        except RuntimeError:
+            # Label plugin not available — fall back to returning nothing
+            # rather than all torrents from the client
+            result = None
+
         if not result:
             return []
         return [

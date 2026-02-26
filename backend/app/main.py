@@ -202,6 +202,7 @@ tags_metadata = [
     {"name": "Download Clients", "description": "Download client configuration"},
     {"name": "Indexers", "description": "Indexer configuration"},
     {"name": "Root Folders", "description": "Library root folder management"},
+    {"name": "Settings", "description": "Application settings"},
     {"name": "System", "description": "System status and health"},
     {"name": "Commands", "description": "Command execution"},
     {"name": "WebSocket", "description": "Real-time updates"},
@@ -248,6 +249,7 @@ def create_app() -> FastAPI:
     from app.api.v1.search import router as search_router
     from app.api.v1.calendar import router as calendar_router
     from app.api.v1.queue import router as queue_router
+    from app.api.v1.settings import router as settings_router
 
     app.include_router(command_router)
     app.include_router(quality_router)
@@ -264,6 +266,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(calendar_router)
     app.include_router(queue_router)
+    app.include_router(settings_router)
 
     # Serve frontend static files (after all API routes)
     static_dir = os.path.join(os.path.dirname(__file__), "static")

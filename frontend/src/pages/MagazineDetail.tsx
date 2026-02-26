@@ -33,6 +33,8 @@ import {
   searchIssue,
   searchMagazine,
   grabRelease,
+  searchInternetArchive,
+  downloadFromIA,
   type SearchResult,
 } from '@/api/search'
 import { getProfiles } from '@/api/quality'
@@ -250,16 +252,17 @@ export default function MagazineDetail() {
     setEditTitle(magazine.title)
     setEditMonitored(magazine.monitored)
     setEditQualityProfileId(String(magazine.qualityProfileId))
-    setEditRootFolderPath(magazine.rootFolderPath)
+    setEditRootFolderPath(rootFolders.find((f) => f.id === magazine.rootFolderId)?.path ?? '')
     setEditOpen(true)
   }
 
   function handleSaveEdit() {
+    const folder = rootFolders.find((f) => f.path === editRootFolderPath)
     updateMagazineMutation.mutate({
       title: editTitle,
       monitored: editMonitored,
       qualityProfileId: Number(editQualityProfileId),
-      rootFolderPath: editRootFolderPath,
+      rootFolderId: folder?.id,
     })
   }
 
@@ -280,12 +283,13 @@ export default function MagazineDetail() {
 
   // Internet Archive search
   async function handleIASearch() {
+    if (!magazine) return
     setIaSearching(true)
     setSearchingIssueId(null)
     setSearchResults([])
     setSearchDialogOpen(true)
     try {
-      const results = await searchMagazine(magazineId)
+      const results = await searchInternetArchive(magazine.title, magazineId)
       setSearchResults(results)
     } catch {
       toast.error(t('issues.searchError'))
@@ -315,13 +319,23 @@ export default function MagazineDetail() {
     const targetIssueId = searchingIssueId ?? 0
     setGrabbing(result.guid)
     try {
-      await grabRelease(
-        targetIssueId,
-        result.downloadUrl,
-        result.title,
-        result.protocol,
-        result.guid,
-      )
+      if (result.protocol === 'ia') {
+        // Internet Archive direct download
+        // guid = identifier, find a PDF filename from the identifier
+        await downloadFromIA(
+          result.guid,
+          `${result.guid}.pdf`,
+          targetIssueId || undefined,
+        )
+      } else {
+        await grabRelease(
+          targetIssueId,
+          result.downloadUrl,
+          result.title,
+          result.protocol,
+          result.guid,
+        )
+      }
       toast.success(t('issues.grabbed'))
       setSearchDialogOpen(false)
       invalidateIssues()
@@ -387,12 +401,8 @@ export default function MagazineDetail() {
               <div>
                 <h1 className="text-2xl font-bold text-zinc-100">{magazine.title}</h1>
                 <div className="flex items-center gap-2 mt-1 text-sm text-zinc-400">
-                  {magazine.year && <span>{magazine.year}</span>}
                   {magazine.publisher && (
-                    <>
-                      {magazine.year && <span className="text-zinc-700">|</span>}
-                      <span>{magazine.publisher}</span>
-                    </>
+                    <span>{magazine.publisher}</span>
                   )}
                   {magazine.frequency && (
                     <>
@@ -614,24 +624,38 @@ export default function MagazineDetail() {
                       <p className="text-sm text-zinc-100 truncate">{result.title}</p>
                       <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
                         <span>{result.indexer}</span>
-                        <span>|</span>
-                        <span>{formatBytes(result.size)}</span>
-                        <span>|</span>
-                        <span>{result.quality}</span>
-                        {result.language && (
+                        {result.size > 0 && (
+                          <>
+                            <span>|</span>
+                            <span>{formatBytes(result.size)}</span>
+                          </>
+                        )}
+                        {result.quality && result.quality !== 'unknown' && (
+                          <>
+                            <span>|</span>
+                            <span>{result.quality}</span>
+                          </>
+                        )}
+                        {result.language && result.language !== 'unknown' && (
                           <>
                             <span>|</span>
                             <span>{result.language}</span>
                           </>
                         )}
-                        {result.seeders !== null && (
+                        {result.seeders !== null && result.seeders > 0 && (
                           <>
                             <span>|</span>
-                            <span>{result.seeders} {t('issues.seeders')}</span>
+                            <span>
+                              {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
+                            </span>
                           </>
                         )}
-                        <span>|</span>
-                        <span>{result.age}d</span>
+                        {result.age > 0 && (
+                          <>
+                            <span>|</span>
+                            <span>{result.age}d</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     <Button

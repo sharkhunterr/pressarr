@@ -164,7 +164,9 @@ async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:
     }
 
 
-async def search_metadata(query: str, config) -> list[MetadataSearchResult]:
+async def search_metadata(
+    query: str, config, db: AsyncSession | None = None,
+) -> list[MetadataSearchResult]:
     """Search all metadata providers and deduplicate results."""
     from app.metadata.google_books import GoogleBooksProvider
     from app.metadata.internet_archive import InternetArchiveProvider
@@ -182,6 +184,13 @@ async def search_metadata(query: str, config) -> list[MetadataSearchResult]:
         return_exceptions=True,
     )
 
+    # Fetch existing library titles for already_in_library check
+    existing_slugs: set[str] = set()
+    if db is not None:
+        stmt = select(Magazine.title_slug)
+        result = await db.execute(stmt)
+        existing_slugs = {row[0] for row in result.all()}
+
     all_results: list[MetadataSearchResult] = []
     seen_titles: set[str] = set()
 
@@ -195,6 +204,7 @@ async def search_metadata(query: str, config) -> list[MetadataSearchResult]:
             if key in seen_titles:
                 continue
             seen_titles.add(key)
+            slug = generate_title_slug(r.title)
             all_results.append(
                 MetadataSearchResult(
                     provider=r.provider,
@@ -206,8 +216,25 @@ async def search_metadata(query: str, config) -> list[MetadataSearchResult]:
                     cover_url=r.cover_url,
                     issn=r.issn,
                     frequency=r.frequency,
+                    already_in_library=slug in existing_slugs,
                 )
             )
+
+    # Sort by relevance: exact title matches first, then prefix matches,
+    # then everything else.
+    query_lower = query.lower().strip()
+
+    def _relevance(item: MetadataSearchResult) -> tuple[int, str]:
+        title_lower = item.title.lower().strip()
+        if title_lower == query_lower:
+            return (0, title_lower)
+        if title_lower.startswith(query_lower):
+            return (1, title_lower)
+        if query_lower in title_lower:
+            return (2, title_lower)
+        return (3, title_lower)
+
+    all_results.sort(key=_relevance)
 
     return all_results
 

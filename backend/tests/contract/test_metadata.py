@@ -60,7 +60,7 @@ class TestGoogleBooksProvider:
     @pytest.mark.asyncio
     async def test_search_parses_volumes(self, provider: GoogleBooksProvider):
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "printType=magazines" in str(request.url)
+            assert "intitle" in str(request.url)
             return httpx.Response(200, json=GOOGLE_BOOKS_RESPONSE)
 
         provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -164,7 +164,8 @@ class TestInternetArchiveProvider:
     @pytest.mark.asyncio
     async def test_search_parses_docs(self, provider: InternetArchiveProvider):
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "collection%3Amagazinerack" in str(request.url) or "collection:magazinerack" in str(request.url)
+            url_str = str(request.url)
+            assert "magazine_rack" in url_str or "collection%3Amagazine_rack" in url_str
             return httpx.Response(200, json=ARCHIVE_SEARCH_RESPONSE)
 
         provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -177,7 +178,7 @@ class TestInternetArchiveProvider:
         assert r0.provider_id == "ia-natgeo-2024"
         assert r0.title == "National Geographic"
         assert r0.publisher == "National Geographic Society"
-        assert r0.description == "Iconic magazine about science and exploration."
+        assert "Iconic magazine about science and exploration." in r0.description
 
         r1 = results[1]
         assert r1.title == "Time Magazine"

@@ -52,30 +52,31 @@ class SABnzbdClient(DownloadClientBase):
 
     async def get_status(self, download_id: str) -> DownloadStatus | None:
         """Get status of a specific download by NZO ID."""
-        all_statuses = await self._get_queue()
-        for status in all_statuses:
-            if status.download_id == download_id:
-                return status
+        for slot in await self._get_queue_raw():
+            if slot.get("nzo_id") == download_id:
+                return self._parse_queue_slot(slot)
 
-        # Check history for completed/failed downloads
-        history_statuses = await self._get_history()
-        for status in history_statuses:
-            if status.download_id == download_id:
-                return status
+        for slot in await self._get_history_raw():
+            if slot.get("nzo_id") == download_id:
+                return self._parse_history_slot(slot)
 
         return None
 
     async def get_all(self, category: str = "pressarr") -> list[DownloadStatus]:
-        """Get all downloads, optionally filtered by category."""
-        queue = await self._get_queue()
-        history = await self._get_history()
-        all_downloads = queue + history
-        if category:
-            all_downloads = [
-                d for d in all_downloads
-                if True  # SABnzbd filters by category on the server side
-            ]
-        return all_downloads
+        """Get downloads filtered by category."""
+        queue = await self._get_queue_raw()
+        history = await self._get_history_raw()
+
+        results: list[DownloadStatus] = []
+        for slot in queue:
+            if category and slot.get("cat", "") != category:
+                continue
+            results.append(self._parse_queue_slot(slot))
+        for slot in history:
+            if category and slot.get("category", "") != category:
+                continue
+            results.append(self._parse_history_slot(slot))
+        return results
 
     async def remove(
         self, download_id: str, delete_data: bool = False
@@ -108,17 +109,15 @@ class SABnzbdClient(DownloadClientBase):
         except Exception as e:
             return False, str(e)
 
-    async def _get_queue(self) -> list[DownloadStatus]:
-        """Get active queue items."""
+    async def _get_queue_raw(self) -> list[dict]:
+        """Get active queue slots as raw dicts."""
         data = await self._call("queue")
-        slots = data.get("queue", {}).get("slots", [])
-        return [self._parse_queue_slot(s) for s in slots]
+        return data.get("queue", {}).get("slots", [])
 
-    async def _get_history(self) -> list[DownloadStatus]:
-        """Get completed/failed items from history."""
+    async def _get_history_raw(self) -> list[dict]:
+        """Get history slots as raw dicts."""
         data = await self._call("history", {"limit": 50})
-        slots = data.get("history", {}).get("slots", [])
-        return [self._parse_history_slot(s) for s in slots]
+        return data.get("history", {}).get("slots", [])
 
     def _parse_queue_slot(self, data: dict) -> DownloadStatus:
         """Parse a SABnzbd queue slot into DownloadStatus."""

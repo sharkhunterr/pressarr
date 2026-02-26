@@ -66,8 +66,8 @@ class TransmissionClient(DownloadClientBase):
         return data.get("arguments", {})
 
     async def add_torrent(self, url: str, category: str = "pressarr") -> str:
-        """Add a torrent by URL. Returns the torrent hash."""
-        args = {"filename": url}
+        """Add a torrent by URL with a label. Returns the torrent hash."""
+        args: dict = {"filename": url, "labels": [category]}
         result = await self._rpc("torrent-add", args)
         torrent = result.get("torrent-added") or result.get("torrent-duplicate")
         if not torrent:
@@ -94,15 +94,20 @@ class TransmissionClient(DownloadClientBase):
         return self._parse_torrent(torrents[0])
 
     async def get_all(self, category: str = "pressarr") -> list[DownloadStatus]:
-        """Get all torrents."""
+        """Get torrents filtered by label."""
         fields = [
             "hashString", "name", "status", "percentDone",
             "totalSize", "rateDownload", "eta", "downloadDir",
-            "errorString",
+            "errorString", "labels",
         ]
         result = await self._rpc("torrent-get", {"fields": fields})
         torrents = result.get("torrents", [])
-        return [self._parse_torrent(t) for t in torrents]
+        # Filter by label
+        filtered = [
+            t for t in torrents
+            if category in (t.get("labels") or [])
+        ]
+        return [self._parse_torrent(t) for t in filtered]
 
     async def remove(
         self, download_id: str, delete_data: bool = False

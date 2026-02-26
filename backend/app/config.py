@@ -35,6 +35,13 @@ class Config:
             "{titre_magazine}/{titre_magazine} - {numero} ({annee}-{mois}).{format}"
         )
 
+        # Metadata sources
+        self.google_books_api_key: str = ""
+        self.internet_archive_enabled: bool = True
+
+        # Download path for IA direct downloads
+        self.download_path: str = "/tmp/pressarr_downloads"
+
         self._load_yaml()
         self._apply_env_overrides()
 
@@ -52,6 +59,16 @@ class Config:
         self.auth_enabled = data.get("auth_enabled", self.auth_enabled)
         self.db_path = Path(data.get("db_path", str(self.db_path)))
         self.naming_template = data.get("naming_template", self.naming_template)
+
+        metadata = data.get("metadata", {})
+        self.google_books_api_key = metadata.get(
+            "google_books_api_key", self.google_books_api_key
+        )
+        self.internet_archive_enabled = metadata.get(
+            "internet_archive_enabled", self.internet_archive_enabled
+        )
+
+        self.download_path = data.get("download_path", self.download_path)
 
         scheduler = data.get("scheduler", {})
         self.rss_sync_interval = scheduler.get(
@@ -108,6 +125,11 @@ class Config:
             "auth_enabled": self.auth_enabled,
             "db_path": str(self.db_path),
             "naming_template": self.naming_template,
+            "download_path": self.download_path,
+            "metadata": {
+                "google_books_api_key": self.google_books_api_key,
+                "internet_archive_enabled": self.internet_archive_enabled,
+            },
             "scheduler": {
                 "rss_sync_interval": self.rss_sync_interval,
                 "download_check_interval": self.download_check_interval,
