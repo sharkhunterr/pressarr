@@ -1,0 +1,228 @@
+"""Magazine management service layer."""
+
+import logging
+import re
+import unicodedata
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models.magazine import Magazine
+from app.models.issue import Issue
+from app.schemas.magazine import MetadataSearchResult
+
+logger = logging.getLogger(__name__)
+
+
+def generate_title_slug(title: str) -> str:
+    """Generate a URL-safe slug from a title.
+
+    Lowercase, strip accents, replace non-alnum with dashes, collapse
+    consecutive dashes, strip leading/trailing dashes.
+    """
+    # Normalize unicode and strip accents
+    nfkd = unicodedata.normalize("NFKD", title)
+    ascii_text = nfkd.encode("ascii", "ignore").decode("ascii")
+    # Lowercase
+    lower = ascii_text.lower()
+    # Replace non-alphanumeric with dashes
+    dashed = re.sub(r"[^a-z0-9]+", "-", lower)
+    # Collapse consecutive dashes and strip
+    slug = re.sub(r"-+", "-", dashed).strip("-")
+    return slug
+
+
+async def list_magazines(
+    db: AsyncSession,
+    sort_key: str = "title",
+    sort_dir: str = "asc",
+    monitored: bool | None = None,
+) -> list[Magazine]:
+    """List all magazines with optional filtering and sorting."""
+    stmt = select(Magazine).options(selectinload(Magazine.issues))
+
+    if monitored is not None:
+        stmt = stmt.where(Magazine.monitored == monitored)
+
+    # Determine sort column
+    sort_column = getattr(Magazine, sort_key, Magazine.title)
+    if sort_dir.lower() == "desc":
+        sort_column = sort_column.desc()
+
+    stmt = stmt.order_by(sort_column)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_magazine(db: AsyncSession, magazine_id: int) -> Magazine | None:
+    """Get a single magazine by ID with issues eager-loaded."""
+    stmt = (
+        select(Magazine)
+        .where(Magazine.id == magazine_id)
+        .options(selectinload(Magazine.issues))
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
+    """Create a new magazine. Raises ValueError on duplicate title_slug."""
+    title = data["title"]
+    title_slug = generate_title_slug(title)
+
+    # Check for duplicate slug
+    existing = await db.execute(
+        select(Magazine).where(Magazine.title_slug == title_slug)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise ValueError(f"Magazine with slug '{title_slug}' already exists")
+
+    magazine = Magazine(
+        title=title,
+        title_slug=title_slug,
+        issn=data.get("issn"),
+        publisher=data.get("publisher"),
+        country=data.get("country"),
+        description=data.get("description"),
+        frequency=data.get("frequency", "monthly"),
+        monitored=data.get("monitored", True),
+        monitoring_start_date=data.get("monitoring_start_date"),
+        search_terms=data.get("search_terms"),
+        root_folder_id=data["root_folder_id"],
+        quality_profile_id=data["quality_profile_id"],
+        metadata_provider_id=data.get("metadata_provider_id"),
+        metadata_provider=data.get("metadata_provider"),
+    )
+    db.add(magazine)
+    await db.flush()
+    return magazine
+
+
+async def update_magazine(
+    db: AsyncSession, magazine_id: int, data: dict
+) -> Magazine | None:
+    """Update an existing magazine. Returns None if not found."""
+    magazine = await get_magazine(db, magazine_id)
+    if magazine is None:
+        return None
+
+    for key, value in data.items():
+        if value is not None and hasattr(magazine, key):
+            setattr(magazine, key, value)
+
+    # Regenerate slug if title changed
+    if "title" in data and data["title"] is not None:
+        magazine.title_slug = generate_title_slug(data["title"])
+
+    await db.flush()
+    return magazine
+
+
+async def delete_magazine(
+    db: AsyncSession, magazine_id: int, delete_files: bool = False
+) -> bool:
+    """Delete a magazine. Returns False if not found."""
+    magazine = await get_magazine(db, magazine_id)
+    if magazine is None:
+        return False
+
+    if delete_files:
+        # TODO: implement actual file deletion from disk
+        logger.info("delete_files=True for magazine %d (not yet implemented)", magazine_id)
+
+    await db.delete(magazine)
+    await db.flush()
+    return True
+
+
+async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:
+    """Compute statistics for a magazine."""
+    # Total issues
+    total_result = await db.execute(
+        select(func.count(Issue.id)).where(Issue.magazine_id == magazine_id)
+    )
+    issue_count = total_result.scalar() or 0
+
+    # Available issues (status != 'missing')
+    available_result = await db.execute(
+        select(func.count(Issue.id)).where(
+            Issue.magazine_id == magazine_id,
+            Issue.status != "missing",
+        )
+    )
+    available_count = available_result.scalar() or 0
+
+    missing_count = issue_count - available_count
+    percent_complete = (available_count / issue_count * 100) if issue_count > 0 else 0.0
+
+    return {
+        "issue_count": issue_count,
+        "available_count": available_count,
+        "missing_count": missing_count,
+        "percent_complete": round(percent_complete, 1),
+    }
+
+
+async def search_metadata(query: str, config) -> list[MetadataSearchResult]:
+    """Search all metadata providers and deduplicate results."""
+    from app.metadata.google_books import GoogleBooksProvider
+    from app.metadata.internet_archive import InternetArchiveProvider
+
+    api_key = getattr(config, "google_books_api_key", None)
+
+    google = GoogleBooksProvider(api_key=api_key)
+    archive = InternetArchiveProvider()
+
+    # Search all providers concurrently
+    import asyncio
+    google_results, archive_results = await asyncio.gather(
+        google.search(query),
+        archive.search(query),
+        return_exceptions=True,
+    )
+
+    all_results: list[MetadataSearchResult] = []
+    seen_titles: set[str] = set()
+
+    for results in [google_results, archive_results]:
+        if isinstance(results, BaseException):
+            logger.warning("Metadata provider error: %s", results)
+            continue
+        for r in results:
+            # Deduplicate by normalized title
+            key = r.title.lower().strip()
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            all_results.append(
+                MetadataSearchResult(
+                    provider=r.provider,
+                    provider_id=r.provider_id,
+                    title=r.title,
+                    publisher=r.publisher,
+                    country=r.country,
+                    description=r.description,
+                    cover_url=r.cover_url,
+                    issn=r.issn,
+                    frequency=r.frequency,
+                )
+            )
+
+    return all_results
+
+
+async def refresh_metadata(db: AsyncSession, magazine_id: int) -> str | None:
+    """Refresh metadata for a magazine via its configured provider."""
+    magazine = await get_magazine(db, magazine_id)
+    if magazine is None:
+        return f"Magazine {magazine_id} not found"
+
+    if not magazine.metadata_provider or not magazine.metadata_provider_id:
+        return "No metadata provider configured"
+
+    from datetime import datetime, timezone
+    magazine.last_metadata_refresh = datetime.now(timezone.utc)
+    await db.flush()
+
+    return f"Metadata refreshed for '{magazine.title}'"

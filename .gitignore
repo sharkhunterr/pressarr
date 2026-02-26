@@ -13,7 +13,11 @@ dist/
 # Node.js / Frontend
 node_modules/
 frontend/dist/
+frontend/.vite/
 *.log
+
+# Coverage
+coverage/
 
 # Environment
 .env*
