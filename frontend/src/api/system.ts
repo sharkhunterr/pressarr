@@ -49,6 +49,8 @@ export interface NamingTemplate {
 export interface MetadataSettings {
   googleBooksApiKey: string
   internetArchiveEnabled: boolean
+  annasArchiveEnabled: boolean
+  annasArchiveMirror: string
 }
 
 // System
@@ -104,4 +106,10 @@ export const testGoogleBooks = (apiKey: string) =>
 export const testInternetArchive = () =>
   apiFetch<{ isValid: boolean; message: string }>('/settings/metadata/test/internetarchive', {
     method: 'POST',
+  })
+
+export const testAnnasArchive = (mirror: string) =>
+  apiFetch<{ isValid: boolean; message: string }>('/settings/metadata/test/annasarchive', {
+    method: 'POST',
+    body: JSON.stringify({ mirror }),
   })

@@ -10,7 +10,9 @@ class HistoryResource(CamelModel):
     event_type: str
     date: datetime
     magazine_id: int | None = None
+    magazine_title: str | None = None
     issue_id: int | None = None
+    issue_number: int | None = None
     details: str | None = None
 
 

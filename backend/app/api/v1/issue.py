@@ -79,6 +79,35 @@ async def delete_issue_file(
     return {}
 
 
+@router.get("/{issue_id}/file")
+async def download_issue_file(
+    issue_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the file associated with an issue."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.issue import Issue
+
+    result = await db.execute(
+        select(Issue).options(selectinload(Issue.file)).where(Issue.id == issue_id)
+    )
+    issue = result.scalars().first()
+    if not issue or not issue.file:
+        raise HTTPException(404, "Issue or file not found")
+
+    file_path = Path(issue.file.path)
+    if not file_path.is_file():
+        raise HTTPException(404, "File not found on disk")
+
+    filename = issue.file.original_filename or file_path.name
+    return FileResponse(
+        file_path,
+        filename=filename,
+        media_type="application/octet-stream",
+    )
+
+
 @router.get("/{issue_id}/cover")
 async def get_issue_cover(
     issue_id: int,

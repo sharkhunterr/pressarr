@@ -16,13 +16,19 @@ router = APIRouter(prefix="/api/v1/queue", tags=["Queue"])
 
 
 async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
-    """Poll all download clients for pressarr-category items."""
+    """Poll all download clients + direct download tracker for queue items."""
+    from app.services.direct_download_tracker import tracker as dd_tracker
+
+    # Clean up old completed/failed downloads
+    dd_tracker.cleanup_completed(max_age_seconds=300)
+
     result = await db.execute(select(DownloadClient))
     clients = result.scalars().all()
 
     items = []
     item_id = 0
 
+    # 1. Regular download clients (torrent/usenet)
     for client_record in clients:
         try:
             client = _instantiate_client(client_record)
@@ -49,6 +55,32 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
             logger.warning(
                 "Failed to poll queue for %s", client_record.name, exc_info=True
             )
+
+    # 2. Direct downloads (Internet Archive, Anna's Archive)
+    for tracked in dd_tracker.get_all():
+        s = tracked.status
+        item_id += 1
+        size_left = int(s.size * (1.0 - s.progress)) if s.size else 0
+        items.append(QueueItemResource(
+            id=item_id,
+            title=s.name,
+            status=s.status,
+            protocol=tracked.protocol,
+            download_client=tracked.source,
+            download_client_id=None,
+            download_id=s.download_id,
+            size=s.size,
+            size_left=size_left,
+            progress=round(s.progress * 100, 1),
+            speed=s.speed,
+            eta=s.eta,
+            magazine_id=tracked.magazine_id,
+            magazine_title=tracked.magazine_title,
+            issue_id=tracked.issue_id,
+            issue_number=tracked.issue_number,
+            added=tracked.added,
+            error_message=tracked.error_message,
+        ))
 
     return items
 
@@ -92,17 +124,23 @@ async def remove_from_queue(
     items = await _get_queue_items(db)
     item = next((i for i in items if i.id == item_id), None)
 
-    if item and item.download_id and item.download_client_id:
-        client_result = await db.execute(
-            select(DownloadClient).where(DownloadClient.id == item.download_client_id)
-        )
-        client_record = client_result.scalars().first()
-        if client_record:
-            try:
-                client = _instantiate_client(client_record)
-                await client.remove(item.download_id)
-            except Exception:
-                logger.warning("Failed to remove download %s", item.download_id, exc_info=True)
+    if item and item.download_id:
+        if item.download_client_id:
+            # Regular download client (torrent/usenet)
+            client_result = await db.execute(
+                select(DownloadClient).where(DownloadClient.id == item.download_client_id)
+            )
+            client_record = client_result.scalars().first()
+            if client_record:
+                try:
+                    client = _instantiate_client(client_record)
+                    await client.remove(item.download_id)
+                except Exception:
+                    logger.warning("Failed to remove download %s", item.download_id, exc_info=True)
+        else:
+            # Direct download (AA/IA) — remove from tracker (cancels task)
+            from app.services.direct_download_tracker import tracker as dd_tracker
+            dd_tracker.remove(item.download_id)
 
         if blocklist and item.title:
             from app.services.history_service import add_to_blocklist

@@ -97,6 +97,12 @@
     "refreshed": "Metadata refreshed successfully.",
     "refreshError": "Failed to refresh metadata.",
     "iaSearch": "Internet Archive",
+    "manualResearch": "Manual Research",
+    "searchPlaceholder": "Search for a magazine...",
+    "manualSearchHint": "Enter a search query and click Search to find results.",
+    "tabAnnasArchive": "Anna's Archive",
+    "tabInternetArchive": "Internet Archive",
+    "tabIndexers": "Indexers",
     "totalIssues": "Total",
     "completion": "Completion"
   },
@@ -122,6 +128,7 @@
     "selected": "{{count}} selected",
     "batchUpdated": "Monitoring updated successfully.",
     "batchError": "Failed to update monitoring.",
+    "downloadFile": "Download file",
     "deleteFile": "Delete file",
     "fileDeleted": "File deleted successfully.",
     "deleteFileError": "Failed to delete file.",
@@ -169,7 +176,9 @@
     "status_paused": "Paused",
     "status_queued": "Queued",
     "status_failed": "Failed",
-    "status_completed": "Completed"
+    "status_completed": "Completed",
+    "status_importing": "Importing",
+    "status_imported": "Imported"
   },
   "history": {
     "title": "History",
@@ -182,12 +191,12 @@
     "allMagazines": "All Magazines",
     "empty": "No history entries.",
     "page": "Page {{page}} of {{totalPages}}",
-    "event_grabbed": "Grabbed",
-    "event_downloaded": "Downloaded",
-    "event_imported": "Imported",
-    "event_upgraded": "Upgraded",
-    "event_deleted": "Deleted",
-    "event_failed": "Failed"
+    "event_grab": "Grabbed",
+    "event_download_completed": "Downloaded",
+    "event_import": "Imported",
+    "event_upgrade": "Upgraded",
+    "event_unmatched": "Unmatched",
+    "event_error": "Error"
   },
   "blocklist": {
     "title": "Blocklist",
@@ -363,6 +372,13 @@
     "testInternetArchive": "Test Internet Archive",
     "iaTestSuccess": "Internet Archive connection successful!",
     "iaTestFailed": "Internet Archive connection failed.",
+    "annasArchive": "Anna's Archive",
+    "aaEnabled": "Enable Anna's Archive",
+    "aaMirror": "Mirror URL",
+    "aaMirrorRequired": "Mirror URL is required to test.",
+    "testAnnasArchive": "Test Anna's Archive",
+    "aaTestSuccess": "Anna's Archive connection successful!",
+    "aaTestFailed": "Anna's Archive connection failed.",
     "saved": "Metadata settings saved successfully.",
     "saveError": "Failed to save metadata settings."
   },

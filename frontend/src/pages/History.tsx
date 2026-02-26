@@ -24,18 +24,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-const EVENT_TYPES = ['grabbed', 'downloaded', 'imported', 'upgraded', 'deleted', 'failed']
+const EVENT_TYPES = ['grab', 'download_completed', 'import', 'upgrade', 'unmatched', 'error']
 
 function eventVariant(eventType: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (eventType) {
-    case 'grabbed':
-    case 'downloaded':
+    case 'grab':
       return 'default'
-    case 'imported':
-    case 'upgraded':
+    case 'download_completed':
+    case 'import':
+    case 'upgrade':
       return 'secondary'
-    case 'failed':
-    case 'deleted':
+    case 'error':
+    case 'unmatched':
       return 'destructive'
     default:
       return 'outline'
@@ -66,8 +66,8 @@ export default function History() {
       }),
   })
 
-  const items = data?.items ?? []
-  const totalPages = data?.totalPages ?? 1
+  const items = data?.records ?? []
+  const totalPages = data ? Math.max(1, Math.ceil(data.totalRecords / pageSize)) : 1
 
   if (isLoading) {
     return (

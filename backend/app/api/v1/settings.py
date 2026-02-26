@@ -98,11 +98,15 @@ async def save_naming_template(
 class MetadataSettingsResource(CamelModel):
     google_books_api_key: str
     internet_archive_enabled: bool
+    annas_archive_enabled: bool
+    annas_archive_mirror: str
 
 
 class MetadataSettingsUpdateResource(CamelModel):
     google_books_api_key: str | None = None
     internet_archive_enabled: bool | None = None
+    annas_archive_enabled: bool | None = None
+    annas_archive_mirror: str | None = None
 
 
 @router.get("/metadata", response_model=MetadataSettingsResource)
@@ -119,6 +123,8 @@ async def get_metadata_settings(config=Depends(get_config)):
     return MetadataSettingsResource(
         google_books_api_key=masked_key,
         internet_archive_enabled=config.internet_archive_enabled,
+        annas_archive_enabled=config.annas_archive_enabled,
+        annas_archive_mirror=config.annas_archive_mirror,
     )
 
 
@@ -133,6 +139,10 @@ async def save_metadata_settings(
             config.google_books_api_key = body.google_books_api_key
     if body.internet_archive_enabled is not None:
         config.internet_archive_enabled = body.internet_archive_enabled
+    if body.annas_archive_enabled is not None:
+        config.annas_archive_enabled = body.annas_archive_enabled
+    if body.annas_archive_mirror is not None:
+        config.annas_archive_mirror = body.annas_archive_mirror
     config.save()
 
     masked_key = ""
@@ -146,6 +156,8 @@ async def save_metadata_settings(
     return MetadataSettingsResource(
         google_books_api_key=masked_key,
         internet_archive_enabled=config.internet_archive_enabled,
+        annas_archive_enabled=config.annas_archive_enabled,
+        annas_archive_mirror=config.annas_archive_mirror,
     )
 
 
@@ -199,3 +211,22 @@ async def test_internet_archive():
             )
     except Exception as e:
         return TestResult(is_valid=False, message=str(e))
+
+
+class AnnasArchiveTestRequest(CamelModel):
+    mirror: str = "annas-archive.li"
+
+
+@router.post("/metadata/test/annasarchive", response_model=TestResult)
+async def test_annas_archive(body: AnnasArchiveTestRequest):
+    """Test Anna's Archive connectivity with the provided mirror URL."""
+    from app.metadata.annas_archive import AnnasArchiveProvider
+
+    provider = AnnasArchiveProvider(mirror=body.mirror)
+    try:
+        ok, message = await provider.test_connection()
+        return TestResult(is_valid=ok, message=message)
+    except Exception as e:
+        return TestResult(is_valid=False, message=str(e))
+    finally:
+        await provider.close()

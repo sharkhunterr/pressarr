@@ -38,6 +38,8 @@ class Config:
         # Metadata sources
         self.google_books_api_key: str = ""
         self.internet_archive_enabled: bool = True
+        self.annas_archive_enabled: bool = False
+        self.annas_archive_mirror: str = "annas-archive.li"
 
         # Download path for IA direct downloads
         self.download_path: str = "/tmp/pressarr_downloads"
@@ -66,6 +68,12 @@ class Config:
         )
         self.internet_archive_enabled = metadata.get(
             "internet_archive_enabled", self.internet_archive_enabled
+        )
+        self.annas_archive_enabled = metadata.get(
+            "annas_archive_enabled", self.annas_archive_enabled
+        )
+        self.annas_archive_mirror = metadata.get(
+            "annas_archive_mirror", self.annas_archive_mirror
         )
 
         self.download_path = data.get("download_path", self.download_path)
@@ -129,6 +137,8 @@ class Config:
             "metadata": {
                 "google_books_api_key": self.google_books_api_key,
                 "internet_archive_enabled": self.internet_archive_enabled,
+                "annas_archive_enabled": self.annas_archive_enabled,
+                "annas_archive_mirror": self.annas_archive_mirror,
             },
             "scheduler": {
                 "rss_sync_interval": self.rss_sync_interval,

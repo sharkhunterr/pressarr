@@ -203,8 +203,12 @@ async def process_downloaded_file(
     db,
     file_path: Path,
     config,
+    magazine_id: int | None = None,
 ) -> dict:
     """Full import pipeline: parse → match → rename → move → update DB → cover → notify.
+
+    When magazine_id is provided (e.g. from Manual Research), the fuzzy title
+    matching step is skipped and the magazine is loaded directly by ID.
 
     Returns a dict with keys: success, issue_id, message.
     """
@@ -225,26 +229,38 @@ async def process_downloaded_file(
 
     # 1. Parse filename
     parsed = parse_magazine_filename(file_path.name)
-    if not parsed.title:
-        logger.warning("Could not parse title from %s", file_path.name)
-        return {"success": False, "issue_id": None, "message": "Unparseable filename"}
 
-    # 2. Fuzzy match title to known magazine
-    mag_result = await db.execute(select(Magazine))
-    magazines = mag_result.scalars().all()
-    known_titles = [m.title for m in magazines]
+    # 2. Resolve magazine — either by ID (fast path) or fuzzy match
+    magazine = None
+    if magazine_id:
+        mag_result = await db.execute(
+            select(Magazine).where(Magazine.id == magazine_id)
+        )
+        magazine = mag_result.scalars().first()
+        if magazine:
+            logger.info("Resolved magazine by ID: %s (id=%d)", magazine.title, magazine_id)
 
-    match = fuzzy_match_title(parsed.title, known_titles, threshold=80.0)
-    if not match:
-        # Move to unmatched directory
-        unmatched_dir = Path(config.download_path) / "unmatched" if hasattr(config, "download_path") else file_path.parent / "unmatched"
-        unmatched_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(file_path), str(unmatched_dir / file_path.name))
-        await create_event(db, "unmatched", details=f"Unmatched file: {file_path.name}")
-        return {"success": False, "issue_id": None, "message": f"No matching magazine for '{parsed.title}'"}
+    if not magazine:
+        # Need a parseable title for fuzzy matching
+        if not parsed.title:
+            logger.warning("Could not parse title from %s", file_path.name)
+            return {"success": False, "issue_id": None, "message": "Unparseable filename"}
 
-    matched_title, match_score = match
-    magazine = next(m for m in magazines if m.title == matched_title)
+        mag_result = await db.execute(select(Magazine))
+        magazines = mag_result.scalars().all()
+        known_titles = [m.title for m in magazines]
+
+        match = fuzzy_match_title(parsed.title, known_titles, threshold=80.0)
+        if not match:
+            # Move to unmatched directory
+            unmatched_dir = Path(config.download_path) / "unmatched" if hasattr(config, "download_path") else file_path.parent / "unmatched"
+            unmatched_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(file_path), str(unmatched_dir / file_path.name))
+            await create_event(db, "unmatched", details=f"Unmatched file: {file_path.name}")
+            return {"success": False, "issue_id": None, "message": f"No matching magazine for '{parsed.title}'"}
+
+        matched_title, match_score = match
+        magazine = next(m for m in magazines if m.title == matched_title)
 
     # 3. Match issue by number or date
     issue = None
@@ -268,6 +284,10 @@ async def process_downloaded_file(
         )
         issue = issue_result.scalars().first()
 
+    # Save eagerly-loaded file reference before potentially creating a new issue
+    # (avoids lazy-load MissingGreenlet errors in background tasks)
+    existing_file = None if issue is None else issue.file
+
     if not issue:
         # Create a new issue for this file
         issue = Issue(
@@ -283,7 +303,7 @@ async def process_downloaded_file(
         await db.flush()
 
     # 4. Check quality upgrade
-    if issue.file:
+    if existing_file:
         quality_items = []
         if magazine.quality_profile_id:
             from app.models.quality_profile import QualityProfileItem
@@ -307,15 +327,15 @@ async def process_downloaded_file(
             if qp:
                 cutoff = qp.cutoff
 
-        if not should_upgrade(issue.file.quality, parsed.quality, cutoff, quality_items):
-            logger.info("Skipping %s — quality %s not an upgrade over %s", file_path.name, parsed.quality, issue.file.quality)
+        if not should_upgrade(existing_file.quality, parsed.quality, cutoff, quality_items):
+            logger.info("Skipping %s — quality %s not an upgrade over %s", file_path.name, parsed.quality, existing_file.quality)
             return {"success": False, "issue_id": issue.id, "message": "Not a quality upgrade"}
 
         # Remove old file
-        old_path = Path(issue.file.path)
+        old_path = Path(existing_file.path)
         if old_path.exists():
             old_path.unlink()
-        await db.delete(issue.file)
+        await db.delete(existing_file)
         await db.flush()
 
     # 5. Get library path from root folder
@@ -371,14 +391,14 @@ async def process_downloaded_file(
     await db.flush()
 
     # 9. Extract cover
-    covers_dir = Path(getattr(config, "config_path", "/config")) / "covers"
+    covers_dir = Path(getattr(config, "config_path", "/config")).parent / "covers"
     cover = await extract_cover(dest, covers_dir)
     if cover:
         issue.cover_path = cover
         await db.flush()
 
     # 10. Create history event
-    event_type = "upgrade" if issue.file else "import"
+    event_type = "upgrade" if existing_file else "import"
     await create_event(
         db, event_type,
         magazine_id=magazine.id,
@@ -409,3 +429,172 @@ async def process_downloaded_file(
         logger.debug("Forecast reconciliation skipped", exc_info=True)
 
     return {"success": True, "issue_id": issue.id, "message": f"Imported to {dest}"}
+
+
+async def import_file_for_issue(
+    db,
+    file_path: Path,
+    issue_id: int,
+    config,
+) -> dict:
+    """Import a downloaded file directly for a known issue (skips filename parsing).
+
+    Used by IA/AA downloads where the issue is already known.
+    Returns a dict with keys: success, issue_id, message.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.issue import Issue
+    from app.models.issue_file import IssueFile
+    from app.models.magazine import Magazine
+    from app.models.root_folder import RootFolder
+    from app.services.history_service import create_event
+
+    supported = {".pdf", ".epub", ".cbr", ".cbz"}
+    if file_path.suffix.lower() not in supported:
+        return {
+            "success": False,
+            "issue_id": issue_id,
+            "message": "Unsupported file format",
+        }
+
+    # 1. Load issue with its magazine
+    issue_result = await db.execute(
+        select(Issue)
+        .options(selectinload(Issue.file))
+        .where(Issue.id == issue_id)
+    )
+    issue = issue_result.scalars().first()
+    if not issue:
+        return {
+            "success": False,
+            "issue_id": issue_id,
+            "message": f"Issue {issue_id} not found",
+        }
+
+    mag_result = await db.execute(
+        select(Magazine).where(Magazine.id == issue.magazine_id)
+    )
+    magazine = mag_result.scalars().first()
+    if not magazine:
+        return {
+            "success": False,
+            "issue_id": issue_id,
+            "message": "Magazine not found",
+        }
+
+    # 2. If issue already has a file, replace it
+    if issue.file:
+        old_path = Path(issue.file.path)
+        if old_path.exists():
+            old_path.unlink()
+        await db.delete(issue.file)
+        await db.flush()
+
+    # 3. Get library path
+    rf_result = await db.execute(
+        select(RootFolder).where(
+            RootFolder.id == magazine.root_folder_id
+        )
+    )
+    root_folder = rf_result.scalars().first()
+    library_path = (
+        Path(root_folder.path) if root_folder else Path("/magazines")
+    )
+
+    # 4. Determine file format from extension
+    file_format = file_path.suffix.lstrip(".").lower() or "pdf"
+
+    # 5. Apply naming template and move file
+    naming_template = getattr(
+        config, "naming_template", DEFAULT_TEMPLATE
+    )
+    try:
+        dest = await import_file(
+            file_path=file_path,
+            library_path=library_path,
+            magazine_title=magazine.title,
+            naming_template=naming_template,
+            number=issue.number,
+            year=issue.year,
+            month=issue.month,
+            quality="unknown",
+            file_format=file_format,
+        )
+    except OSError as e:
+        await create_event(
+            db, "error",
+            magazine_id=magazine.id,
+            issue_id=issue.id,
+            details=f"Import failed: {e}",
+        )
+        return {
+            "success": False,
+            "issue_id": issue.id,
+            "message": str(e),
+        }
+
+    # 6. Create IssueFile record
+    issue_file = IssueFile(
+        issue_id=issue.id,
+        path=str(dest),
+        relative_path=str(dest.relative_to(library_path)),
+        size=dest.stat().st_size,
+        format=file_format,
+        quality="unknown",
+        original_filename=file_path.name,
+    )
+    db.add(issue_file)
+
+    # 7. Update issue status
+    issue.status = "available"
+    await db.flush()
+
+    # 8. Extract cover
+    covers_dir = (
+        Path(getattr(config, "config_path", "/config")).parent / "covers"
+    )
+    cover = await extract_cover(dest, covers_dir)
+    if cover:
+        issue.cover_path = cover
+        await db.flush()
+
+    # 9. Create history event
+    await create_event(
+        db, "import",
+        magazine_id=magazine.id,
+        issue_id=issue.id,
+        details=f"Imported: {dest.name}",
+    )
+
+    # 10. Dispatch notifications
+    try:
+        from app.notifications.base import NotificationPayload
+        from app.services.notification_service import dispatch
+        payload = NotificationPayload(
+            event_type="import",
+            magazine_title=magazine.title,
+            issue_number=issue.number,
+            quality="unknown",
+            cover_url=(
+                f"/api/v1/issue/{issue.id}/cover" if cover
+                else None
+            ),
+        )
+        await dispatch(db, "import", payload)
+    except Exception:
+        logger.warning("Notification dispatch failed", exc_info=True)
+
+    # 11. Reconcile forecast
+    try:
+        from app.services.calendar_service import reconcile_forecast
+        await reconcile_forecast(db, issue)
+    except Exception:
+        logger.debug("Forecast reconciliation skipped", exc_info=True)
+
+    return {
+        "success": True,
+        "issue_id": issue.id,
+        "message": f"Imported to {dest}",
+    }

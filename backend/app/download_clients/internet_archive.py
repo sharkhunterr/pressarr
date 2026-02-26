@@ -131,19 +131,23 @@ class InternetArchiveClient(DownloadClientBase):
         )
 
         try:
+            logger.info("[IA client] Starting download url=%s dest=%s", url, local_file)
             await _rate_limit()
             # Retry with exponential backoff on 429
             for attempt in range(3):
                 resp_head = await self._client.head(url)
+                logger.info("[IA client] HEAD status=%d", resp_head.status_code)
                 if resp_head.status_code == 429:
                     backoff = 5 * (2 ** attempt)  # 5s, 10s, 20s
-                    logger.warning("IA rate limited, backing off %ds", backoff)
+                    logger.warning("[IA client] Rate limited, backing off %ds", backoff)
                     await asyncio.sleep(backoff)
                     continue
                 break
+            logger.info("[IA client] Starting GET stream...")
             async with self._client.stream("GET", url) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("content-length", 0))
+                logger.info("[IA client] Streaming %d bytes...", total)
                 self._downloads[download_id].size = total
 
                 downloaded = 0
@@ -173,12 +177,12 @@ class InternetArchiveClient(DownloadClientBase):
             self._downloads[download_id].speed = 0
             self._downloads[download_id].eta = 0
 
-            logger.info("Downloaded %s -> %s", download_id, local_file)
+            logger.info("[IA client] Download completed: %s (%d bytes)", local_file, local_file.stat().st_size)
             return str(local_file)
 
         except Exception as e:
             self._downloads[download_id].status = "failed"
-            logger.error("IA download failed for %s: %s", download_id, e)
+            logger.error("[IA client] Download FAILED for %s: %s", download_id, e, exc_info=True)
             raise
 
     async def search_metadata(self, identifier: str) -> dict:

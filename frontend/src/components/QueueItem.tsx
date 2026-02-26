@@ -74,6 +74,9 @@ export function QueueItem({
           )}
         </div>
         <p className="text-xs text-zinc-500 truncate mt-0.5">{entry.title}</p>
+        {entry.status === 'failed' && entry.errorMessage && (
+          <p className="text-xs text-red-400 truncate mt-0.5">{entry.errorMessage}</p>
+        )}
 
         {/* Progress bar */}
         <div className="mt-2 flex items-center gap-3">

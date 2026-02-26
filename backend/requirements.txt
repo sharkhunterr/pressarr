@@ -11,3 +11,4 @@ rapidfuzz>=3.6
 python-multipart>=0.0.6
 websockets>=12.0
 pyyaml>=6.0
+lxml>=5.0

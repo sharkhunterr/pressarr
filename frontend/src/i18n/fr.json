@@ -97,6 +97,12 @@
     "refreshed": "Métadonnées rafraîchies avec succès.",
     "refreshError": "Échec du rafraîchissement des métadonnées.",
     "iaSearch": "Internet Archive",
+    "manualResearch": "Recherche manuelle",
+    "searchPlaceholder": "Rechercher un magazine...",
+    "manualSearchHint": "Entrez une requête et cliquez sur Rechercher pour trouver des résultats.",
+    "tabAnnasArchive": "Anna's Archive",
+    "tabInternetArchive": "Internet Archive",
+    "tabIndexers": "Indexeurs",
     "totalIssues": "Total",
     "completion": "Complétion"
   },
@@ -122,6 +128,7 @@
     "selected": "{{count}} sélectionné(s)",
     "batchUpdated": "Surveillance mise à jour avec succès.",
     "batchError": "Échec de la mise à jour de la surveillance.",
+    "downloadFile": "Télécharger le fichier",
     "deleteFile": "Supprimer le fichier",
     "fileDeleted": "Fichier supprimé avec succès.",
     "deleteFileError": "Échec de la suppression du fichier.",
@@ -169,7 +176,9 @@
     "status_paused": "En pause",
     "status_queued": "En attente",
     "status_failed": "Échoué",
-    "status_completed": "Terminé"
+    "status_completed": "Terminé",
+    "status_importing": "Import en cours",
+    "status_imported": "Importé"
   },
   "history": {
     "title": "Historique",
@@ -182,12 +191,12 @@
     "allMagazines": "Tous les magazines",
     "empty": "Aucun historique.",
     "page": "Page {{page}} sur {{totalPages}}",
-    "event_grabbed": "Récupéré",
-    "event_downloaded": "Téléchargé",
-    "event_imported": "Importé",
-    "event_upgraded": "Mis à jour",
-    "event_deleted": "Supprimé",
-    "event_failed": "Échoué"
+    "event_grab": "Récupéré",
+    "event_download_completed": "Téléchargé",
+    "event_import": "Importé",
+    "event_upgrade": "Mis à jour",
+    "event_unmatched": "Non reconnu",
+    "event_error": "Erreur"
   },
   "blocklist": {
     "title": "Liste noire",
@@ -363,6 +372,13 @@
     "testInternetArchive": "Tester Internet Archive",
     "iaTestSuccess": "Connexion à Internet Archive réussie !",
     "iaTestFailed": "Échec de la connexion à Internet Archive.",
+    "annasArchive": "Anna's Archive",
+    "aaEnabled": "Activer Anna's Archive",
+    "aaMirror": "URL du miroir",
+    "aaMirrorRequired": "L'URL du miroir est requise pour le test.",
+    "testAnnasArchive": "Tester Anna's Archive",
+    "aaTestSuccess": "Connexion à Anna's Archive réussie !",
+    "aaTestFailed": "Échec de la connexion à Anna's Archive.",
     "saved": "Paramètres de métadonnées enregistrés avec succès.",
     "saveError": "Échec de l'enregistrement des paramètres de métadonnées."
   },

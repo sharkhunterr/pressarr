@@ -44,11 +44,28 @@ export const downloadFromIA = (
   identifier: string,
   filename: string,
   issueId?: number,
+  magazineId?: number,
 ) =>
   apiFetch<{ issueId: number; downloadId: string; message: string }>(
     '/search/internetarchive/download',
     {
       method: 'POST',
-      body: JSON.stringify({ identifier, filename, issueId }),
+      body: JSON.stringify({ identifier, filename, issueId, magazineId }),
+    },
+  )
+
+// Anna's Archive
+export const searchAnnasArchive = (query: string, magazineId?: number) => {
+  const params = new URLSearchParams({ query })
+  if (magazineId) params.set('magazineId', String(magazineId))
+  return apiFetch<SearchResult[]>(`/search/annasarchive?${params}`)
+}
+
+export const downloadFromAA = (md5: string, issueId?: number, magazineId?: number) =>
+  apiFetch<{ issueId: number; downloadId: string; message: string }>(
+    '/search/annasarchive/download',
+    {
+      method: 'POST',
+      body: JSON.stringify({ md5, issueId, magazineId }),
     },
   )

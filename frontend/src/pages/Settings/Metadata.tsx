@@ -9,6 +9,7 @@ import {
   saveMetadataSettings,
   testGoogleBooks,
   testInternetArchive,
+  testAnnasArchive,
 } from '@/api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,9 +22,12 @@ export default function Metadata() {
 
   const [googleApiKey, setGoogleApiKey] = useState('')
   const [iaEnabled, setIaEnabled] = useState(false)
+  const [aaEnabled, setAaEnabled] = useState(false)
+  const [aaMirror, setAaMirror] = useState('annas-archive.li')
   const [initialized, setInitialized] = useState(false)
   const [testingGoogle, setTestingGoogle] = useState(false)
   const [testingIA, setTestingIA] = useState(false)
+  const [testingAA, setTestingAA] = useState(false)
 
   const { isLoading } = useQuery({
     queryKey: ['metadataSettings'],
@@ -32,6 +36,8 @@ export default function Metadata() {
       if (!initialized) {
         setGoogleApiKey(data.googleBooksApiKey ?? '')
         setIaEnabled(data.internetArchiveEnabled ?? false)
+        setAaEnabled(data.annasArchiveEnabled ?? false)
+        setAaMirror(data.annasArchiveMirror ?? 'annas-archive.li')
         setInitialized(true)
       }
       return data
@@ -43,6 +49,8 @@ export default function Metadata() {
       saveMetadataSettings({
         googleBooksApiKey: googleApiKey,
         internetArchiveEnabled: iaEnabled,
+        annasArchiveEnabled: aaEnabled,
+        annasArchiveMirror: aaMirror,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['metadataSettings'] })
@@ -84,6 +92,26 @@ export default function Metadata() {
       toast.error(t('metadata.iaTestFailed'))
     } finally {
       setTestingIA(false)
+    }
+  }
+
+  async function handleTestAA() {
+    if (!aaMirror.trim()) {
+      toast.error(t('metadata.aaMirrorRequired'))
+      return
+    }
+    setTestingAA(true)
+    try {
+      const result = await testAnnasArchive(aaMirror)
+      if (result.isValid) {
+        toast.success(t('metadata.aaTestSuccess'))
+      } else {
+        toast.error(result.message || t('metadata.aaTestFailed'))
+      }
+    } catch {
+      toast.error(t('metadata.aaTestFailed'))
+    } finally {
+      setTestingAA(false)
     }
   }
 
@@ -171,6 +199,47 @@ export default function Metadata() {
                 <FlaskConical className="size-4" />
               )}
               {t('metadata.testInternetArchive')}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Anna's Archive */}
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">{t('metadata.annasArchive')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('metadata.aaEnabled')}
+              </label>
+              <Switch
+                checked={aaEnabled}
+                onCheckedChange={(checked) => setAaEnabled(checked === true)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('metadata.aaMirror')}
+              </label>
+              <Input
+                value={aaMirror}
+                onChange={(e) => setAaMirror(e.target.value)}
+                placeholder="annas-archive.li"
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleTestAA}
+              disabled={testingAA}
+            >
+              {testingAA ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FlaskConical className="size-4" />
+              )}
+              {t('metadata.testAnnasArchive')}
             </Button>
           </CardContent>
         </Card>

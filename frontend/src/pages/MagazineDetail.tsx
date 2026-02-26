@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Pencil,
   Trash2,
-  Archive,
+  Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -35,6 +35,8 @@ import {
   grabRelease,
   searchInternetArchive,
   downloadFromIA,
+  searchAnnasArchive,
+  downloadFromAA,
   type SearchResult,
 } from '@/api/search'
 import { getProfiles } from '@/api/quality'
@@ -66,6 +68,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { useQueue } from '@/hooks/useQueue'
 
 type StatusFilter = 'all' | 'available' | 'wanted' | 'missing'
 
@@ -105,8 +115,12 @@ export default function MagazineDetail() {
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false)
 
-  // IA search state
-  const [iaSearching, setIaSearching] = useState(false)
+  // Manual Research modal state
+  const [manualSearchOpen, setManualSearchOpen] = useState(false)
+  const [manualSearchQuery, setManualSearchQuery] = useState('')
+  const [manualSearchTab, setManualSearchTab] = useState('annasarchive')
+  const [manualSearchResults, setManualSearchResults] = useState<SearchResult[]>([])
+  const [manualSearching, setManualSearching] = useState(false)
 
   const { data: magazine, isLoading: magazineLoading } = useQuery({
     queryKey: ['magazine', magazineId],
@@ -130,6 +144,26 @@ export default function MagazineDetail() {
     queryFn: getRootFolders,
   })
 
+  // Queue data for showing download status on issues
+  const { queue } = useQueue()
+  const queueByIssueId = useMemo(() => {
+    const map = new Map<number, (typeof queue)[number]>()
+    for (const item of queue) {
+      if (item.issueId && item.magazineId === magazineId) {
+        map.set(item.issueId, item)
+      }
+    }
+    // Also match by magazine ID for items without issue ID
+    // (from Manual Research where issue_id is unknown)
+    for (const item of queue) {
+      if (!item.issueId && item.magazineId === magazineId) {
+        // Show as a magazine-level queue item (not tied to specific issue)
+        map.set(-item.id, item) // negative key = not issue-matched
+      }
+    }
+    return map
+  }, [queue, magazineId])
+
   const isLoading = magazineLoading || issuesLoading
 
   const invalidateIssues = useCallback(
@@ -141,6 +175,16 @@ export default function MagazineDetail() {
     () => queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] }),
     [queryClient, magazineId],
   )
+
+  // Auto-refresh when backend finishes an import (library:updated event)
+  const { on } = useWebSocket()
+  useEffect(() => {
+    const unsub = on('library:updated', () => {
+      invalidateIssues()
+      invalidateMagazine()
+    })
+    return unsub
+  }, [on, invalidateIssues, invalidateMagazine])
 
   const monitorMutation = useMutation({
     mutationFn: ({ issueId, monitored }: { issueId: number; monitored: boolean }) =>
@@ -281,20 +325,34 @@ export default function MagazineDetail() {
     }
   }
 
-  // Internet Archive search
-  async function handleIASearch() {
+  // Manual Research modal
+  function handleOpenManualSearch() {
     if (!magazine) return
-    setIaSearching(true)
-    setSearchingIssueId(null)
-    setSearchResults([])
-    setSearchDialogOpen(true)
+    setManualSearchQuery(magazine.title)
+    setManualSearchResults([])
+    setManualSearching(false)
+    setManualSearchOpen(true)
+  }
+
+  async function handleManualSearch(tab?: string) {
+    const activeTab = tab || manualSearchTab
+    if (!manualSearchQuery.trim()) return
+    setManualSearching(true)
+    setManualSearchResults([])
     try {
-      const results = await searchInternetArchive(magazine.title, magazineId)
-      setSearchResults(results)
+      let results: SearchResult[] = []
+      if (activeTab === 'annasarchive') {
+        results = await searchAnnasArchive(manualSearchQuery, magazineId)
+      } else if (activeTab === 'internetarchive') {
+        results = await searchInternetArchive(manualSearchQuery, magazineId)
+      } else if (activeTab === 'indexers') {
+        results = await searchMagazine(magazineId)
+      }
+      setManualSearchResults(results)
     } catch {
       toast.error(t('issues.searchError'))
     } finally {
-      setIaSearching(false)
+      setManualSearching(false)
     }
   }
 
@@ -314,18 +372,21 @@ export default function MagazineDetail() {
     }
   }
 
-  async function handleGrab(result: SearchResult) {
-    if (!searchingIssueId && !magazine) return
+  async function handleGrab(result: SearchResult, fromManualSearch = false) {
+    if (!fromManualSearch && !searchingIssueId && !magazine) return
     const targetIssueId = searchingIssueId ?? 0
     setGrabbing(result.guid)
     try {
-      if (result.protocol === 'ia') {
+      if (result.protocol === 'aa') {
+        // Anna's Archive direct download - guid = md5 hash
+        await downloadFromAA(result.guid, targetIssueId || undefined, magazineId)
+      } else if (result.protocol === 'ia') {
         // Internet Archive direct download
-        // guid = identifier, find a PDF filename from the identifier
         await downloadFromIA(
           result.guid,
           `${result.guid}.pdf`,
           targetIssueId || undefined,
+          magazineId,
         )
       } else {
         await grabRelease(
@@ -337,7 +398,11 @@ export default function MagazineDetail() {
         )
       }
       toast.success(t('issues.grabbed'))
-      setSearchDialogOpen(false)
+      if (fromManualSearch) {
+        setManualSearchOpen(false)
+      } else {
+        setSearchDialogOpen(false)
+      }
       invalidateIssues()
     } catch {
       toast.error(t('issues.grabError'))
@@ -436,11 +501,10 @@ export default function MagazineDetail() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleIASearch}
-                  disabled={iaSearching}
+                  onClick={handleOpenManualSearch}
                 >
-                  <Archive className={`size-3.5 ${iaSearching ? 'animate-spin' : ''}`} />
-                  {t('magazineDetail.iaSearch')}
+                  <Search className="size-3.5" />
+                  {t('magazineDetail.manualResearch')}
                 </Button>
                 <Button
                   variant="outline"
@@ -537,6 +601,43 @@ export default function MagazineDetail() {
         </div>
       )}
 
+      {/* Active downloads for this magazine (not matched to a specific issue) */}
+      {queue.filter((q) => q.magazineId === magazineId && !q.issueId).length > 0 && (
+        <div className="mb-4 space-y-2">
+          {queue
+            .filter((q) => q.magazineId === magazineId && !q.issueId)
+            .map((item) => {
+              const progress = item.size > 0
+                ? Math.round(((item.size - item.sizeLeft) / item.size) * 100)
+                : 0
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 rounded-md border border-[#E85D04]/30 bg-[#E85D04]/5 px-4 py-2"
+                >
+                  <Loader2 className="size-4 animate-spin text-[#E85D04] shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-zinc-200 truncate">{item.title}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden max-w-[200px]">
+                        <div
+                          className="h-full rounded-full bg-[#E85D04] transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-zinc-500">{progress}%</span>
+                      <span className="text-xs text-zinc-500">{item.downloadClient}</span>
+                      <Badge variant="outline" className="text-xs border-[#E85D04]/50 text-[#E85D04]">
+                        {item.status}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      )}
+
       {/* Issues Table */}
       {groupedIssues.length === 0 ? (
         <p className="text-zinc-500 text-center py-8">
@@ -577,6 +678,7 @@ export default function MagazineDetail() {
                       key={issue.id}
                       issue={issue}
                       selected={selectedIds.has(issue.id)}
+                      queueItem={queueByIssueId.get(issue.id)}
                       onSelect={handleSelect}
                       onToggleMonitor={(issueId, monitored) =>
                         monitorMutation.mutate({ issueId, monitored })
@@ -602,7 +704,7 @@ export default function MagazineDetail() {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto">
-            {(searching || iaSearching) ? (
+            {searching ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="size-6 animate-spin text-zinc-400" />
                 <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
@@ -676,6 +778,138 @@ export default function MagazineDetail() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Research Modal */}
+      <Dialog open={manualSearchOpen} onOpenChange={setManualSearchOpen}>
+        <DialogContent className="sm:max-w-3xl bg-zinc-950 border-zinc-800 max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">
+              {t('magazineDetail.manualResearch')}
+            </DialogTitle>
+          </DialogHeader>
+
+          <Tabs
+            value={manualSearchTab}
+            onValueChange={(val) => {
+              setManualSearchTab(val)
+              setManualSearchResults([])
+            }}
+            className="flex-1 overflow-hidden flex flex-col"
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="annasarchive">
+                {t('magazineDetail.tabAnnasArchive')}
+              </TabsTrigger>
+              <TabsTrigger value="internetarchive">
+                {t('magazineDetail.tabInternetArchive')}
+              </TabsTrigger>
+              <TabsTrigger value="indexers">
+                {t('magazineDetail.tabIndexers')}
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Search bar (shared across tabs) */}
+            <div className="flex gap-2 mt-3">
+              <Input
+                value={manualSearchQuery}
+                onChange={(e) => setManualSearchQuery(e.target.value)}
+                placeholder={t('magazineDetail.searchPlaceholder')}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleManualSearch()
+                }}
+              />
+              <Button
+                onClick={() => handleManualSearch()}
+                disabled={manualSearching || !manualSearchQuery.trim()}
+              >
+                {manualSearching ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Search className="size-4" />
+                )}
+                {t('common.search')}
+              </Button>
+            </div>
+
+            {/* Results area (same for all tabs) */}
+            <div className="flex-1 overflow-y-auto mt-3">
+              {manualSearching ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="size-6 animate-spin text-zinc-400" />
+                  <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
+                </div>
+              ) : manualSearchResults.length === 0 ? (
+                <p className="text-zinc-500 text-center py-8">
+                  {t('magazineDetail.manualSearchHint')}
+                </p>
+              ) : (
+                <div className="divide-y divide-zinc-800">
+                  {manualSearchResults.map((result) => (
+                    <div
+                      key={result.guid}
+                      className={`flex items-center justify-between py-3 px-2 hover:bg-zinc-900/50 rounded ${
+                        result.isBlocklisted ? 'opacity-40' : ''
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0 mr-4">
+                        <p className="text-sm text-zinc-100 truncate">{result.title}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+                          <span>{result.indexer}</span>
+                          {result.size > 0 && (
+                            <>
+                              <span>|</span>
+                              <span>{formatBytes(result.size)}</span>
+                            </>
+                          )}
+                          {result.quality && result.quality !== 'unknown' && (
+                            <>
+                              <span>|</span>
+                              <span>{result.quality}</span>
+                            </>
+                          )}
+                          {result.language && result.language !== 'unknown' && (
+                            <>
+                              <span>|</span>
+                              <span>{result.language}</span>
+                            </>
+                          )}
+                          {result.seeders !== null && result.seeders > 0 && (
+                            <>
+                              <span>|</span>
+                              <span>
+                                {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={result.isBlocklisted || grabbing === result.guid}
+                        onClick={() => handleGrab(result, true)}
+                      >
+                        {grabbing === result.guid ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Download className="size-3.5" />
+                        )}
+                        {t('issues.grab')}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* TabsContent just for accessibility - content is shared above */}
+            <TabsContent value="annasarchive" className="hidden" />
+            <TabsContent value="internetarchive" className="hidden" />
+            <TabsContent value="indexers" className="hidden" />
+          </Tabs>
         </DialogContent>
       </Dialog>
 

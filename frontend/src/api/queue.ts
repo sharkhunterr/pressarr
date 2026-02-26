@@ -2,19 +2,20 @@ import { apiFetch } from './client'
 
 export interface QueueEntry {
   id: number
-  magazineId: number
-  magazineTitle: string
-  issueId: number
+  magazineId: number | null
+  magazineTitle: string | null
+  issueId: number | null
   issueNumber: number | null
   title: string
   status: string
   protocol: string
-  downloadClient: string
+  downloadClient: string | null
   size: number
   sizeLeft: number
+  progress: number
   speed: number
-  eta: string | null
-  addedAt: string
+  eta: number | null
+  added: string | null
   errorMessage: string | null
 }
 
