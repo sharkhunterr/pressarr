@@ -187,10 +187,13 @@ export default function DownloadClients() {
       port: form.port,
       useSsl: form.useSsl,
       username: form.username || undefined,
-      password: form.password || undefined,
       category: form.category,
       isDefault: form.isDefault,
       priority: form.priority,
+    }
+    // Only send password if user typed something (avoid overwriting with empty string on edit)
+    if (form.password) {
+      payload.password = form.password
     }
     if (editingId !== null) {
       updateMutation.mutate({ id: editingId, data: payload })
@@ -206,14 +209,19 @@ export default function DownloadClients() {
     }
     setTesting(true)
     try {
-      const result = await testClient({
+      const testPayload: Partial<DownloadClient> = {
         clientType: form.clientType,
         host: form.host,
         port: form.port,
         useSsl: form.useSsl,
         username: form.username || undefined,
         password: form.password || undefined,
-      })
+      }
+      // For SABnzbd, send apiKey from username field
+      if (usesApiKey(form.clientType)) {
+        testPayload.apiKey = form.username || undefined
+      }
+      const result = await testClient(testPayload)
       if (result.isValid) {
         toast.success(t('downloadClients.testSuccess'))
       } else {
@@ -405,6 +413,7 @@ export default function DownloadClients() {
                   type="password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={editingId !== null ? '••••••••' : ''}
                   className="bg-zinc-900 border-zinc-700 text-zinc-100"
                 />
               </div>

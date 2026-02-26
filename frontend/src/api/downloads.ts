@@ -19,6 +19,7 @@ export interface DownloadClient {
   useSsl: boolean
   username?: string
   password?: string
+  apiKey?: string
   category: string
   isDefault: boolean
   priority: number

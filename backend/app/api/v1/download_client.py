@@ -17,6 +17,7 @@ from app.models.download_client import DownloadClient
 from app.schemas.download import (
     DownloadClientCreateResource,
     DownloadClientResource,
+    DownloadClientTestResource,
     DownloadClientUpdateResource,
     TestResult,
 )
@@ -142,7 +143,7 @@ async def delete_download_client(
 
 @router.post("/test", response_model=TestResult)
 async def test_download_client(
-    body: DownloadClientCreateResource,
+    body: DownloadClientTestResource,
 ) -> TestResult:
     """Test connection to a download client."""
     try:

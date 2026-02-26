@@ -6,7 +6,16 @@
     "queue": "Queue",
     "history": "History",
     "blocklist": "Blocklist",
-    "settings": "Settings"
+    "settings": "Settings",
+    "settingsGeneral": "General",
+    "settingsDownloadClients": "Download Clients",
+    "settingsIndexers": "Indexers",
+    "settingsNotifications": "Notifications",
+    "settingsQuality": "Quality Profiles",
+    "settingsRootFolders": "Root Folders",
+    "settingsNaming": "Naming",
+    "settingsMetadata": "Metadata",
+    "settingsSystem": "System"
   },
   "common": {
     "save": "Save",

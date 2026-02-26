@@ -83,6 +83,25 @@ class DownloadClientUpdateResource(CamelModel):
     priority: int | None = None
 
 
+class IndexerTestResource(CamelModel):
+    """Request schema to test an indexer connection (only url + api_key needed)."""
+
+    url: str
+    api_key: str
+
+
+class DownloadClientTestResource(CamelModel):
+    """Request schema to test a download client connection (no name/protocol required)."""
+
+    client_type: str
+    host: str
+    port: int
+    use_ssl: bool = False
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
 class TestResult(CamelModel):
     """Response schema for a connection test result."""
 

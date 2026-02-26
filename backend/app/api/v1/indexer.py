@@ -11,6 +11,7 @@ from app.schemas.download import (
     IndexerConfigCreateResource,
     IndexerConfigResource,
     IndexerConfigUpdateResource,
+    IndexerTestResource,
     TestResult,
 )
 
@@ -79,7 +80,7 @@ async def delete_indexer(
 
 @router.post("/test", response_model=TestResult)
 async def test_indexer(
-    body: IndexerConfigCreateResource,
+    body: IndexerTestResource,
 ) -> TestResult:
     """Test connection to a Prowlarr instance."""
     client = ProwlarrClient(url=body.url, api_key=body.api_key)

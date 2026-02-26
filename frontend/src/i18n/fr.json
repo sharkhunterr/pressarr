@@ -6,7 +6,16 @@
     "queue": "File d'attente",
     "history": "Historique",
     "blocklist": "Liste noire",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "settingsGeneral": "Général",
+    "settingsDownloadClients": "Clients de téléchargement",
+    "settingsIndexers": "Indexeurs",
+    "settingsNotifications": "Notifications",
+    "settingsQuality": "Profils de qualité",
+    "settingsRootFolders": "Dossiers racine",
+    "settingsNaming": "Nommage",
+    "settingsMetadata": "Métadonnées",
+    "settingsSystem": "Système"
   },
   "common": {
     "save": "Enregistrer",

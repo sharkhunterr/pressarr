@@ -129,17 +129,17 @@ class TestDelugeClient:
         def handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
             method = body["method"]
-            if method == "auth.check_session":
+            if method == "auth.login":
                 return httpx.Response(200, json={"result": True, "error": None, "id": body["id"]})
-            if method == "daemon.info":
-                return httpx.Response(200, json={"result": "2.1.1", "error": None, "id": body["id"]})
+            if method == "web.connected":
+                return httpx.Response(200, json={"result": True, "error": None, "id": body["id"]})
             return httpx.Response(200, json={"result": None, "error": None, "id": body["id"]})
 
         client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         is_valid, message = await client.test_connection()
 
         assert is_valid is True
-        assert "2.1.1" in message
+        assert "Deluge" in message
 
     @pytest.mark.asyncio
     async def test_test_connection_failure(self, client: DelugeClient):

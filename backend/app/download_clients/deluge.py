@@ -100,11 +100,17 @@ class DelugeClient(DownloadClientBase):
         return bool(result)
 
     async def test_connection(self) -> tuple[bool, str]:
-        """Test connection by authenticating and getting version."""
+        """Test connection by authenticating with Deluge WebUI."""
         try:
-            await self._ensure_auth()
-            version = await self._call("daemon.info")
-            return True, f"Connected to Deluge {version}"
+            result = await self._call("auth.login", [self.password])
+            if not result:
+                return False, "Authentication failed (wrong password?)"
+            # Try to check if connected to a daemon
+            connected = await self._call("web.connected")
+            if connected:
+                return True, "Connected to Deluge"
+            # Not connected to a daemon yet, but auth works
+            return True, "Authenticated with Deluge WebUI (no daemon connected)"
         except Exception as e:
             return False, str(e)
 
