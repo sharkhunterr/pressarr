@@ -126,7 +126,13 @@
     "useLatestIssueCover": "Use latest issue cover",
     "useLatestIssueCoverDesc": "Automatically update when a new issue is imported.",
     "selectCover": "Select cover from issues",
-    "noIssueCovers": "No issues with covers available."
+    "noIssueCovers": "No issues with covers available.",
+    "orSeparator": "or upload a custom image",
+    "uploadCover": "Upload image",
+    "coverUrl": "Image URL",
+    "coverUrlLoad": "Load",
+    "coverUploaded": "Cover updated.",
+    "coverUploadError": "Failed to update cover."
   },
   "issues": {
     "title": "Issues",

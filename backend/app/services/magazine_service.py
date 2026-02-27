@@ -1,8 +1,10 @@
 """Magazine management service layer."""
 
+import io
 import logging
 import re
 import unicodedata
+from pathlib import Path
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +33,24 @@ def generate_title_slug(title: str) -> str:
     # Collapse consecutive dashes and strip
     slug = re.sub(r"-+", "-", dashed).strip("-")
     return slug
+
+
+def save_cover_image(image_bytes: bytes, covers_dir: Path, title_slug: str) -> str:
+    """Resize image to max 500px wide, convert to JPEG, save to covers dir.
+
+    Returns the absolute path of the saved file.
+    """
+    from PIL import Image
+
+    covers_dir.mkdir(parents=True, exist_ok=True)
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.width > 500:
+        ratio = 500 / img.width
+        img = img.resize((500, int(img.height * ratio)), Image.LANCZOS)
+    img = img.convert("RGB")
+    dest = covers_dir / f"{title_slug}-custom.jpg"
+    img.save(dest, "JPEG", quality=85)
+    return str(dest)
 
 
 async def list_magazines(

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -22,6 +23,7 @@ import {
   getMagazine,
   getMagazineCoverUrl,
   updateMagazine,
+  uploadMagazineCover,
   deleteMagazine,
   refreshMetadata,
   type Magazine,
@@ -123,6 +125,9 @@ export default function MagazineDetail() {
   const [editExcludedDays, setEditExcludedDays] = useState<number[]>([])
   const [editUseLatestCover, setEditUseLatestCover] = useState(false)
   const [editCoverIssueId, setEditCoverIssueId] = useState<number | null>(null)
+  const [coverUrl, setCoverUrl] = useState('')
+  const [coverUploading, setCoverUploading] = useState(false)
+  const coverFileRef = useRef<HTMLInputElement>(null)
 
   // Delete modal state (magazine)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -579,6 +584,36 @@ export default function MagazineDetail() {
       useLatestIssueCover: editUseLatestCover,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
+  }
+
+  async function handleCoverUpload(formData: FormData) {
+    setCoverUploading(true)
+    try {
+      const updated = await uploadMagazineCover(magazineId, formData)
+      queryClient.setQueryData(['magazine', magazineId], updated)
+      toast.success(t('magazineDetail.coverUploaded'))
+    } catch {
+      toast.error(t('magazineDetail.coverUploadError'))
+    } finally {
+      setCoverUploading(false)
+    }
+  }
+
+  function handleCoverFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const fd = new FormData()
+    fd.append('file', file)
+    handleCoverUpload(fd)
+    e.target.value = ''
+  }
+
+  function handleCoverUrlLoad() {
+    if (!coverUrl.trim()) return
+    const fd = new FormData()
+    fd.append('url', coverUrl.trim())
+    handleCoverUpload(fd)
+    setCoverUrl('')
   }
 
   // Refresh
@@ -1488,6 +1523,61 @@ export default function MagazineDetail() {
                       </div>
                     )}
                   </div>
+                )}
+
+                {!editUseLatestCover && (
+                  <>
+                    <div className="relative flex items-center py-2">
+                      <div className="flex-grow border-t border-zinc-700" />
+                      <span className="mx-3 text-xs text-zinc-500 shrink-0">
+                        {t('magazineDetail.orSeparator')}
+                      </span>
+                      <div className="flex-grow border-t border-zinc-700" />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={coverFileRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handleCoverFileChange}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={coverUploading}
+                        onClick={() => coverFileRef.current?.click()}
+                      >
+                        {coverUploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-1" />
+                        )}
+                        {t('magazineDetail.uploadCover')}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder={t('magazineDetail.coverUrl')}
+                        value={coverUrl}
+                        onChange={(e) => setCoverUrl(e.target.value)}
+                        className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
+                        onKeyDown={(e) => e.key === 'Enter' && handleCoverUrlLoad()}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={coverUploading || !coverUrl.trim()}
+                        onClick={handleCoverUrlLoad}
+                      >
+                        {t('magazineDetail.coverUrlLoad')}
+                      </Button>
+                    </div>
+                  </>
                 )}
               </div>
             </TabsContent>

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -156,6 +156,53 @@ async def get_cover(
         raise HTTPException(404, "Cover file not found on disk")
 
     return FileResponse(cover_path)
+
+
+@router.post("/{magazine_id}/cover", response_model=MagazineResource)
+async def upload_cover(
+    magazine_id: int,
+    file: UploadFile | None = File(None),
+    url: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Upload a custom cover image from a file or URL."""
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    covers_dir = Path(config.config_path).parent / "covers"
+
+    if file and file.filename:
+        if file.content_type not in allowed_types:
+            raise HTTPException(400, f"Invalid image type: {file.content_type}")
+        image_bytes = await file.read()
+    elif url:
+        import httpx
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            raise HTTPException(400, "Failed to download image from URL")
+        content_type = resp.headers.get("content-type", "").split(";")[0].strip()
+        if content_type not in allowed_types:
+            raise HTTPException(400, f"Invalid image type: {content_type}")
+        image_bytes = resp.content
+    else:
+        raise HTTPException(400, "Provide either a file or a URL")
+
+    saved_path = magazine_service.save_cover_image(
+        image_bytes, covers_dir, magazine.title_slug,
+    )
+    magazine.cover_path = saved_path
+    await db.flush()
+    await db.commit()
+
+    stats = await magazine_service.get_statistics(db, magazine_id)
+    resource = MagazineResource.model_validate(magazine)
+    resource.statistics = MagazineStatistics(**stats)
+    return resource
 
 
 @router.post("/{magazine_id}/refresh", status_code=200)

@@ -72,5 +72,8 @@ export const searchMetadata = (query: string) =>
 export const refreshMetadata = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}/refresh`, { method: 'POST' })
 
+export const uploadMagazineCover = (id: number, data: FormData) =>
+  apiFetch<Magazine>(`/magazine/${id}/cover`, { method: 'POST', body: data })
+
 export const getMagazineCoverUrl = (id: number, cacheBuster?: string) =>
   `/api/v1/magazine/${id}/cover${cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : ''}`

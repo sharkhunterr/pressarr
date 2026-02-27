@@ -126,7 +126,13 @@
     "useLatestIssueCover": "Utiliser la couverture du dernier numéro",
     "useLatestIssueCoverDesc": "Met à jour automatiquement lors de l'import d'un nouveau numéro.",
     "selectCover": "Sélectionner parmi les numéros",
-    "noIssueCovers": "Aucun numéro avec couverture disponible."
+    "noIssueCovers": "Aucun numéro avec couverture disponible.",
+    "orSeparator": "ou charger une image personnalisée",
+    "uploadCover": "Charger une image",
+    "coverUrl": "URL de l'image",
+    "coverUrlLoad": "Charger",
+    "coverUploaded": "Couverture mise à jour.",
+    "coverUploadError": "Échec de la mise à jour de la couverture."
   },
   "issues": {
     "title": "Numéros",
