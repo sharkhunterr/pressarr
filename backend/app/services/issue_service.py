@@ -297,6 +297,7 @@ async def rename_issues(
             volume=issue.volume,
             year=issue.year,
             month=issue.month,
+            day=issue.day,
             quality=issue.file.quality,
             file_format=issue.file.format,
             group=issue.file.release_group,
