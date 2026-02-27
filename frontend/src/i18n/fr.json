@@ -200,7 +200,13 @@
     "editLanguage": "Langue",
     "sourceFilename": "Nom du fichier source",
     "issueUpdated": "Numéro mis à jour avec succès.",
-    "issueUpdateError": "Échec de la mise à jour du numéro."
+    "issueUpdateError": "Échec de la mise à jour du numéro.",
+    "source": "Source",
+    "publishDate": "Date",
+    "page": "Page {{page}} sur {{totalPages}}",
+    "sortDateDesc": "Plus récent",
+    "sortDateAsc": "Plus ancien",
+    "sortDefault": "Ordre par défaut"
   },
   "calendar": {
     "title": "Calendrier",

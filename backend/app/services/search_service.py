@@ -76,6 +76,7 @@ async def search_issue(
                     guid=raw.guid,
                     title=raw.title,
                     indexer=indexer.name,
+                    source=raw.indexer,
                     size=raw.size,
                     age=raw.age,
                     protocol=raw.protocol,
@@ -85,6 +86,7 @@ async def search_issue(
                     score=score,
                     is_blocklisted=blocked,
                     download_url=raw.download_url or "",
+                    publish_date=raw.publish_date,
                 ))
         except Exception:
             logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
@@ -112,7 +114,7 @@ async def search_free(
                 url=indexer.url,
                 api_key=indexer.api_key,
             )
-            raw_results = await client.search(query, categories=[7010, 7020])
+            raw_results = await client.search(query)
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
@@ -124,6 +126,7 @@ async def search_free(
                     guid=raw.guid,
                     title=raw.title,
                     indexer=indexer.name,
+                    source=raw.indexer,
                     size=raw.size,
                     age=raw.age,
                     protocol=raw.protocol,
@@ -133,6 +136,7 @@ async def search_free(
                     score=0.0,
                     is_blocklisted=blocked,
                     download_url=raw.download_url or "",
+                    publish_date=raw.publish_date,
                 ))
         except Exception:
             logger.warning("Search error for indexer %s", indexer.name, exc_info=True)

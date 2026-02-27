@@ -17,8 +17,9 @@ class ProwlarrClient(IndexerBase):
         self, query: str, categories: list[int] | None = None
     ) -> list[RawSearchResult]:
         """Search via Prowlarr /api/v1/search with X-Api-Key header."""
-        cats = categories or [7010, 7020]
-        params = {"query": query, "categories": cats, "type": "search"}
+        params: dict = {"query": query, "type": "search"}
+        if categories:
+            params["categories"] = categories
         headers = {"X-Api-Key": self.api_key}
         resp = await self._client.get(
             f"{self.url}/api/v1/search", params=params, headers=headers
@@ -69,6 +70,7 @@ class ProwlarrClient(IndexerBase):
             seeders=data.get("seeders"),
             download_url=data.get("downloadUrl"),
             info_url=data.get("infoUrl"),
+            publish_date=data.get("publishDate"),
             categories=[
                 c.get("id")
                 for c in data.get("categories", [])

@@ -6,6 +6,7 @@ class SearchResultResource(CamelModel):
     guid: str
     title: str
     indexer: str
+    source: str = ""  # tracker name from Prowlarr (e.g. "RuTracker")
     size: int
     age: int  # days
     protocol: str  # "torrent" or "usenet"
@@ -15,6 +16,7 @@ class SearchResultResource(CamelModel):
     score: float = 0.0
     is_blocklisted: bool = False
     download_url: str
+    publish_date: str | None = None  # ISO datetime
 
 
 class GrabResponse(CamelModel):

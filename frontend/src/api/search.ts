@@ -4,6 +4,7 @@ export interface SearchResult {
   guid: string
   title: string
   indexer: string
+  source: string
   size: number
   age: number
   protocol: string
@@ -13,6 +14,7 @@ export interface SearchResult {
   score: number
   isBlocklisted: boolean
   downloadUrl: string
+  publishDate: string | null
 }
 
 export const searchIssue = (issueId: number) =>

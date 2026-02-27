@@ -13,7 +13,9 @@ import {
   Search,
   HelpCircle,
   CheckCircle2,
+  ArrowDownUp,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Upload,
 } from 'lucide-react'
@@ -90,6 +92,8 @@ import {
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQueue } from '@/hooks/useQueue'
 
+const RESULTS_PER_PAGE = 50
+
 type StatusFilter = 'all' | 'available' | 'wanted' | 'missing' | 'upcoming'
 
 function formatBytes(bytes: number): string {
@@ -97,6 +101,20 @@ function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
+}
+
+function formatPublishDate(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function sortByDate(results: SearchResult[], dir: 'asc' | 'desc'): SearchResult[] {
+  return [...results].sort((a, b) => {
+    const ta = a.publishDate ? new Date(a.publishDate).getTime() : 0
+    const tb = b.publishDate ? new Date(b.publishDate).getTime() : 0
+    return dir === 'asc' ? ta - tb : tb - ta
+  })
 }
 
 export default function MagazineDetail() {
@@ -165,6 +183,12 @@ export default function MagazineDetail() {
   const [manualSearchTab, setManualSearchTab] = useState('annasarchive')
   const [manualSearchResults, setManualSearchResults] = useState<SearchResult[]>([])
   const [manualSearching, setManualSearching] = useState(false)
+  const [manualSearchPage, setManualSearchPage] = useState(1)
+  const [manualSearchSourceFilter, setManualSearchSourceFilter] = useState('')
+  const [manualSearchDateSort, setManualSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
+  const [searchPage, setSearchPage] = useState(1)
+  const [searchSourceFilter, setSearchSourceFilter] = useState('')
+  const [searchDateSort, setSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
 
   const { data: magazine, isLoading: magazineLoading } = useQuery({
     queryKey: ['magazine', magazineId],
@@ -664,6 +688,9 @@ export default function MagazineDetail() {
     if (!manualSearchQuery.trim()) return
     setManualSearching(true)
     setManualSearchResults([])
+    setManualSearchPage(1)
+    setManualSearchSourceFilter('')
+    setManualSearchDateSort('')
     try {
       let results: SearchResult[] = []
       if (activeTab === 'annasarchive') {
@@ -685,6 +712,9 @@ export default function MagazineDetail() {
   async function handleSearch(issueId: number) {
     setSearchingIssueId(issueId)
     setSearchResults([])
+    setSearchPage(1)
+    setSearchSourceFilter('')
+    setSearchDateSort('')
     setSearchDialogOpen(true)
     setSearching(true)
     try {
@@ -1090,81 +1120,165 @@ export default function MagazineDetail() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto">
-            {searching ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="size-6 animate-spin text-zinc-400" />
-                <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
-              </div>
-            ) : searchResults.length === 0 ? (
-              <p className="text-zinc-500 text-center py-8">
-                {t('common.noResults')}
-              </p>
-            ) : (
-              <div className="divide-y divide-zinc-800">
-                {searchResults.map((result) => (
-                  <div
-                    key={result.guid}
-                    className={`flex items-center justify-between py-3 px-2 hover:bg-zinc-900/50 rounded ${
-                      result.isBlocklisted ? 'opacity-40' : ''
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0 mr-4">
-                      <p className="text-sm text-zinc-100 truncate">{result.title}</p>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
-                        <span>{result.indexer}</span>
-                        {result.size > 0 && (
-                          <>
-                            <span>|</span>
-                            <span>{formatBytes(result.size)}</span>
-                          </>
-                        )}
-                        {result.quality && result.quality !== 'unknown' && (
-                          <>
-                            <span>|</span>
-                            <span>{result.quality}</span>
-                          </>
-                        )}
-                        {result.language && result.language !== 'unknown' && (
-                          <>
-                            <span>|</span>
-                            <span>{result.language}</span>
-                          </>
-                        )}
-                        {result.seeders !== null && result.seeders > 0 && (
-                          <>
-                            <span>|</span>
-                            <span>
-                              {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
-                            </span>
-                          </>
-                        )}
-                        {result.age > 0 && (
-                          <>
-                            <span>|</span>
-                            <span>{result.age}d</span>
-                          </>
-                        )}
-                      </div>
+          {(() => {
+            const sources = [...new Set(searchResults.map((r) => r.source || r.indexer).filter(Boolean))]
+            const bySource = searchSourceFilter
+              ? searchResults.filter((r) => (r.source || r.indexer) === searchSourceFilter)
+              : searchResults
+            const filtered = searchDateSort ? sortByDate(bySource, searchDateSort) : bySource
+            const totalPages = Math.ceil(filtered.length / RESULTS_PER_PAGE)
+            const nextDateSort = searchDateSort === '' ? 'desc' : searchDateSort === 'desc' ? 'asc' : ''
+            const dateSortLabel = searchDateSort === 'desc' ? t('issues.sortDateDesc') : searchDateSort === 'asc' ? t('issues.sortDateAsc') : t('issues.sortDefault')
+            return (
+              <>
+                {searchResults.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pb-2">
+                    {sources.length > 1 && (
+                      <Badge
+                        variant={searchSourceFilter === '' ? 'default' : 'outline'}
+                        className="cursor-pointer text-xs"
+                        onClick={() => { setSearchSourceFilter(''); setSearchPage(1) }}
+                      >
+                        {t('issues.all')} ({searchResults.length})
+                      </Badge>
+                    )}
+                    {sources.map((src) => {
+                      const count = searchResults.filter((r) => (r.source || r.indexer) === src).length
+                      return (
+                        <Badge
+                          key={src}
+                          variant={searchSourceFilter === src ? 'default' : 'outline'}
+                          className="cursor-pointer text-xs"
+                          onClick={() => { setSearchSourceFilter(src); setSearchPage(1) }}
+                        >
+                          {src} ({count})
+                        </Badge>
+                      )
+                    })}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto h-6 px-2 text-xs text-zinc-400"
+                      onClick={() => { setSearchDateSort(nextDateSort as '' | 'asc' | 'desc'); setSearchPage(1) }}
+                    >
+                      <ArrowDownUp className="size-3 mr-1" />
+                      {dateSortLabel}
+                    </Button>
+                  </div>
+                )}
+                <div className="flex-1 overflow-y-auto">
+                  {searching ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="size-6 animate-spin text-zinc-400" />
+                      <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
                     </div>
+                  ) : filtered.length === 0 ? (
+                    <p className="text-zinc-500 text-center py-8">
+                      {t('common.noResults')}
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-zinc-800">
+                      {filtered
+                        .slice((searchPage - 1) * RESULTS_PER_PAGE, searchPage * RESULTS_PER_PAGE)
+                        .map((result) => (
+                        <div
+                          key={result.guid}
+                          className={`flex items-center justify-between py-3 px-2 hover:bg-zinc-900/50 rounded ${
+                            result.isBlocklisted ? 'opacity-40' : ''
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0 mr-4">
+                            <p className="text-sm text-zinc-100 truncate">{result.title}</p>
+                            <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+                              {result.source ? (
+                                <span>{result.source}</span>
+                              ) : (
+                                <span>{result.indexer}</span>
+                              )}
+                              {result.size > 0 && (
+                                <>
+                                  <span>|</span>
+                                  <span>{formatBytes(result.size)}</span>
+                                </>
+                              )}
+                              {result.quality && result.quality !== 'unknown' && (
+                                <>
+                                  <span>|</span>
+                                  <span>{result.quality}</span>
+                                </>
+                              )}
+                              {result.language && result.language !== 'unknown' && (
+                                <>
+                                  <span>|</span>
+                                  <span>{result.language}</span>
+                                </>
+                              )}
+                              {result.seeders !== null && result.seeders > 0 && (
+                                <>
+                                  <span>|</span>
+                                  <span>
+                                    {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
+                                  </span>
+                                </>
+                              )}
+                              {result.publishDate && (
+                                <>
+                                  <span>|</span>
+                                  <span>{formatPublishDate(result.publishDate)}</span>
+                                </>
+                              )}
+                              {!result.publishDate && result.age > 0 && (
+                                <>
+                                  <span>|</span>
+                                  <span>{result.age}d</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={result.isBlocklisted || grabbing === result.guid}
+                            onClick={() => handleGrab(result)}
+                          >
+                            {grabbing === result.guid ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Download className="size-3.5" />
+                            )}
+                            {t('issues.grab')}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-2 pt-3 border-t border-zinc-800">
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={result.isBlocklisted || grabbing === result.guid}
-                      onClick={() => handleGrab(result)}
+                      disabled={searchPage <= 1}
+                      onClick={() => setSearchPage((p) => p - 1)}
                     >
-                      {grabbing === result.guid ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Download className="size-3.5" />
-                      )}
-                      {t('issues.grab')}
+                      <ChevronLeft className="size-4" />
+                    </Button>
+                    <span className="text-xs text-zinc-400">
+                      {t('issues.page', { page: searchPage, totalPages })}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={searchPage >= totalPages}
+                      onClick={() => setSearchPage((p) => p + 1)}
+                    >
+                      <ChevronRight className="size-4" />
                     </Button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                )}
+              </>
+            )
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -1182,6 +1296,9 @@ export default function MagazineDetail() {
             onValueChange={(val) => {
               setManualSearchTab(val)
               setManualSearchResults([])
+              setManualSearchPage(1)
+              setManualSearchSourceFilter('')
+              setManualSearchDateSort('')
             }}
             className="flex-1 overflow-hidden flex flex-col"
           >
@@ -1222,75 +1339,163 @@ export default function MagazineDetail() {
             </div>
 
             {/* Results area (same for all tabs) */}
-            <div className="flex-1 overflow-y-auto mt-3">
-              {manualSearching ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="size-6 animate-spin text-zinc-400" />
-                  <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
-                </div>
-              ) : manualSearchResults.length === 0 ? (
-                <p className="text-zinc-500 text-center py-8">
-                  {t('magazineDetail.manualSearchHint')}
-                </p>
-              ) : (
-                <div className="divide-y divide-zinc-800">
-                  {manualSearchResults.map((result) => (
-                    <div
-                      key={result.guid}
-                      className={`flex items-center justify-between py-3 px-2 hover:bg-zinc-900/50 rounded ${
-                        result.isBlocklisted ? 'opacity-40' : ''
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="text-sm text-zinc-100 truncate">{result.title}</p>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
-                          <span>{result.indexer}</span>
-                          {result.size > 0 && (
-                            <>
-                              <span>|</span>
-                              <span>{formatBytes(result.size)}</span>
-                            </>
-                          )}
-                          {result.quality && result.quality !== 'unknown' && (
-                            <>
-                              <span>|</span>
-                              <span>{result.quality}</span>
-                            </>
-                          )}
-                          {result.language && result.language !== 'unknown' && (
-                            <>
-                              <span>|</span>
-                              <span>{result.language}</span>
-                            </>
-                          )}
-                          {result.seeders !== null && result.seeders > 0 && (
-                            <>
-                              <span>|</span>
-                              <span>
-                                {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
-                              </span>
-                            </>
-                          )}
-                        </div>
+            {(() => {
+              const sources = [...new Set(manualSearchResults.map((r) => r.source || r.indexer).filter(Boolean))]
+              const bySource = manualSearchSourceFilter
+                ? manualSearchResults.filter((r) => (r.source || r.indexer) === manualSearchSourceFilter)
+                : manualSearchResults
+              const filtered = manualSearchDateSort ? sortByDate(bySource, manualSearchDateSort) : bySource
+              const totalPages = Math.ceil(filtered.length / RESULTS_PER_PAGE)
+              const nextDateSort = manualSearchDateSort === '' ? 'desc' : manualSearchDateSort === 'desc' ? 'asc' : ''
+              const dateSortLabel = manualSearchDateSort === 'desc' ? t('issues.sortDateDesc') : manualSearchDateSort === 'asc' ? t('issues.sortDateAsc') : t('issues.sortDefault')
+              return (
+                <>
+                  {manualSearchResults.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                      {sources.length > 1 && (
+                        <Badge
+                          variant={manualSearchSourceFilter === '' ? 'default' : 'outline'}
+                          className="cursor-pointer text-xs"
+                          onClick={() => { setManualSearchSourceFilter(''); setManualSearchPage(1) }}
+                        >
+                          {t('issues.all')} ({manualSearchResults.length})
+                        </Badge>
+                      )}
+                      {sources.map((src) => {
+                        const count = manualSearchResults.filter((r) => (r.source || r.indexer) === src).length
+                        return (
+                          <Badge
+                            key={src}
+                            variant={manualSearchSourceFilter === src ? 'default' : 'outline'}
+                            className="cursor-pointer text-xs"
+                            onClick={() => { setManualSearchSourceFilter(src); setManualSearchPage(1) }}
+                          >
+                            {src} ({count})
+                          </Badge>
+                        )
+                      })}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-6 px-2 text-xs text-zinc-400"
+                        onClick={() => { setManualSearchDateSort(nextDateSort as '' | 'asc' | 'desc'); setManualSearchPage(1) }}
+                      >
+                        <ArrowDownUp className="size-3 mr-1" />
+                        {dateSortLabel}
+                      </Button>
+                    </div>
+                  )}
+                  <div className="flex-1 overflow-y-auto mt-3">
+                    {manualSearching ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="size-6 animate-spin text-zinc-400" />
+                        <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
                       </div>
+                    ) : filtered.length === 0 && manualSearchResults.length === 0 ? (
+                      <p className="text-zinc-500 text-center py-8">
+                        {t('magazineDetail.manualSearchHint')}
+                      </p>
+                    ) : filtered.length === 0 ? (
+                      <p className="text-zinc-500 text-center py-8">
+                        {t('common.noResults')}
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-zinc-800">
+                        {filtered
+                          .slice((manualSearchPage - 1) * RESULTS_PER_PAGE, manualSearchPage * RESULTS_PER_PAGE)
+                          .map((result) => (
+                          <div
+                            key={result.guid}
+                            className={`flex items-center justify-between py-3 px-2 hover:bg-zinc-900/50 rounded ${
+                              result.isBlocklisted ? 'opacity-40' : ''
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0 mr-4">
+                              <p className="text-sm text-zinc-100 truncate">{result.title}</p>
+                              <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+                                {result.source ? (
+                                  <span>{result.source}</span>
+                                ) : (
+                                  <span>{result.indexer}</span>
+                                )}
+                                {result.size > 0 && (
+                                  <>
+                                    <span>|</span>
+                                    <span>{formatBytes(result.size)}</span>
+                                  </>
+                                )}
+                                {result.quality && result.quality !== 'unknown' && (
+                                  <>
+                                    <span>|</span>
+                                    <span>{result.quality}</span>
+                                  </>
+                                )}
+                                {result.language && result.language !== 'unknown' && (
+                                  <>
+                                    <span>|</span>
+                                    <span>{result.language}</span>
+                                  </>
+                                )}
+                                {result.seeders !== null && result.seeders > 0 && (
+                                  <>
+                                    <span>|</span>
+                                    <span>
+                                      {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
+                                    </span>
+                                  </>
+                                )}
+                                {result.publishDate && (
+                                  <>
+                                    <span>|</span>
+                                    <span>{formatPublishDate(result.publishDate)}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={result.isBlocklisted || grabbing === result.guid}
+                              onClick={() => handleGrab(result, true)}
+                            >
+                              {grabbing === result.guid ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : (
+                                <Download className="size-3.5" />
+                              )}
+                              {t('issues.grab')}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-3 border-t border-zinc-800">
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={result.isBlocklisted || grabbing === result.guid}
-                        onClick={() => handleGrab(result, true)}
+                        disabled={manualSearchPage <= 1}
+                        onClick={() => setManualSearchPage((p) => p - 1)}
                       >
-                        {grabbing === result.guid ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <Download className="size-3.5" />
-                        )}
-                        {t('issues.grab')}
+                        <ChevronLeft className="size-4" />
+                      </Button>
+                      <span className="text-xs text-zinc-400">
+                        {t('issues.page', { page: manualSearchPage, totalPages })}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={manualSearchPage >= totalPages}
+                        onClick={() => setManualSearchPage((p) => p + 1)}
+                      >
+                        <ChevronRight className="size-4" />
                       </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  )}
+                </>
+              )
+            })()}
 
             {/* TabsContent just for accessibility - content is shared above */}
             <TabsContent value="annasarchive" className="hidden" />

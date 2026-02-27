@@ -17,6 +17,7 @@ class RawSearchResult:
     seeders: int | None = None
     download_url: str | None = None
     info_url: str | None = None
+    publish_date: str | None = None  # ISO datetime from Prowlarr
     categories: list[int] | None = field(default=None)
 
 

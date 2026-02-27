@@ -200,7 +200,13 @@
     "editLanguage": "Language",
     "sourceFilename": "Source filename",
     "issueUpdated": "Issue updated successfully.",
-    "issueUpdateError": "Failed to update issue."
+    "issueUpdateError": "Failed to update issue.",
+    "source": "Source",
+    "publishDate": "Date",
+    "page": "Page {{page}} of {{totalPages}}",
+    "sortDateDesc": "Newest first",
+    "sortDateAsc": "Oldest first",
+    "sortDefault": "Default order"
   },
   "calendar": {
     "title": "Calendar",
