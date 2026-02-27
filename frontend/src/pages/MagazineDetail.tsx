@@ -90,7 +90,7 @@ import {
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQueue } from '@/hooks/useQueue'
 
-type StatusFilter = 'all' | 'available' | 'wanted' | 'missing'
+type StatusFilter = 'all' | 'available' | 'wanted' | 'missing' | 'upcoming'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -173,8 +173,8 @@ export default function MagazineDetail() {
   })
 
   const { data: issues = [], isLoading: issuesLoading } = useQuery({
-    queryKey: ['issues', magazineId, statusFilter === 'all' ? undefined : statusFilter],
-    queryFn: () => getIssues(magazineId, statusFilter === 'all' ? undefined : statusFilter),
+    queryKey: ['issues', magazineId, statusFilter === 'all' || statusFilter === 'upcoming' ? undefined : statusFilter],
+    queryFn: () => getIssues(magazineId, statusFilter === 'all' || statusFilter === 'upcoming' ? undefined : statusFilter),
     enabled: !isNaN(magazineId),
   })
 
@@ -343,9 +343,14 @@ export default function MagazineDetail() {
   })
 
   // Group issues by year
+  const filteredIssues = useMemo(
+    () => statusFilter === 'upcoming' ? issues.filter((i) => i.isForecast) : issues,
+    [issues, statusFilter],
+  )
+
   const groupedIssues = useMemo(() => {
     const groups: Record<string, Issue[]> = {}
-    for (const issue of issues) {
+    for (const issue of filteredIssues) {
       const yearKey = issue.year ? String(issue.year) : t('issues.unknownYear')
       if (!groups[yearKey]) groups[yearKey] = []
       groups[yearKey].push(issue)
@@ -359,13 +364,14 @@ export default function MagazineDetail() {
       return numB - numA
     })
     return sorted
-  }, [issues, t])
+  }, [filteredIssues, t])
 
   // Status counts
   const statusCounts = useMemo(() => {
-    const counts = { all: issues.length, available: 0, wanted: 0, missing: 0 }
+    const counts = { all: issues.length, available: 0, wanted: 0, missing: 0, upcoming: 0 }
     for (const issue of issues) {
-      if (issue.status === 'available') counts.available++
+      if (issue.isForecast) counts.upcoming++
+      else if (issue.status === 'available') counts.available++
       else if (issue.status === 'wanted') counts.wanted++
       else if (issue.status === 'missing') counts.missing++
     }
@@ -785,7 +791,12 @@ export default function MagazineDetail() {
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between">
               <div>
-                <h1 className="text-2xl font-bold text-zinc-100">{magazine.title}</h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-bold text-zinc-100">{magazine.title}</h1>
+                  <Badge variant={magazine.monitored ? 'default' : 'secondary'} className={magazine.monitored ? 'bg-green-600 hover:bg-green-600' : ''}>
+                    {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
+                  </Badge>
+                </div>
                 <div className="flex items-center gap-2 mt-1 text-sm text-zinc-400">
                   {magazine.publisher && (
                     <span>{magazine.publisher}</span>
@@ -881,9 +892,6 @@ export default function MagazineDetail() {
 
             {/* Statistics overview */}
             <div className="flex items-center gap-4 mt-4">
-              <Badge variant={magazine.monitored ? 'default' : 'outline'} className={magazine.monitored ? 'bg-[#E85D04]' : ''}>
-                {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
-              </Badge>
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-zinc-400">
                   {t('magazineDetail.totalIssues')}: <span className="text-zinc-100">{issues.length}</span>
@@ -912,8 +920,8 @@ export default function MagazineDetail() {
       )}
 
       {/* Status Filters */}
-      <div className="flex items-center gap-2 mb-6">
-        {(['all', 'available', 'wanted', 'missing'] as StatusFilter[]).map((filter) => (
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        {(['all', 'available', 'wanted', 'missing', 'upcoming'] as StatusFilter[]).map((filter) => (
           <Button
             key={filter}
             variant={statusFilter === filter ? 'default' : 'outline'}
