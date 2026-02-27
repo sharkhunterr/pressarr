@@ -30,7 +30,7 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
       <div className="relative aspect-[3/4] bg-zinc-900 overflow-hidden">
         {magazine.coverPath ? (
           <img
-            src={getMagazineCoverUrl(magazine.id)}
+            src={getMagazineCoverUrl(magazine.id, magazine.coverPath ?? undefined)}
             alt={magazine.title}
             className="h-full w-full object-cover transition group-hover:scale-105"
           />

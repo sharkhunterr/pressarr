@@ -25,6 +25,7 @@ class Magazine(Base):
     monitoring_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     search_terms: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cover_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    use_latest_issue_cover: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     root_folder_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("root_folder.id"), nullable=False
     )

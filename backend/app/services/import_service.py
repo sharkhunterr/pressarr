@@ -8,7 +8,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Default naming template
-DEFAULT_TEMPLATE = "{magazine_title}/{magazine_title} - {number} ({year}-{month:02d}).{format}"
+DEFAULT_TEMPLATE = "{magazine_title}/{magazine_title} - {number} ({year}-{month:02d}-{day:02d}).{format}"
 
 # Valid template variables (English canonical names)
 TEMPLATE_VARIABLES = {
@@ -17,6 +17,7 @@ TEMPLATE_VARIABLES = {
     "volume": "Volume number",
     "year": "Publication year",
     "month": "Publication month (01-12)",
+    "day": "Publication day (01-31)",
     "quality": "File quality (truepdf, retail, etc.)",
     "format": "File format (pdf, epub, etc.)",
     "group": "Release group name",
@@ -30,6 +31,7 @@ _FRENCH_ALIASES = {
     "numero": "number",
     "annee": "year",
     "mois": "month",
+    "jour": "day",
     "qualite": "quality",
     "groupe": "group",
     "langue": "language",
@@ -67,6 +69,7 @@ def apply_template(
     volume: int | None = None,
     year: int | None = None,
     month: int | None = None,
+    day: int | None = None,
     quality: str = "unknown",
     file_format: str = "pdf",
     group: str | None = None,
@@ -81,6 +84,7 @@ def apply_template(
         "volume": str(volume) if volume is not None else "",
         "year": str(year) if year is not None else "0000",
         "month": f"{month:02d}" if month is not None else "00",
+        "day": f"{day:02d}" if day is not None else "00",
         "quality": quality,
         "format": file_format.lower().lstrip("."),
         "group": group or "",
@@ -99,6 +103,7 @@ def apply_template(
         result = re.sub(rf"\{{{var_name}:[^}}]*\}}", value, result)
 
     # Clean up empty segments
+    result = re.sub(r"-00(?=\))", "", result)  # Remove -00 day suffix
     result = re.sub(r" +- +\(\d{4}-00\)", "", result)  # Remove date if no month
     result = re.sub(r"\(\s*\)", "", result)  # Remove empty parens
     result = re.sub(r" {2,}", " ", result)  # Collapse multiple spaces
@@ -116,6 +121,7 @@ def preview_template(template: str) -> str:
         volume=None,
         year=2025,
         month=3,
+        day=15,
         quality="truepdf",
         file_format="pdf",
         group="TeamRelease",
@@ -181,6 +187,7 @@ async def import_file(
     volume: int | None = None,
     year: int | None = None,
     month: int | None = None,
+    day: int | None = None,
     quality: str = "unknown",
     file_format: str = "pdf",
     group: str | None = None,
@@ -203,6 +210,7 @@ async def import_file(
         volume=volume,
         year=year,
         month=month,
+        day=day,
         quality=quality,
         file_format=file_format,
         group=group,
@@ -448,6 +456,7 @@ async def process_downloaded_file(
             volume=parsed.volume,
             year=parsed.year,
             month=parsed.month,
+            day=parsed.day,
             quality=parsed.quality,
             file_format=parsed.format,
             group=parsed.release_group,
@@ -463,13 +472,33 @@ async def process_downloaded_file(
         )
         return {"success": False, "issue_id": issue.id, "message": str(e)}
 
-    # 7. Remove any existing IssueFile at the same path (avoids unique constraint)
+    # 7. If another issue already owns a file at the same path, deduplicate
+    #    by appending a numeric suffix (never steal another issue's file).
     existing_at_path = await db.execute(
         select(IssueFile).where(IssueFile.path == str(dest))
     )
-    for old_file in existing_at_path.scalars().all():
-        await db.delete(old_file)
-    await db.flush()
+    conflicting = existing_at_path.scalars().first()
+    if conflicting and conflicting.issue_id != issue.id:
+        # Rename the new file to avoid collision
+        stem = dest.stem
+        suffix = dest.suffix
+        parent = dest.parent
+        counter = 2
+        while True:
+            candidate = parent / f"{stem} ({counter}){suffix}"
+            check = await db.execute(
+                select(IssueFile).where(IssueFile.path == str(candidate))
+            )
+            if not check.scalars().first() and not candidate.exists():
+                break
+            counter += 1
+        dest.rename(candidate)
+        dest = candidate
+        logger.info("Deduplicated file path: %s", dest)
+    elif conflicting and conflicting.issue_id == issue.id:
+        # Same issue re-import (upgrade path already handled above)
+        await db.delete(conflicting)
+        await db.flush()
 
     # 8. Create IssueFile record
     issue_file = IssueFile(
@@ -494,8 +523,8 @@ async def process_downloaded_file(
     cover = await extract_cover(dest, covers_dir)
     if cover:
         issue.cover_path = cover
-        # Use as magazine cover if magazine has none
-        if not magazine.cover_path:
+        # Use as magazine cover if magazine has none or auto-mode is on
+        if not magazine.cover_path or magazine.use_latest_issue_cover:
             magazine.cover_path = cover
             logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()
@@ -623,6 +652,7 @@ async def import_file_for_issue(
             number=issue.number,
             year=issue.year,
             month=issue.month,
+            day=issue.day,
             quality="unknown",
             file_format=file_format,
             import_mode=import_mode,
@@ -640,13 +670,30 @@ async def import_file_for_issue(
             "message": str(e),
         }
 
-    # 6. Remove any existing IssueFile at the same path (avoids unique constraint)
+    # 6. If another issue already owns a file at the same path, deduplicate
     existing_at_path = await db.execute(
         select(IssueFile).where(IssueFile.path == str(dest))
     )
-    for old_file in existing_at_path.scalars().all():
-        await db.delete(old_file)
-    await db.flush()
+    conflicting = existing_at_path.scalars().first()
+    if conflicting and conflicting.issue_id != issue.id:
+        stem = dest.stem
+        suffix = dest.suffix
+        parent = dest.parent
+        counter = 2
+        while True:
+            candidate = parent / f"{stem} ({counter}){suffix}"
+            check = await db.execute(
+                select(IssueFile).where(IssueFile.path == str(candidate))
+            )
+            if not check.scalars().first() and not candidate.exists():
+                break
+            counter += 1
+        dest.rename(candidate)
+        dest = candidate
+        logger.info("Deduplicated file path: %s", dest)
+    elif conflicting and conflicting.issue_id == issue.id:
+        await db.delete(conflicting)
+        await db.flush()
 
     # 7. Create IssueFile record
     issue_file = IssueFile(
@@ -671,8 +718,8 @@ async def import_file_for_issue(
     cover = await extract_cover(dest, covers_dir)
     if cover:
         issue.cover_path = cover
-        # Use as magazine cover if magazine has none
-        if not magazine.cover_path:
+        # Use as magazine cover if magazine has none or auto-mode is on
+        if not magazine.cover_path or magazine.use_latest_issue_cover:
             magazine.cover_path = cover
             logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()

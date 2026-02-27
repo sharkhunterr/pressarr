@@ -120,7 +120,13 @@
     "forecastInsufficient": "Add at least 2 issues with number and date for accurate forecasts",
     "monitoringStartDate": "Monitoring Start Date",
     "estimatedFrequency": "Estimated: {{frequency}}",
-    "frequencyMismatch": "Estimated: {{estimated}} (current: {{current}})"
+    "frequencyMismatch": "Estimated: {{estimated}} (current: {{current}})",
+    "tabGeneral": "General",
+    "tabCover": "Cover",
+    "useLatestIssueCover": "Use latest issue cover",
+    "useLatestIssueCoverDesc": "Automatically update when a new issue is imported.",
+    "selectCover": "Select cover from issues",
+    "noIssueCovers": "No issues with covers available."
   },
   "issues": {
     "title": "Issues",

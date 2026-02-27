@@ -120,7 +120,13 @@
     "forecastInsufficient": "Ajoutez au moins 2 numéros avec numéro et date pour des prévisions précises",
     "monitoringStartDate": "Date de début de surveillance",
     "estimatedFrequency": "Estimé : {{frequency}}",
-    "frequencyMismatch": "Estimé : {{estimated}} (actuel : {{current}})"
+    "frequencyMismatch": "Estimé : {{estimated}} (actuel : {{current}})",
+    "tabGeneral": "Général",
+    "tabCover": "Couverture",
+    "useLatestIssueCover": "Utiliser la couverture du dernier numéro",
+    "useLatestIssueCoverDesc": "Met à jour automatiquement lors de l'import d'un nouveau numéro.",
+    "selectCover": "Sélectionner parmi les numéros",
+    "noIssueCovers": "Aucun numéro avec couverture disponible."
   },
   "issues": {
     "title": "Numéros",

@@ -10,6 +10,7 @@ export interface Magazine {
   frequency: string
   description: string | null
   coverPath: string | null
+  useLatestIssueCover: boolean
   rootFolderId: number
   qualityProfileId: number
   monitored: boolean
@@ -71,5 +72,5 @@ export const searchMetadata = (query: string) =>
 export const refreshMetadata = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}/refresh`, { method: 'POST' })
 
-export const getMagazineCoverUrl = (id: number) =>
-  `/api/v1/magazine/${id}/cover`
+export const getMagazineCoverUrl = (id: number, cacheBuster?: string) =>
+  `/api/v1/magazine/${id}/cover${cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : ''}`

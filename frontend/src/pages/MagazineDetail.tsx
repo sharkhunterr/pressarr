@@ -28,6 +28,7 @@ import {
 } from '@/api/magazines'
 import {
   getIssues,
+  getIssueCoverUrl,
   updateIssueMonitored,
   updateIssue,
   batchMonitor,
@@ -120,6 +121,8 @@ export default function MagazineDetail() {
   const [editFrequency, setEditFrequency] = useState('monthly')
   const [editMonitoringStartDate, setEditMonitoringStartDate] = useState('')
   const [editExcludedDays, setEditExcludedDays] = useState<number[]>([])
+  const [editUseLatestCover, setEditUseLatestCover] = useState(false)
+  const [editCoverIssueId, setEditCoverIssueId] = useState<number | null>(null)
 
   // Delete modal state (magazine)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -510,6 +513,14 @@ export default function MagazineDetail() {
     return closest[0]
   }, [issues])
 
+  const issuesWithCovers = useMemo(
+    () =>
+      issues
+        .filter((i) => i.coverPath && !i.isForecast)
+        .sort((a, b) => (b.number ?? 0) - (a.number ?? 0)),
+    [issues],
+  )
+
   const hasDeductions = deductions.size > 0
 
   const completionPercent = issues.length > 0
@@ -550,6 +561,8 @@ export default function MagazineDetail() {
     setEditFrequency(magazine.frequency)
     setEditMonitoringStartDate(magazine.monitoringStartDate ?? '')
     setEditExcludedDays(magazine.excludedDays ?? [])
+    setEditUseLatestCover(magazine.useLatestIssueCover)
+    setEditCoverIssueId(null)
     setEditOpen(true)
   }
 
@@ -563,6 +576,8 @@ export default function MagazineDetail() {
       frequency: editFrequency,
       monitoringStartDate: editMonitoringStartDate || null,
       excludedDays: editExcludedDays,
+      useLatestIssueCover: editUseLatestCover,
+      ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
   }
 
@@ -719,7 +734,7 @@ export default function MagazineDetail() {
             <div className="aspect-[3/4] rounded-lg bg-zinc-900 overflow-hidden">
               {magazine.coverPath ? (
                 <img
-                  src={getMagazineCoverUrl(magazine.id)}
+                  src={getMagazineCoverUrl(magazine.id, magazine.coverPath ?? undefined)}
                   alt={magazine.title}
                   className="h-full w-full object-cover"
                 />
@@ -1251,163 +1266,232 @@ export default function MagazineDetail() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('addMagazine.magazineTitle')}
-              </label>
-              <Input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
-            </div>
+          <Tabs defaultValue="general" className="w-full">
+            <TabsList className="w-full">
+              <TabsTrigger value="general" className="flex-1">{t('magazineDetail.tabGeneral')}</TabsTrigger>
+              <TabsTrigger value="cover" className="flex-1">{t('magazineDetail.tabCover')}</TabsTrigger>
+            </TabsList>
 
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('library.monitored')}
-              </label>
-              <Switch
-                checked={editMonitored}
-                onCheckedChange={(checked) => setEditMonitored(checked === true)}
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('addMagazine.qualityProfile')}
-              </label>
-              <Select value={editQualityProfileId} onValueChange={setEditQualityProfileId}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile.id} value={String(profile.id)}>
-                      {profile.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('addMagazine.frequency')}
-              </label>
-              <Select value={editFrequency} onValueChange={setEditFrequency}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">{t('addMagazine.daily')}</SelectItem>
-                  <SelectItem value="weekly">{t('addMagazine.weekly')}</SelectItem>
-                  <SelectItem value="biweekly">{t('addMagazine.biweekly')}</SelectItem>
-                  <SelectItem value="monthly">{t('addMagazine.monthly')}</SelectItem>
-                  <SelectItem value="bimonthly">{t('addMagazine.bimonthly')}</SelectItem>
-                  <SelectItem value="quarterly">{t('addMagazine.quarterly')}</SelectItem>
-                  <SelectItem value="semiannual">{t('addMagazine.semiannual')}</SelectItem>
-                  <SelectItem value="annual">{t('addMagazine.annual')}</SelectItem>
-                  <SelectItem value="irregular">{t('addMagazine.irregular')}</SelectItem>
-                </SelectContent>
-              </Select>
-              {(() => {
-                const forecastableCount = issues.filter(
-                  (i) => !i.isForecast && i.number !== null && (i.year !== null || i.publicationDate !== null)
-                ).length
-                return forecastableCount >= 2 ? (
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>{t('magazineDetail.forecastConfirmed', { count: forecastableCount })}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                    <HelpCircle className="h-3.5 w-3.5" />
-                    <span>{t('magazineDetail.forecastInsufficient')}</span>
-                  </div>
-                )
-              })()}
-              {estimatedFrequency && (
-                estimatedFrequency === editFrequency ? (
-                  <div className="text-xs text-emerald-400">
-                    {t('magazineDetail.estimatedFrequency', { frequency: t(`addMagazine.${estimatedFrequency}`) })}
-                  </div>
-                ) : (
-                  <div className="text-xs text-amber-400">
-                    {t('magazineDetail.frequencyMismatch', {
-                      estimated: t(`addMagazine.${estimatedFrequency}`),
-                      current: t(`addMagazine.${editFrequency}`),
-                    })}
-                  </div>
-                )
-              )}
-              {['daily', 'weekly', 'biweekly'].includes(editFrequency) && (
-                <div className="grid gap-1.5 mt-2">
+            <TabsContent value="general">
+              <div className="grid gap-4 py-2">
+                <div className="grid gap-1.5">
                   <label className="text-sm font-medium text-zinc-300">
-                    {t('addMagazine.excludedDays')}
+                    {t('addMagazine.magazineTitle')}
                   </label>
-                  <div className="flex gap-1">
-                    {([
-                      [0, 'addMagazine.mon'],
-                      [1, 'addMagazine.tue'],
-                      [2, 'addMagazine.wed'],
-                      [3, 'addMagazine.thu'],
-                      [4, 'addMagazine.fri'],
-                      [5, 'addMagazine.sat'],
-                      [6, 'addMagazine.sun'],
-                    ] as [number, string][]).map(([day, key]) => (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() =>
-                          setEditExcludedDays((prev) =>
-                            prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-                          )
-                        }
-                        className={`px-2 py-1 text-xs rounded border ${
-                          editExcludedDays.includes(day)
-                            ? 'bg-red-900/50 border-red-700 text-red-300'
-                            : 'bg-zinc-900 border-zinc-700 text-zinc-400'
-                        }`}
-                      >
-                        {t(key)}
-                      </button>
-                    ))}
-                  </div>
+                  <Input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
                 </div>
-              )}
-            </div>
 
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('addMagazine.rootFolder')}
-              </label>
-              <Select value={editRootFolderPath} onValueChange={setEditRootFolderPath}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {rootFolders.map((folder) => (
-                    <SelectItem key={folder.id} value={folder.path}>
-                      {folder.path}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('library.monitored')}
+                  </label>
+                  <Switch
+                    checked={editMonitored}
+                    onCheckedChange={(checked) => setEditMonitored(checked === true)}
+                  />
+                </div>
 
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('magazineDetail.monitoringStartDate')}
-              </label>
-              <Input
-                type="date"
-                value={editMonitoringStartDate}
-                onChange={(e) => setEditMonitoringStartDate(e.target.value)}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
-            </div>
-          </div>
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('addMagazine.qualityProfile')}
+                  </label>
+                  <Select value={editQualityProfileId} onValueChange={setEditQualityProfileId}>
+                    <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id} value={String(profile.id)}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('addMagazine.frequency')}
+                  </label>
+                  <Select value={editFrequency} onValueChange={setEditFrequency}>
+                    <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">{t('addMagazine.daily')}</SelectItem>
+                      <SelectItem value="weekly">{t('addMagazine.weekly')}</SelectItem>
+                      <SelectItem value="biweekly">{t('addMagazine.biweekly')}</SelectItem>
+                      <SelectItem value="monthly">{t('addMagazine.monthly')}</SelectItem>
+                      <SelectItem value="bimonthly">{t('addMagazine.bimonthly')}</SelectItem>
+                      <SelectItem value="quarterly">{t('addMagazine.quarterly')}</SelectItem>
+                      <SelectItem value="semiannual">{t('addMagazine.semiannual')}</SelectItem>
+                      <SelectItem value="annual">{t('addMagazine.annual')}</SelectItem>
+                      <SelectItem value="irregular">{t('addMagazine.irregular')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {(() => {
+                    const forecastableCount = issues.filter(
+                      (i) => !i.isForecast && i.number !== null && (i.year !== null || i.publicationDate !== null)
+                    ).length
+                    return forecastableCount >= 2 ? (
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <span>{t('magazineDetail.forecastConfirmed', { count: forecastableCount })}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                        <HelpCircle className="h-3.5 w-3.5" />
+                        <span>{t('magazineDetail.forecastInsufficient')}</span>
+                      </div>
+                    )
+                  })()}
+                  {estimatedFrequency && (
+                    estimatedFrequency === editFrequency ? (
+                      <div className="text-xs text-emerald-400">
+                        {t('magazineDetail.estimatedFrequency', { frequency: t(`addMagazine.${estimatedFrequency}`) })}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-amber-400">
+                        {t('magazineDetail.frequencyMismatch', {
+                          estimated: t(`addMagazine.${estimatedFrequency}`),
+                          current: t(`addMagazine.${editFrequency}`),
+                        })}
+                      </div>
+                    )
+                  )}
+                  {['daily', 'weekly', 'biweekly'].includes(editFrequency) && (
+                    <div className="grid gap-1.5 mt-2">
+                      <label className="text-sm font-medium text-zinc-300">
+                        {t('addMagazine.excludedDays')}
+                      </label>
+                      <div className="flex gap-1">
+                        {([
+                          [0, 'addMagazine.mon'],
+                          [1, 'addMagazine.tue'],
+                          [2, 'addMagazine.wed'],
+                          [3, 'addMagazine.thu'],
+                          [4, 'addMagazine.fri'],
+                          [5, 'addMagazine.sat'],
+                          [6, 'addMagazine.sun'],
+                        ] as [number, string][]).map(([day, key]) => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() =>
+                              setEditExcludedDays((prev) =>
+                                prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                              )
+                            }
+                            className={`px-2 py-1 text-xs rounded border ${
+                              editExcludedDays.includes(day)
+                                ? 'bg-red-900/50 border-red-700 text-red-300'
+                                : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                            }`}
+                          >
+                            {t(key)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('addMagazine.rootFolder')}
+                  </label>
+                  <Select value={editRootFolderPath} onValueChange={setEditRootFolderPath}>
+                    <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rootFolders.map((folder) => (
+                        <SelectItem key={folder.id} value={folder.path}>
+                          {folder.path}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('magazineDetail.monitoringStartDate')}
+                  </label>
+                  <Input
+                    type="date"
+                    value={editMonitoringStartDate}
+                    onChange={(e) => setEditMonitoringStartDate(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="cover">
+              <div className="grid gap-4 py-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-medium text-zinc-300">
+                      {t('magazineDetail.useLatestIssueCover')}
+                    </label>
+                    <p className="text-xs text-zinc-500">
+                      {t('magazineDetail.useLatestIssueCoverDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={editUseLatestCover}
+                    onCheckedChange={(checked) => setEditUseLatestCover(checked === true)}
+                  />
+                </div>
+
+                {!editUseLatestCover && (
+                  <div className="grid gap-1.5">
+                    <label className="text-sm font-medium text-zinc-300">
+                      {t('magazineDetail.selectCover')}
+                    </label>
+                    {issuesWithCovers.length === 0 ? (
+                      <p className="text-sm text-zinc-500">{t('magazineDetail.noIssueCovers')}</p>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-2 max-h-72 overflow-y-auto pr-1">
+                        {issuesWithCovers.map((issue) => {
+                          const isSelected = editCoverIssueId === issue.id
+                          const isCurrent = editCoverIssueId == null && magazine?.coverPath === issue.coverPath
+                          return (
+                            <button
+                              key={issue.id}
+                              type="button"
+                              onClick={() => setEditCoverIssueId(issue.id)}
+                              className={`rounded border-2 overflow-hidden transition-colors ${
+                                isSelected
+                                  ? 'border-blue-500'
+                                  : isCurrent
+                                    ? 'border-emerald-500'
+                                    : 'border-zinc-700 hover:border-zinc-500'
+                              }`}
+                            >
+                              <img
+                                src={getIssueCoverUrl(issue.id)}
+                                alt={`#${issue.number ?? '?'}`}
+                                className="w-full aspect-[3/4] object-cover"
+                              />
+                              <div className="text-xs text-center text-zinc-400 py-0.5">
+                                #{issue.number ?? '?'}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>

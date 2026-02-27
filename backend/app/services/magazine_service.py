@@ -116,6 +116,19 @@ async def update_magazine(
     if magazine is None:
         return None
 
+    # Handle cover_issue_id: resolve issue cover and apply to magazine
+    cover_issue_id = data.pop("cover_issue_id", None)
+    if cover_issue_id is not None:
+        issue_result = await db.execute(
+            select(Issue).where(
+                Issue.id == cover_issue_id,
+                Issue.magazine_id == magazine_id,
+            )
+        )
+        issue = issue_result.scalar_one_or_none()
+        if issue and issue.cover_path:
+            magazine.cover_path = issue.cover_path
+
     for key, value in data.items():
         if key == "excluded_days" and hasattr(magazine, key):
             if isinstance(value, list):

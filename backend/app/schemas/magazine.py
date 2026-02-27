@@ -27,6 +27,7 @@ class MagazineResource(CamelModel):
     monitoring_start_date: date | None = None
     search_terms: str | None = None
     cover_path: str | None = None
+    use_latest_issue_cover: bool = False
     root_folder_id: int
     quality_profile_id: int
     metadata_provider_id: str | None = None
@@ -74,6 +75,8 @@ class MagazineUpdateResource(CamelModel):
     quality_profile_id: int | None = None
     root_folder_id: int | None = None
     excluded_days: list[int] | None = None
+    use_latest_issue_cover: bool | None = None
+    cover_issue_id: int | None = None
 
 
 class MetadataSearchResult(CamelModel):
