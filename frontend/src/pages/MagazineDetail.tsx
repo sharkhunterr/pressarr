@@ -772,7 +772,7 @@ export default function MagazineDetail() {
 
   if (isLoading) {
     return (
-      <div className="p-8 max-w-6xl">
+      <div className="p-4 lg:p-8">
         <div className="flex gap-6 mb-8">
           <Skeleton className="w-32 h-44 bg-zinc-800 rounded-lg shrink-0" />
           <div className="flex-1 space-y-3">
@@ -796,7 +796,7 @@ export default function MagazineDetail() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 lg:p-8">
       {/* Cover + Metadata Header */}
       {magazine && (
         <div className="flex gap-6 mb-8">

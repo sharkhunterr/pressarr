@@ -89,7 +89,7 @@ export default function Calendar() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-4 lg:p-8">
         <Skeleton className="h-8 w-48 bg-zinc-800 mb-6" />
         <Skeleton className="h-96 bg-zinc-800 rounded-lg" />
       </div>
@@ -97,7 +97,7 @@ export default function Calendar() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 lg:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-zinc-100">{t('calendar.title')}</h1>

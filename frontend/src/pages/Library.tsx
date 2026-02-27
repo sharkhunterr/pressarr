@@ -76,7 +76,7 @@ export default function Library() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-4 lg:p-8">
         <Skeleton className="h-8 w-48 bg-zinc-800 mb-6" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -92,7 +92,7 @@ export default function Library() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 lg:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-zinc-100">{t('library.title')}</h1>

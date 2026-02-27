@@ -82,7 +82,7 @@ export default function System() {
   const loading = statusLoading || healthLoading
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 lg:p-8">
       <h1 className="text-2xl font-bold text-zinc-100 mb-6">
         {t('system.title')}
       </h1>

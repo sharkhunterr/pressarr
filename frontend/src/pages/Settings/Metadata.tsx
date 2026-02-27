@@ -117,14 +117,14 @@ export default function Metadata() {
 
   if (isLoading) {
     return (
-      <div className="p-8 text-zinc-400">
+      <div className="p-4 lg:p-8 text-zinc-400">
         {t('common.loading')}
       </div>
     )
   }
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 lg:p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-zinc-100">
           {t('metadata.title')}

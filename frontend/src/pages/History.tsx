@@ -71,7 +71,7 @@ export default function History() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-4 lg:p-8">
         <Skeleton className="h-8 w-48 bg-zinc-800 mb-6" />
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map((i) => (
@@ -83,7 +83,7 @@ export default function History() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 lg:p-8">
       <h1 className="text-2xl font-bold text-zinc-100 mb-6">{t('history.title')}</h1>
 
       {/* Filters */}
