@@ -60,7 +60,7 @@ export function QueueItem({
         type="checkbox"
         checked={selected}
         onChange={(e) => onSelect(entry.id, e.target.checked)}
-        className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#E85D04]"
+        className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
       />
 
       {/* Info */}
@@ -82,7 +82,7 @@ export function QueueItem({
         <div className="mt-2 flex items-center gap-3">
           <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
             <div
-              className="h-full rounded-full bg-[#E85D04] transition-all"
+              className="h-full rounded-full bg-[#7C3AED] transition-all"
               style={{ width: `${progress}%` }}
             />
           </div>

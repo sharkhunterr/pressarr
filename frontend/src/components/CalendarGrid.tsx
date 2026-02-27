@@ -71,13 +71,13 @@ export function CalendarGrid({ year, month, entries }: CalendarGridProps) {
             key={idx}
             className={`min-h-24 bg-zinc-950 p-1.5 ${
               day === null ? 'bg-zinc-950/50' : ''
-            } ${day !== null && isToday(day) ? 'ring-1 ring-inset ring-[#E85D04]' : ''}`}
+            } ${day !== null && isToday(day) ? 'ring-1 ring-inset ring-[#7C3AED]' : ''}`}
           >
             {day !== null && (
               <>
                 <span
                   className={`text-xs font-medium ${
-                    isToday(day) ? 'text-[#E85D04]' : 'text-zinc-400'
+                    isToday(day) ? 'text-[#7C3AED]' : 'text-zinc-400'
                   }`}
                 >
                   {day}
@@ -93,7 +93,7 @@ export function CalendarGrid({ year, month, entries }: CalendarGridProps) {
                       className={`w-full rounded px-1 py-0.5 text-left text-[10px] leading-tight truncate transition hover:opacity-80 ${
                         entry.isForecast
                           ? 'border border-dashed border-zinc-600 text-zinc-400'
-                          : 'border border-solid border-[#E85D04]/50 bg-[#E85D04]/10 text-zinc-200'
+                          : 'border border-solid border-[#7C3AED]/50 bg-[#7C3AED]/10 text-zinc-200'
                       }`}
                       title={`${entry.magazineTitle}${entry.number !== null ? ` #${entry.number}` : ''}`}
                     >

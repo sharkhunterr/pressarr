@@ -933,7 +933,7 @@ export default function MagazineDetail() {
                   {t('status.missing')}: <span className="text-red-400">{statusCounts.missing}</span>
                 </span>
                 <span className="text-zinc-400">
-                  {t('magazineDetail.completion')}: <span className="text-[#E85D04]">{completionPercent}%</span>
+                  {t('magazineDetail.completion')}: <span className="text-[#7C3AED]">{completionPercent}%</span>
                 </span>
               </div>
             </div>
@@ -941,7 +941,7 @@ export default function MagazineDetail() {
             {/* Progress bar */}
             <div className="mt-3 h-1.5 rounded-full bg-zinc-800 overflow-hidden max-w-md">
               <div
-                className="h-full rounded-full bg-[#E85D04] transition-all"
+                className="h-full rounded-full bg-[#7C3AED] transition-all"
                 style={{ width: `${completionPercent}%` }}
               />
             </div>
@@ -957,7 +957,7 @@ export default function MagazineDetail() {
             variant={statusFilter === filter ? 'default' : 'outline'}
             size="sm"
             onClick={() => setStatusFilter(filter)}
-            className={statusFilter === filter ? 'bg-[#E85D04] hover:bg-[#E85D04]/90' : ''}
+            className={statusFilter === filter ? 'bg-[#7C3AED] hover:bg-[#7C3AED]/90' : ''}
           >
             {filter === 'all' ? t('issues.all') : t(`status.${filter}`)}
             <Badge
@@ -1028,7 +1028,7 @@ export default function MagazineDetail() {
                         type="checkbox"
                         checked={allSelected}
                         onChange={(e) => handleSelectAll(e.target.checked)}
-                        className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#E85D04]"
+                        className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
                       />
                     </TableHead>
                     <TableHead className="text-zinc-400">{t('issues.number')}</TableHead>
@@ -2041,7 +2041,7 @@ export default function MagazineDetail() {
               id="deleteFiles"
               checked={deleteFiles}
               onChange={(e) => setDeleteFiles(e.target.checked)}
-              className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#E85D04]"
+              className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
             />
             <label htmlFor="deleteFiles" className="text-sm text-zinc-300">
               {t('magazineDetail.deleteFiles')}

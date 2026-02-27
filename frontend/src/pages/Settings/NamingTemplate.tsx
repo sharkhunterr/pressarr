@@ -131,7 +131,7 @@ export default function NamingTemplate() {
             <CardTitle className="text-zinc-100">{t('naming.preview')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm font-mono text-[#E85D04]">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm font-mono text-[#7C3AED]">
               {preview || t('naming.previewEmpty')}
             </div>
           </CardContent>

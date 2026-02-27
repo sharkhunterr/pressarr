@@ -115,7 +115,7 @@ export function IssueRow({
           type="checkbox"
           checked={selected}
           onChange={(e) => onSelect(issue.id, e.target.checked)}
-          className="size-4 rounded border-zinc-600 bg-zinc-900 text-[#E85D04] focus:ring-[#E85D04] accent-[#E85D04]"
+          className="size-4 rounded border-zinc-600 bg-zinc-900 text-[#7C3AED] focus:ring-[#7C3AED] accent-[#7C3AED]"
         />
       </TableCell>
       <TableCell className={`font-medium ${isNumberDeduced ? 'text-amber-400 italic' : 'text-zinc-100'}`}>
@@ -133,8 +133,8 @@ export function IssueRow({
         {isInQueue ? (
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <Loader2 className="size-3 animate-spin text-[#E85D04]" />
-              <Badge variant="outline" className="border-[#E85D04] text-[#E85D04]">
+              <Loader2 className="size-3 animate-spin text-[#7C3AED]" />
+              <Badge variant="outline" className="border-[#7C3AED] text-[#7C3AED]">
                 {t(`queue.status_${queueItem.status}`, queueItem.status)}
               </Badge>
             </div>
@@ -142,7 +142,7 @@ export function IssueRow({
             <div className="flex items-center gap-2">
               <div className="flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden max-w-[120px]">
                 <div
-                  className="h-full rounded-full bg-[#E85D04] transition-all"
+                  className="h-full rounded-full bg-[#7C3AED] transition-all"
                   style={{ width: `${queueProgress}%` }}
                 />
               </div>
@@ -202,7 +202,7 @@ export function IssueRow({
             title={issue.monitored ? t('issues.unmonitor') : t('issues.monitor')}
           >
             {issue.monitored ? (
-              <Eye className="size-3.5 text-[#E85D04]" />
+              <Eye className="size-3.5 text-[#7C3AED]" />
             ) : (
               <EyeOff className="size-3.5 text-zinc-500" />
             )}

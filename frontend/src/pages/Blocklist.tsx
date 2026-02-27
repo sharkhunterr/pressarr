@@ -151,7 +151,7 @@ export default function Blocklist() {
                     type="checkbox"
                     checked={selectedIds.size === items.length && items.length > 0}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#E85D04]"
+                    className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
                   />
                 </TableHead>
                 <TableHead className="text-zinc-400">{t('blocklist.releaseTitle')}</TableHead>
@@ -170,7 +170,7 @@ export default function Blocklist() {
                       type="checkbox"
                       checked={selectedIds.has(entry.id)}
                       onChange={(e) => handleSelect(entry.id, e.target.checked)}
-                      className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#E85D04]"
+                      className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
                     />
                   </TableCell>
                   <TableCell className="text-zinc-100 text-sm max-w-xs truncate">

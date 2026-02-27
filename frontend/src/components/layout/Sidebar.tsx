@@ -77,7 +77,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
           <NavLink to="/" onClick={onClose} className="flex items-center gap-2">
-            <span className="text-xl font-bold text-[#E85D04]">Pressarr</span>
+            <img src="/logo.svg" alt="Pressarr" className="size-7 rounded" />
+            <span className="text-xl font-bold text-[#7C3AED]">Pressarr</span>
           </NavLink>
           <button
             onClick={onClose}
@@ -99,7 +100,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                   isActive
-                    ? 'text-[#E85D04] bg-zinc-900/80'
+                    ? 'text-[#7C3AED] bg-zinc-900/80'
                     : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/50'
                 }`
               }
@@ -115,7 +116,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               onClick={() => setSettingsOpen(!settingsOpen)}
               className={`flex items-center gap-3 px-4 py-2.5 text-sm w-full transition-colors ${
                 isSettingsPage
-                  ? 'text-[#E85D04]'
+                  ? 'text-[#7C3AED]'
                   : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/50'
               }`}
             >
@@ -138,7 +139,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     className={({ isActive }) =>
                       `flex items-center gap-3 pl-5 pr-4 py-2 text-sm transition-colors ${
                         isActive
-                          ? 'text-[#E85D04] bg-zinc-900/80'
+                          ? 'text-[#7C3AED] bg-zinc-900/80'
                           : 'text-zinc-500 hover:text-zinc-100 hover:bg-zinc-900/50'
                       }`
                     }

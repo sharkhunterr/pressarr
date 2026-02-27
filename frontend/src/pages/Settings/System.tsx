@@ -48,7 +48,7 @@ function StatCard({
     <Card className="bg-zinc-950 border-zinc-800">
       <CardContent className="flex items-center gap-4 py-4">
         <div className="flex items-center justify-center size-10 rounded-lg bg-zinc-900">
-          <Icon className="size-5 text-[#E85D04]" />
+          <Icon className="size-5 text-[#7C3AED]" />
         </div>
         <div>
           <p className="text-2xl font-bold text-zinc-100">{value}</p>
@@ -199,7 +199,7 @@ export default function System() {
                       ? 'bg-red-500'
                       : usedPercent > 70
                         ? 'bg-yellow-500'
-                        : 'bg-[#E85D04]'
+                        : 'bg-[#7C3AED]'
 
                   return (
                     <Card key={folder.id} className="bg-zinc-950 border-zinc-800">
@@ -247,7 +247,7 @@ export default function System() {
                       ? 'bg-red-500'
                       : usedPercent > 70
                         ? 'bg-yellow-500'
-                        : 'bg-[#E85D04]'
+                        : 'bg-[#7C3AED]'
 
                   return (
                     <Card key={idx} className="bg-zinc-950 border-zinc-800">

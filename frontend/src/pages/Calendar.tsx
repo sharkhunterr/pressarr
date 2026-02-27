@@ -108,7 +108,7 @@ export default function Calendar() {
             variant={view === 'grid' ? 'default' : 'outline'}
             size="icon-sm"
             onClick={() => setView('grid')}
-            className={view === 'grid' ? 'bg-[#E85D04] hover:bg-[#E85D04]/90' : ''}
+            className={view === 'grid' ? 'bg-[#7C3AED] hover:bg-[#7C3AED]/90' : ''}
           >
             <LayoutGrid className="size-4" />
           </Button>
@@ -116,7 +116,7 @@ export default function Calendar() {
             variant={view === 'agenda' ? 'default' : 'outline'}
             size="icon-sm"
             onClick={() => setView('agenda')}
-            className={view === 'agenda' ? 'bg-[#E85D04] hover:bg-[#E85D04]/90' : ''}
+            className={view === 'agenda' ? 'bg-[#7C3AED] hover:bg-[#7C3AED]/90' : ''}
           >
             <List className="size-4" />
           </Button>

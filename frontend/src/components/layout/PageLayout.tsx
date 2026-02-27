@@ -22,7 +22,8 @@ export function PageLayout({ children }: PageLayoutProps) {
           >
             <Menu className="size-5" />
           </button>
-          <span className="text-lg font-bold text-[#E85D04]">Pressarr</span>
+          <img src="/logo.svg" alt="Pressarr" className="size-6 rounded" />
+          <span className="text-lg font-bold text-[#7C3AED]">Pressarr</span>
         </header>
 
         <main className="flex-1 overflow-auto">{children}</main>

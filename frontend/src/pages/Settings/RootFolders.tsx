@@ -124,13 +124,13 @@ export default function RootFolders() {
       <div className="grid gap-4">
         {folders.map((folder) => {
           const usedPercent = spacePercent(folder.freeSpace, folder.totalSpace)
-          const barColor = usedPercent > 90 ? 'bg-red-500' : usedPercent > 70 ? 'bg-yellow-500' : 'bg-[#E85D04]'
+          const barColor = usedPercent > 90 ? 'bg-red-500' : usedPercent > 70 ? 'bg-yellow-500' : 'bg-[#7C3AED]'
 
           return (
             <Card key={folder.id} className="bg-zinc-950 border-zinc-800">
               <CardHeader className="flex-row items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <FolderOpen className="size-5 text-[#E85D04]" />
+                  <FolderOpen className="size-5 text-[#7C3AED]" />
                   <CardTitle className="text-zinc-100 font-mono text-sm">
                     {folder.path}
                   </CardTitle>

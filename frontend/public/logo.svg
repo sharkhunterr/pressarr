@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded background with gradient like *arr apps -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- Open magazine — left page -->
+  <path d="M256 140 C220 148, 120 156, 88 160 L88 372 C120 368, 220 360, 256 352 Z" fill="white" opacity="0.95"/>
+  <!-- Open magazine — right page -->
+  <path d="M256 140 C292 148, 392 156, 424 160 L424 372 C392 368, 292 360, 256 352 Z" fill="white" opacity="0.85"/>
+  <!-- Spine shadow -->
+  <path d="M256 140 L256 352" stroke="rgba(109,40,217,0.3)" stroke-width="3"/>
+  <!-- Text lines on left page -->
+  <line x1="120" y1="200" x2="230" y2="192" stroke="#7C3AED" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+  <line x1="124" y1="224" x2="234" y2="216" stroke="#7C3AED" stroke-width="6" stroke-linecap="round" opacity="0.35"/>
+  <line x1="128" y1="248" x2="238" y2="240" stroke="#7C3AED" stroke-width="6" stroke-linecap="round" opacity="0.25"/>
+  <!-- Text lines on right page -->
+  <line x1="282" y1="192" x2="392" y2="200" stroke="#7C3AED" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+  <line x1="278" y1="216" x2="388" y2="224" stroke="#7C3AED" stroke-width="6" stroke-linecap="round" opacity="0.35"/>
+  <line x1="274" y1="240" x2="384" y2="248" stroke="#7C3AED" stroke-width="6" stroke-linecap="round" opacity="0.25"/>
+</svg>

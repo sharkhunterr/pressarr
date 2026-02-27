@@ -89,7 +89,7 @@ export default function Queue() {
               type="checkbox"
               checked={selectedIds.size === queue.length && queue.length > 0}
               onChange={(e) => handleSelectAll(e.target.checked)}
-              className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#E85D04]"
+              className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
             />
             <span className="text-sm text-zinc-400">{t('queue.selectAll')}</span>
           </div>

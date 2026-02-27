@@ -24,7 +24,7 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
     <button
       type="button"
       onClick={() => navigate(`/magazine/${magazine.id}`)}
-      className="group rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden text-left transition hover:border-zinc-700 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#E85D04]/50"
+      className="group rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden text-left transition hover:border-zinc-700 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/50"
     >
       {/* Cover */}
       <div className="relative aspect-[3/4] bg-zinc-900 overflow-hidden">
@@ -44,7 +44,7 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
         <div className="absolute top-2 right-2">
           <Badge
             variant={magazine.monitored ? 'default' : 'outline'}
-            className={magazine.monitored ? 'bg-[#E85D04]' : ''}
+            className={magazine.monitored ? 'bg-[#7C3AED]' : ''}
           >
             {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
           </Badge>
@@ -66,7 +66,7 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
         {/* Progress bar */}
         <div className="mt-2 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
           <div
-            className="h-full rounded-full bg-[#E85D04] transition-all"
+            className="h-full rounded-full bg-[#7C3AED] transition-all"
             style={{ width: `${percent}%` }}
           />
         </div>

@@ -234,7 +234,7 @@ export default function Notifications() {
           <Card key={channel.id} className="bg-zinc-950 border-zinc-800">
             <CardHeader className="flex-row items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="size-8 rounded bg-zinc-800 flex items-center justify-center text-sm font-bold text-[#E85D04]">
+                <div className="size-8 rounded bg-zinc-800 flex items-center justify-center text-sm font-bold text-[#7C3AED]">
                   {typeIcon(channel.type)}
                 </div>
                 <CardTitle className="text-zinc-100">{channel.name}</CardTitle>
