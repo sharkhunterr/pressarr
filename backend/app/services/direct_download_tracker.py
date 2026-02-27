@@ -123,13 +123,19 @@ class DirectDownloadTracker:
         return False
 
     def cleanup_completed(self, max_age_seconds: int = 300) -> None:
-        """Remove completed/failed downloads older than max_age_seconds."""
+        """Remove completed/failed/imported downloads older than their max age.
+
+        "imported" items are cleaned up immediately (age 0) since the issue
+        is already in the library, while "completed" and "failed" use the
+        provided max_age_seconds.
+        """
         now = datetime.now()
         to_remove = []
         for did, tracked in self._downloads.items():
             if tracked.status.status in ("completed", "failed", "imported"):
                 age = (now - tracked.added).total_seconds()
-                if age > max_age_seconds:
+                item_max_age = 0 if tracked.status.status == "imported" else max_age_seconds
+                if age > item_max_age:
                     to_remove.append(did)
         for did in to_remove:
             del self._downloads[did]

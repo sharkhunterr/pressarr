@@ -23,6 +23,7 @@ def _add_months(d: date, months: int) -> date:
 
 # Frequency to callable: each returns a new date given a starting date
 FREQUENCY_DELTAS: dict[str, timedelta | int] = {
+    "daily": timedelta(days=1),
     "weekly": timedelta(weeks=1),
     "biweekly": timedelta(weeks=2),
     "monthly": 1,       # months
@@ -101,6 +102,15 @@ async def generate_forecasts(
     today = date.today()
     end_date = _add_months(today, months_ahead)
 
+    # Determine the earliest date we should generate forecasts for
+    start_date = today
+    monitoring_start = getattr(magazine, "monitoring_start_date", None)
+    if monitoring_start:
+        if isinstance(monitoring_start, str):
+            monitoring_start = date.fromisoformat(monitoring_start)
+        if monitoring_start > start_date:
+            start_date = monitoring_start
+
     # Find the last known issue date
     result = await db.execute(
         select(Issue)
@@ -117,7 +127,7 @@ async def generate_forecasts(
         next_date = _advance_date(last_issue.publication_date, magazine.frequency)
     else:
         # No known issues, start from today
-        next_date = today
+        next_date = start_date
 
     # Find last known issue number
     last_number = None
@@ -135,18 +145,47 @@ async def generate_forecasts(
         await db.delete(forecast)
     await db.flush()
 
+    # Collect existing real issue numbers to avoid unique constraint violations
+    existing_numbers_result = await db.execute(
+        select(Issue.number).where(
+            Issue.magazine_id == magazine.id,
+            Issue.is_forecast == False,  # noqa: E712
+            Issue.number.isnot(None),
+        )
+    )
+    existing_numbers: set[int] = {row[0] for row in existing_numbers_result.all()}
+
+    # Estimate the starting number accounting for date gaps
+    if last_issue and last_number is not None and last_issue.publication_date:
+        # Count how many periods fit between last issue and the first forecast date
+        cursor = last_issue.publication_date
+        periods_skipped = 0
+        while _advance_date(cursor, magazine.frequency) < max(next_date, start_date):
+            cursor = _advance_date(cursor, magazine.frequency)
+            periods_skipped += 1
+        number = last_number + periods_skipped + 1
+    elif last_number is not None:
+        number = last_number + 1
+    else:
+        number = None
+
     # Generate new forecasts
     created = []
-    number = (last_number or 0) + 1 if last_number is not None else None
 
     while next_date <= end_date:
-        if next_date >= today:
+        if next_date >= start_date:
+            # Skip numbers already taken by real issues
+            if number is not None:
+                while number in existing_numbers:
+                    number += 1
+
             forecast = Issue(
                 magazine_id=magazine.id,
                 number=number,
                 publication_date=next_date,
                 year=next_date.year,
                 month=next_date.month,
+                day=next_date.day,
                 status="upcoming",
                 monitored=magazine.monitored,
                 is_forecast=True,

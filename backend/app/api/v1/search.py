@@ -35,8 +35,7 @@ async def search(
         all_results.sort(key=lambda r: r.score, reverse=True)
         return all_results
     elif query:
-        # Free search - not tied to a specific issue
-        return []
+        return await search_service.search_free(db, query, config)
     raise HTTPException(422, "Provide issueId, magazineId, or query")
 
 
@@ -47,13 +46,24 @@ async def grab_release(
     config=Depends(get_config),
 ):
     issue_id = body.get("issueId")
+    magazine_id = body.get("magazineId")
     download_url = body.get("downloadUrl")
     title = body.get("title", "")
     protocol = body.get("protocol", "torrent")
     guid = body.get("guid", "")
 
-    if not issue_id or not download_url:
-        raise HTTPException(422, "issueId and downloadUrl are required")
+    if not download_url:
+        raise HTTPException(422, "downloadUrl is required")
+
+    # If no issue_id but we have a magazine, resolve/create issue from title
+    if not issue_id and magazine_id:
+        issue_id, _ = await _resolve_or_create_issue(db, magazine_id, title)
+        await db.commit()
+        from app.api.v1.websocket import manager as ws_manager
+        await ws_manager.broadcast("library:updated", {"magazineId": magazine_id})
+
+    if not issue_id:
+        raise HTTPException(422, "issueId or magazineId is required")
 
     from app.services.download_service import grab_release as do_grab
     result = await do_grab(db, issue_id, download_url, title, protocol, guid)
@@ -261,8 +271,11 @@ async def _resolve_or_create_issue(
 
     ALWAYS returns a valid (issue_id, issue_number). Creates a new issue
     if no existing match is found — even if the parser extracts nothing.
+    Skips issues that already have a file (status=available) so that each
+    Manual Research grab creates a separate issue instead of overwriting.
     """
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
     from app.models.issue import Issue
     from app.parser.magazine_parser import parse_magazine_filename
 
@@ -277,36 +290,85 @@ async def _resolve_or_create_issue(
     # Try matching by issue number first
     if parsed.number is not None:
         result = await db.execute(
-            select(Issue).where(
+            select(Issue)
+            .options(selectinload(Issue.file))
+            .where(
                 Issue.magazine_id == magazine_id,
                 Issue.number == parsed.number,
             )
         )
         issue = result.scalars().first()
+        # Don't reuse an issue that already has a file — create a new one
+        if issue and issue.status == "available" and issue.file is not None:
+            logger.info("[resolve_issue] Issue id=%d already has a file, will create new", issue.id)
+            issue = None
 
-    # Try matching by year + month
-    if not issue and parsed.year and parsed.month:
+    # Try matching by year + month + day (day-precise for daily publications)
+    if not issue and parsed.year and parsed.month and parsed.day:
         result = await db.execute(
-            select(Issue).where(
+            select(Issue)
+            .options(selectinload(Issue.file))
+            .where(
+                Issue.magazine_id == magazine_id,
+                Issue.year == parsed.year,
+                Issue.month == parsed.month,
+                Issue.day == parsed.day,
+            )
+        )
+        issue = result.scalars().first()
+        if issue and issue.status == "available" and issue.file is not None:
+            logger.info("[resolve_issue] Issue id=%d already has a file, will create new", issue.id)
+            issue = None
+
+    # Fallback: year + month only (but NOT if day is available — that means
+    # the daily match above didn't find anything, so this is a new issue)
+    if not issue and parsed.year and parsed.month and not parsed.day:
+        result = await db.execute(
+            select(Issue)
+            .options(selectinload(Issue.file))
+            .where(
                 Issue.magazine_id == magazine_id,
                 Issue.year == parsed.year,
                 Issue.month == parsed.month,
             )
         )
         issue = result.scalars().first()
+        if issue and issue.status == "available" and issue.file is not None:
+            logger.info("[resolve_issue] Issue id=%d already has a file, will create new", issue.id)
+            issue = None
 
     if issue:
         logger.info("[resolve_issue] Matched existing issue id=%d", issue.id)
         return issue.id, issue.number
 
-    # No match found — ALWAYS create a new issue with whatever data we have
+    # No match found — ALWAYS create a new issue with whatever data we have.
+    # Check if the parsed number is already taken (by a real issue or forecast).
+    create_number = parsed.number
+    if create_number is not None:
+        existing_result = await db.execute(
+            select(Issue).where(
+                Issue.magazine_id == magazine_id,
+                Issue.number == create_number,
+            )
+        )
+        existing_with_number = existing_result.scalars().first()
+        if existing_with_number:
+            if existing_with_number.is_forecast:
+                # Remove the forecast to make room
+                await db.delete(existing_with_number)
+                await db.flush()
+            else:
+                # Number already used by a real issue — don't duplicate it
+                create_number = None
+
     issue = Issue(
         magazine_id=magazine_id,
-        number=parsed.number,
+        number=create_number,
         volume=parsed.volume,
         title=parsed.title or None,
         year=parsed.year,
         month=parsed.month,
+        day=parsed.day,
         is_special=parsed.is_special,
         status="snatched",
         monitored=True,

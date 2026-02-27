@@ -117,8 +117,8 @@ async def update_magazine(
 
     await db.flush()
 
-    # Regenerate forecasts if frequency changed
-    if "frequency" in data:
+    # Regenerate forecasts if frequency or monitoring_start_date changed
+    if "frequency" in data or "monitoring_start_date" in data:
         from app.services.calendar_service import generate_forecasts
 
         await generate_forecasts(db, magazine)

@@ -23,12 +23,17 @@ router = APIRouter(prefix="/api/v1/magazine", tags=["Magazines"])
 async def _handle_refresh_magazine(magazine_id: int) -> str | None:
     """Command handler for RefreshMagazine."""
     from app.database import async_session_factory
+    from app.services.calendar_service import generate_forecasts
 
     if async_session_factory is None:
         return "Database not initialized"
 
     async with async_session_factory() as session:
         result = await magazine_service.refresh_metadata(session, magazine_id)
+        # Regenerate forecasts so they reflect current data
+        magazine = await magazine_service.get_magazine(session, magazine_id)
+        if magazine:
+            await generate_forecasts(session, magazine)
         await session.commit()
         return result
 

@@ -185,8 +185,15 @@ async def import_file(
     file_format: str = "pdf",
     group: str | None = None,
     language: str = "unknown",
+    import_mode: str = "copy",
 ) -> Path:
-    """Move and rename a file into the library using the naming template.
+    """Import a file into the library using the naming template.
+
+    import_mode controls how the source file is handled:
+      - "copy": copy the file (source remains in download client)
+      - "move": move the file (source is removed)
+      - "copy_delete": copy then delete the source
+
     Returns the new file path.
     """
     new_name = apply_template(
@@ -211,8 +218,18 @@ async def import_file(
     if usage.free < file_size * 1.1:  # 10% margin
         raise OSError(f"Insufficient disk space: {usage.free} free, need {file_size}")
 
-    shutil.move(str(file_path), str(dest))
-    logger.info("Imported %s → %s", file_path.name, dest)
+    if import_mode == "move":
+        shutil.move(str(file_path), str(dest))
+        logger.info("Moved %s → %s", file_path.name, dest)
+    elif import_mode == "copy_delete":
+        shutil.copy2(str(file_path), str(dest))
+        file_path.unlink()
+        logger.info("Copied+deleted %s → %s", file_path.name, dest)
+    else:
+        # Default: copy
+        shutil.copy2(str(file_path), str(dest))
+        logger.info("Copied %s → %s", file_path.name, dest)
+
     return dest
 
 
@@ -315,7 +332,22 @@ async def process_downloaded_file(
             )
             issue = issue_result.scalars().first()
 
-        if not issue and parsed.year and parsed.month:
+        # Day-precise matching (for daily publications)
+        if not issue and parsed.year and parsed.month and parsed.day:
+            issue_result = await db.execute(
+                select(Issue)
+                .options(selectinload(Issue.file))
+                .where(
+                    Issue.magazine_id == magazine.id,
+                    Issue.year == parsed.year,
+                    Issue.month == parsed.month,
+                    Issue.day == parsed.day,
+                )
+            )
+            issue = issue_result.scalars().first()
+
+        # Month-level matching (only when no day parsed)
+        if not issue and parsed.year and parsed.month and not parsed.day:
             issue_result = await db.execute(
                 select(Issue)
                 .options(selectinload(Issue.file))
@@ -332,12 +364,26 @@ async def process_downloaded_file(
         existing_file = None if issue is None else issue.file
 
         if not issue:
+            # Remove any forecast with the same number to avoid unique constraint violation
+            if parsed.number is not None:
+                forecast_result = await db.execute(
+                    select(Issue).where(
+                        Issue.magazine_id == magazine.id,
+                        Issue.number == parsed.number,
+                        Issue.is_forecast == True,  # noqa: E712
+                    )
+                )
+                for forecast in forecast_result.scalars().all():
+                    await db.delete(forecast)
+                await db.flush()
+
             # Create a new issue for this file
             issue = Issue(
                 magazine_id=magazine.id,
                 number=parsed.number,
                 year=parsed.year,
                 month=parsed.month,
+                day=parsed.day,
                 is_special=parsed.is_special,
                 status="available",
                 monitored=True,
@@ -391,6 +437,7 @@ async def process_downloaded_file(
     # 6. Apply naming template and move file
     naming_template = getattr(config, "naming_template", DEFAULT_TEMPLATE)
 
+    import_mode = getattr(config, "import_mode", "copy")
     try:
         dest = await import_file(
             file_path=file_path,
@@ -405,6 +452,7 @@ async def process_downloaded_file(
             file_format=parsed.format,
             group=parsed.release_group,
             language=parsed.language,
+            import_mode=import_mode,
         )
     except OSError as e:
         await create_event(
@@ -415,7 +463,15 @@ async def process_downloaded_file(
         )
         return {"success": False, "issue_id": issue.id, "message": str(e)}
 
-    # 7. Create IssueFile record
+    # 7. Remove any existing IssueFile at the same path (avoids unique constraint)
+    existing_at_path = await db.execute(
+        select(IssueFile).where(IssueFile.path == str(dest))
+    )
+    for old_file in existing_at_path.scalars().all():
+        await db.delete(old_file)
+    await db.flush()
+
+    # 8. Create IssueFile record
     issue_file = IssueFile(
         issue_id=issue.id,
         path=str(dest),
@@ -429,11 +485,11 @@ async def process_downloaded_file(
     )
     db.add(issue_file)
 
-    # 8. Update issue status
+    # 9. Update issue status
     issue.status = "available"
     await db.flush()
 
-    # 9. Extract cover
+    # 10. Extract cover
     covers_dir = Path(getattr(config, "config_path", "/config")).parent / "covers"
     cover = await extract_cover(dest, covers_dir)
     if cover:
@@ -444,7 +500,7 @@ async def process_downloaded_file(
             logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()
 
-    # 10. Create history event
+    # 11. Create history event
     event_type = "upgrade" if existing_file else "import"
     await create_event(
         db, event_type,
@@ -453,7 +509,7 @@ async def process_downloaded_file(
         details=f"Imported: {dest.name} ({parsed.quality})",
     )
 
-    # 11. Dispatch notifications
+    # 12. Dispatch notifications
     try:
         from app.notifications.base import NotificationPayload
         from app.services.notification_service import dispatch
@@ -468,7 +524,7 @@ async def process_downloaded_file(
     except Exception:
         logger.warning("Notification dispatch failed", exc_info=True)
 
-    # 12. Reconcile forecast
+    # 13. Reconcile forecast
     try:
         from app.services.calendar_service import reconcile_forecast
         await reconcile_forecast(db, issue)
@@ -553,10 +609,11 @@ async def import_file_for_issue(
     # 4. Determine file format from extension
     file_format = file_path.suffix.lstrip(".").lower() or "pdf"
 
-    # 5. Apply naming template and move file
+    # 5. Apply naming template and import file
     naming_template = getattr(
         config, "naming_template", DEFAULT_TEMPLATE
     )
+    import_mode = getattr(config, "import_mode", "copy")
     try:
         dest = await import_file(
             file_path=file_path,
@@ -568,6 +625,7 @@ async def import_file_for_issue(
             month=issue.month,
             quality="unknown",
             file_format=file_format,
+            import_mode=import_mode,
         )
     except OSError as e:
         await create_event(
@@ -582,7 +640,15 @@ async def import_file_for_issue(
             "message": str(e),
         }
 
-    # 6. Create IssueFile record
+    # 6. Remove any existing IssueFile at the same path (avoids unique constraint)
+    existing_at_path = await db.execute(
+        select(IssueFile).where(IssueFile.path == str(dest))
+    )
+    for old_file in existing_at_path.scalars().all():
+        await db.delete(old_file)
+    await db.flush()
+
+    # 7. Create IssueFile record
     issue_file = IssueFile(
         issue_id=issue.id,
         path=str(dest),
@@ -594,11 +660,11 @@ async def import_file_for_issue(
     )
     db.add(issue_file)
 
-    # 7. Update issue status
+    # 8. Update issue status
     issue.status = "available"
     await db.flush()
 
-    # 8. Extract cover
+    # 9. Extract cover
     covers_dir = (
         Path(getattr(config, "config_path", "/config")).parent / "covers"
     )
@@ -611,7 +677,7 @@ async def import_file_for_issue(
             logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()
 
-    # 9. Create history event
+    # 10. Create history event
     await create_event(
         db, "import",
         magazine_id=magazine.id,
@@ -619,7 +685,7 @@ async def import_file_for_issue(
         details=f"Imported: {dest.name}",
     )
 
-    # 10. Dispatch notifications
+    # 11. Dispatch notifications
     try:
         from app.notifications.base import NotificationPayload
         from app.services.notification_service import dispatch
@@ -637,7 +703,7 @@ async def import_file_for_issue(
     except Exception:
         logger.warning("Notification dispatch failed", exc_info=True)
 
-    # 11. Reconcile forecast
+    # 12. Reconcile forecast
     try:
         from app.services.calendar_service import reconcile_forecast
         await reconcile_forecast(db, issue)

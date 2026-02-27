@@ -13,6 +13,8 @@ import {
   Search,
   HelpCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -38,6 +40,7 @@ import {
 import {
   searchIssue,
   searchMagazine,
+  searchIndexers,
   grabRelease,
   searchInternetArchive,
   downloadFromIA,
@@ -56,6 +59,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
+  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -114,6 +118,7 @@ export default function MagazineDetail() {
   const [editQualityProfileId, setEditQualityProfileId] = useState('')
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
   const [editFrequency, setEditFrequency] = useState('monthly')
+  const [editMonitoringStartDate, setEditMonitoringStartDate] = useState('')
 
   // Delete modal state (magazine)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -131,11 +136,15 @@ export default function MagazineDetail() {
   const [editIssueTitle, setEditIssueTitle] = useState('')
   const [editIssueYear, setEditIssueYear] = useState('')
   const [editIssueMonth, setEditIssueMonth] = useState('')
+  const [editIssueDay, setEditIssueDay] = useState('')
   const [editIssueSpecial, setEditIssueSpecial] = useState(false)
   const [editIssueQuality, setEditIssueQuality] = useState('')
   const [editIssueFormat, setEditIssueFormat] = useState('')
   const [editIssueReleaseGroup, setEditIssueReleaseGroup] = useState('')
   const [editIssueLanguage, setEditIssueLanguage] = useState('')
+
+  // Collapse upcoming issues per year group
+  const [expandedUpcoming, setExpandedUpcoming] = useState<Set<string>>(new Set())
 
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false)
@@ -264,6 +273,7 @@ export default function MagazineDetail() {
     setEditIssueTitle(issue.title ?? '')
     setEditIssueYear(issue.year != null ? String(issue.year) : '')
     setEditIssueMonth(issue.month != null ? String(issue.month) : '')
+    setEditIssueDay(issue.day != null ? String(issue.day) : '')
     setEditIssueSpecial(issue.isSpecial)
     setEditIssueQuality(issue.file?.quality ?? '')
     setEditIssueFormat(issue.file?.format ?? '')
@@ -279,12 +289,14 @@ export default function MagazineDetail() {
     const vol = editIssueVolume.trim() ? parseInt(editIssueVolume) : null
     const yr = editIssueYear.trim() ? parseInt(editIssueYear) : null
     const mo = editIssueMonth.trim() ? parseInt(editIssueMonth) : null
+    const dy = editIssueDay.trim() ? parseInt(editIssueDay) : null
 
     if (num !== editingIssue.number) data.number = num
     if (vol !== editingIssue.volume) data.volume = vol
     if ((editIssueTitle || null) !== editingIssue.title) data.title = editIssueTitle || null
     if (yr !== editingIssue.year) data.year = yr
     if (mo !== editingIssue.month) data.month = mo
+    if (dy !== editingIssue.day) data.day = dy
     if (editIssueSpecial !== editingIssue.isSpecial) data.isSpecial = editIssueSpecial
 
     if (editingIssue.file) {
@@ -305,6 +317,7 @@ export default function MagazineDetail() {
     mutationFn: (data: Partial<Magazine>) => updateMagazine(magazineId, data),
     onSuccess: () => {
       invalidateMagazine()
+      invalidateIssues()
       setEditOpen(false)
       toast.success(t('magazineDetail.updated'))
     },
@@ -356,6 +369,7 @@ export default function MagazineDetail() {
     if (!magazine) return map
 
     const frequencyMonths: Record<string, number> = {
+      daily: 1 / 30.44,
       weekly: 7 / 30.44,
       biweekly: 14 / 30.44,
       monthly: 1,
@@ -430,6 +444,71 @@ export default function MagazineDetail() {
     return map
   }, [issues, magazine])
 
+  // Estimate frequency from issue numbers and their dates.
+  // Uses the ratio (days between issues) / (number difference) to compute
+  // how many days per issue number increment, then maps to the closest frequency.
+  // Works from just 2 complete issues and refines with more data.
+  const estimatedFrequency = useMemo(() => {
+    if (!issues.length) return null
+
+    // Collect non-forecast issues with both a number AND a date
+    const complete: { number: number; date: Date }[] = []
+    for (const issue of issues) {
+      if (issue.isForecast || issue.number == null) continue
+      let d: Date | null = null
+      if (issue.publicationDate) {
+        d = new Date(issue.publicationDate)
+      } else if (issue.year && issue.month) {
+        d = new Date(issue.year, issue.month - 1, issue.day ?? 1)
+      }
+      if (d && !isNaN(d.getTime())) {
+        complete.push({ number: issue.number, date: d })
+      }
+    }
+
+    if (complete.length < 2) return null
+
+    // Sort by number to pair consecutive-by-number issues
+    complete.sort((a, b) => a.number - b.number)
+
+    // Compute days-per-issue-number from all consecutive pairs
+    let totalDays = 0
+    let totalNumbers = 0
+    for (let i = 1; i < complete.length; i++) {
+      const numDiff = complete[i].number - complete[i - 1].number
+      const daysDiff = (complete[i].date.getTime() - complete[i - 1].date.getTime()) / (1000 * 60 * 60 * 24)
+      if (numDiff > 0 && daysDiff > 0) {
+        totalDays += daysDiff
+        totalNumbers += numDiff
+      }
+    }
+
+    if (totalNumbers === 0) return null
+    const daysPerIssue = totalDays / totalNumbers
+
+    // Map to closest frequency
+    const freqMap: [string, number][] = [
+      ['daily', 1],
+      ['weekly', 7],
+      ['biweekly', 14],
+      ['monthly', 30],
+      ['bimonthly', 61],
+      ['quarterly', 91],
+      ['semiannual', 182],
+      ['annual', 365],
+    ]
+    let closest = freqMap[0]
+    let minDiff = Math.abs(daysPerIssue - closest[1])
+    for (const entry of freqMap) {
+      const diff = Math.abs(daysPerIssue - entry[1])
+      if (diff < minDiff) {
+        closest = entry
+        minDiff = diff
+      }
+    }
+    return closest[0]
+  }, [issues])
+
   const hasDeductions = deductions.size > 0
 
   const completionPercent = issues.length > 0
@@ -468,6 +547,7 @@ export default function MagazineDetail() {
     setEditQualityProfileId(String(magazine.qualityProfileId))
     setEditRootFolderPath(rootFolders.find((f) => f.id === magazine.rootFolderId)?.path ?? '')
     setEditFrequency(magazine.frequency)
+    setEditMonitoringStartDate(magazine.monitoringStartDate ?? '')
     setEditOpen(true)
   }
 
@@ -479,6 +559,7 @@ export default function MagazineDetail() {
       qualityProfileId: Number(editQualityProfileId),
       rootFolderId: folder?.id,
       frequency: editFrequency,
+      monitoringStartDate: editMonitoringStartDate || null,
     })
   }
 
@@ -531,7 +612,7 @@ export default function MagazineDetail() {
       } else if (activeTab === 'internetarchive') {
         results = await searchInternetArchive(manualSearchQuery, magazineId)
       } else if (activeTab === 'indexers') {
-        results = await searchMagazine(magazineId)
+        results = await searchIndexers(manualSearchQuery)
       }
       setManualSearchResults(results)
     } catch {
@@ -581,6 +662,7 @@ export default function MagazineDetail() {
           result.title,
           result.protocol,
           result.guid,
+          magazineId,
         )
       }
       toast.success(t('issues.grabbed'))
@@ -867,27 +949,70 @@ export default function MagazineDetail() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {yearIssues.map((issue) => (
-                    <IssueRow
-                      key={issue.id}
-                      issue={issue}
-                      selected={selectedIds.has(issue.id)}
-                      queueItem={queueByIssueId.get(issue.id)}
-                      deduced={deductions.get(issue.id)}
-                      onSelect={handleSelect}
-                      onToggleMonitor={(issueId, monitored) =>
-                        monitorMutation.mutate({ issueId, monitored })
-                      }
-                      onEdit={handleEditIssue}
-                      onDeleteFile={(issueId) => {
-                        setDeleteFileIssueId(issueId)
-                        setDeleteFileOpen(true)
-                      }}
-                      onSearch={handleSearch}
-                      onRefresh={handleRefreshIssue}
-                      refreshingId={refreshingIssueId}
-                    />
-                  ))}
+                  {(() => {
+                    const regular = yearIssues.filter((i) => !i.isForecast)
+                    const upcoming = yearIssues.filter((i) => i.isForecast)
+                    const isExpanded = expandedUpcoming.has(year)
+
+                    const renderRow = (issue: typeof yearIssues[number]) => (
+                      <IssueRow
+                        key={issue.id}
+                        issue={issue}
+                        selected={selectedIds.has(issue.id)}
+                        queueItem={queueByIssueId.get(issue.id)}
+                        deduced={deductions.get(issue.id)}
+                        onSelect={handleSelect}
+                        onToggleMonitor={(issueId, monitored) =>
+                          monitorMutation.mutate({ issueId, monitored })
+                        }
+                        onEdit={handleEditIssue}
+                        onDeleteFile={(issueId) => {
+                          setDeleteFileIssueId(issueId)
+                          setDeleteFileOpen(true)
+                        }}
+                        onSearch={handleSearch}
+                        onRefresh={handleRefreshIssue}
+                        refreshingId={refreshingIssueId}
+                      />
+                    )
+
+                    return (
+                      <>
+                        {regular.map(renderRow)}
+                        {upcoming.length > 0 && (
+                          <>
+                            <TableRow
+                              className="border-zinc-800 cursor-pointer hover:bg-zinc-900/50"
+                              onClick={() => {
+                                setExpandedUpcoming((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(year)) next.delete(year)
+                                  else next.add(year)
+                                  return next
+                                })
+                              }}
+                            >
+                              <TableCell colSpan={7} className="py-2">
+                                <div className="flex items-center gap-2 text-sm text-zinc-400">
+                                  {isExpanded
+                                    ? <ChevronDown className="size-4" />
+                                    : <ChevronRight className="size-4" />
+                                  }
+                                  <span>
+                                    {t('issues.upcomingCollapsed', { count: upcoming.length })}
+                                  </span>
+                                  <Badge variant="secondary" className="text-xs px-1.5">
+                                    {t('issues.forecast')}
+                                  </Badge>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && upcoming.map(renderRow)}
+                          </>
+                        )}
+                      </>
+                    )
+                  })()}
                 </TableBody>
               </Table>
             </div>
@@ -1172,6 +1297,7 @@ export default function MagazineDetail() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="daily">{t('addMagazine.daily')}</SelectItem>
                   <SelectItem value="weekly">{t('addMagazine.weekly')}</SelectItem>
                   <SelectItem value="biweekly">{t('addMagazine.biweekly')}</SelectItem>
                   <SelectItem value="monthly">{t('addMagazine.monthly')}</SelectItem>
@@ -1198,6 +1324,20 @@ export default function MagazineDetail() {
                   </div>
                 )
               })()}
+              {estimatedFrequency && (
+                estimatedFrequency === editFrequency ? (
+                  <div className="text-xs text-emerald-400">
+                    {t('magazineDetail.estimatedFrequency', { frequency: t(`addMagazine.${estimatedFrequency}`) })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-amber-400">
+                    {t('magazineDetail.frequencyMismatch', {
+                      estimated: t(`addMagazine.${estimatedFrequency}`),
+                      current: t(`addMagazine.${editFrequency}`),
+                    })}
+                  </div>
+                )
+              )}
             </div>
 
             <div className="grid gap-1.5">
@@ -1216,6 +1356,18 @@ export default function MagazineDetail() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('magazineDetail.monitoringStartDate')}
+              </label>
+              <Input
+                type="date"
+                value={editMonitoringStartDate}
+                onChange={(e) => setEditMonitoringStartDate(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
             </div>
           </div>
 
@@ -1291,6 +1443,17 @@ export default function MagazineDetail() {
                 className="bg-zinc-900 border-zinc-700 text-zinc-100"
               />
             </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('issues.editDay')}</label>
+              <Input
+                type="number"
+                min={1}
+                max={31}
+                value={editIssueDay}
+                onChange={(e) => setEditIssueDay(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
             <div className="col-span-2 flex items-center gap-2">
               <Switch
                 checked={editIssueSpecial}
@@ -1300,6 +1463,14 @@ export default function MagazineDetail() {
             </div>
             {editingIssue?.file && (
               <>
+                {editingIssue.file.originalFilename && (
+                  <div>
+                    <label className="text-xs text-zinc-400">{t('issues.sourceFilename')}</label>
+                    <p className="text-sm text-zinc-300 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 break-all">
+                      {editingIssue.file.originalFilename}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="text-xs text-zinc-400">{t('issues.editQuality')}</label>
                   <Input
