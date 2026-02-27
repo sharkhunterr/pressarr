@@ -2,6 +2,8 @@
 
 from datetime import datetime, date
 
+from pydantic import field_validator
+
 from app.schemas import CamelModel
 
 
@@ -32,7 +34,17 @@ class MagazineResource(CamelModel):
     added_at: datetime
     last_searched_at: datetime | None = None
     last_metadata_refresh: datetime | None = None
+    excluded_days: list[int] | None = None
     statistics: MagazineStatistics = MagazineStatistics()
+
+    @field_validator("excluded_days", mode="before")
+    @classmethod
+    def _parse_excluded_days(cls, v: str | list[int] | None) -> list[int] | None:
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            return [int(d) for d in v.split(",") if d.strip() != ""]
+        return v
 
 
 class MagazineCreateResource(CamelModel):
@@ -49,6 +61,7 @@ class MagazineCreateResource(CamelModel):
     quality_profile_id: int
     metadata_provider_id: str | None = None
     metadata_provider: str | None = None
+    excluded_days: list[int] | None = None
     search_for_missing_issues: bool = True
 
 
@@ -60,6 +73,7 @@ class MagazineUpdateResource(CamelModel):
     search_terms: str | None = None
     quality_profile_id: int | None = None
     root_folder_id: int | None = None
+    excluded_days: list[int] | None = None
 
 
 class MetadataSearchResult(CamelModel):

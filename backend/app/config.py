@@ -41,6 +41,9 @@ class Config:
         self.annas_archive_enabled: bool = False
         self.annas_archive_mirror: str = "annas-archive.li"
 
+        # Import mode: copy, move, or copy_delete
+        self.import_mode: str = "copy"
+
         # Download path for IA direct downloads
         self.download_path: str = "/tmp/pressarr_downloads"
 
@@ -76,6 +79,7 @@ class Config:
             "annas_archive_mirror", self.annas_archive_mirror
         )
 
+        self.import_mode = data.get("import_mode", self.import_mode)
         self.download_path = data.get("download_path", self.download_path)
 
         scheduler = data.get("scheduler", {})
@@ -133,6 +137,7 @@ class Config:
             "auth_enabled": self.auth_enabled,
             "db_path": str(self.db_path),
             "naming_template": self.naming_template,
+            "import_mode": self.import_mode,
             "download_path": self.download_path,
             "metadata": {
                 "google_books_api_key": self.google_books_api_key,

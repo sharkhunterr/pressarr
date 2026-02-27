@@ -20,6 +20,7 @@ export interface Magazine {
   addedAt: string
   lastSearchedAt: string | null
   lastMetadataRefresh: string | null
+  excludedDays: number[] | null
   statistics: {
     issueCount: number
     availableCount: number

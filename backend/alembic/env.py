@@ -17,9 +17,16 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _get_db_url() -> str:
+    """Resolve DB URL from the app config (same source of truth as the app)."""
+    from app.config import Config
+    app_config = Config()
+    return f"sqlite+aiosqlite:///{app_config.db_path}"
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = _get_db_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -43,8 +50,10 @@ def do_run_migrations(connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run migrations in 'online' mode with async engine."""
+    ini_section = config.get_section(config.config_ini_section, {})
+    ini_section["sqlalchemy.url"] = _get_db_url()
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        ini_section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

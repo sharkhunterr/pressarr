@@ -23,6 +23,7 @@ class Issue(Base):
     publication_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="missing")
     monitored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_special: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

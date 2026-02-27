@@ -119,6 +119,7 @@ export default function MagazineDetail() {
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
   const [editFrequency, setEditFrequency] = useState('monthly')
   const [editMonitoringStartDate, setEditMonitoringStartDate] = useState('')
+  const [editExcludedDays, setEditExcludedDays] = useState<number[]>([])
 
   // Delete modal state (magazine)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -548,6 +549,7 @@ export default function MagazineDetail() {
     setEditRootFolderPath(rootFolders.find((f) => f.id === magazine.rootFolderId)?.path ?? '')
     setEditFrequency(magazine.frequency)
     setEditMonitoringStartDate(magazine.monitoringStartDate ?? '')
+    setEditExcludedDays(magazine.excludedDays ?? [])
     setEditOpen(true)
   }
 
@@ -560,6 +562,7 @@ export default function MagazineDetail() {
       rootFolderId: folder?.id,
       frequency: editFrequency,
       monitoringStartDate: editMonitoringStartDate || null,
+      excludedDays: editExcludedDays,
     })
   }
 
@@ -1337,6 +1340,41 @@ export default function MagazineDetail() {
                     })}
                   </div>
                 )
+              )}
+              {['daily', 'weekly', 'biweekly'].includes(editFrequency) && (
+                <div className="grid gap-1.5 mt-2">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('addMagazine.excludedDays')}
+                  </label>
+                  <div className="flex gap-1">
+                    {([
+                      [0, 'addMagazine.mon'],
+                      [1, 'addMagazine.tue'],
+                      [2, 'addMagazine.wed'],
+                      [3, 'addMagazine.thu'],
+                      [4, 'addMagazine.fri'],
+                      [5, 'addMagazine.sat'],
+                      [6, 'addMagazine.sun'],
+                    ] as [number, string][]).map(([day, key]) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() =>
+                          setEditExcludedDays((prev) =>
+                            prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                          )
+                        }
+                        className={`px-2 py-1 text-xs rounded border ${
+                          editExcludedDays.includes(day)
+                            ? 'bg-red-900/50 border-red-700 text-red-300'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                        }`}
+                      >
+                        {t(key)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 

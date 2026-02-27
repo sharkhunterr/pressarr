@@ -78,6 +78,14 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
     if existing.scalar_one_or_none() is not None:
         raise ValueError(f"Magazine with slug '{title_slug}' already exists")
 
+    # Convert excluded_days list to CSV string for storage
+    excluded_days_raw = data.get("excluded_days")
+    excluded_days_str = (
+        ",".join(str(d) for d in excluded_days_raw)
+        if excluded_days_raw
+        else None
+    )
+
     magazine = Magazine(
         title=title,
         title_slug=title_slug,
@@ -93,6 +101,7 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         quality_profile_id=data["quality_profile_id"],
         metadata_provider_id=data.get("metadata_provider_id"),
         metadata_provider=data.get("metadata_provider"),
+        excluded_days=excluded_days_str,
     )
     db.add(magazine)
     await db.flush()
@@ -108,7 +117,12 @@ async def update_magazine(
         return None
 
     for key, value in data.items():
-        if value is not None and hasattr(magazine, key):
+        if key == "excluded_days" and hasattr(magazine, key):
+            if isinstance(value, list):
+                setattr(magazine, key, ",".join(str(d) for d in value) if value else None)
+            else:
+                setattr(magazine, key, None)
+        elif value is not None and hasattr(magazine, key):
             setattr(magazine, key, value)
 
     # Regenerate slug if title changed
@@ -117,8 +131,8 @@ async def update_magazine(
 
     await db.flush()
 
-    # Regenerate forecasts if frequency or monitoring_start_date changed
-    if "frequency" in data or "monitoring_start_date" in data:
+    # Regenerate forecasts if frequency, monitoring_start_date, or excluded_days changed
+    if "frequency" in data or "monitoring_start_date" in data or "excluded_days" in data:
         from app.services.calendar_service import generate_forecasts
 
         await generate_forecasts(db, magazine)

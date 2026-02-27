@@ -22,6 +22,7 @@ export interface Issue {
   publicationDate: string | null
   year: number | null
   month: number | null
+  day: number | null
   status: string
   monitored: boolean
   isSpecial: boolean
@@ -58,6 +59,7 @@ export interface IssueUpdate {
   title?: string | null
   year?: number | null
   month?: number | null
+  day?: number | null
   monitored?: boolean
   isSpecial?: boolean
   quality?: string | null

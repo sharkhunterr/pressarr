@@ -27,6 +27,7 @@ class IssueResource(CamelModel):
     publication_date: date | None = None
     year: int | None = None
     month: int | None = None
+    day: int | None = None
     status: str
     monitored: bool
     is_special: bool
@@ -43,6 +44,7 @@ class IssueUpdateRequest(CamelModel):
     title: str | None = None
     year: int | None = None
     month: int | None = None
+    day: int | None = None
     monitored: bool | None = None
     is_special: bool | None = None
     # File fields (applied when issue has a file)

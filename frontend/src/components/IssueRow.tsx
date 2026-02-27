@@ -86,7 +86,9 @@ export function IssueRow({
 
   const displayDate = issue.year
     ? issue.month
-      ? `${String(issue.month).padStart(2, '0')}/${issue.year}`
+      ? issue.day
+        ? `${String(issue.day).padStart(2, '0')}/${String(issue.month).padStart(2, '0')}/${issue.year}`
+        : `${String(issue.month).padStart(2, '0')}/${issue.year}`
       : String(issue.year)
     : issue.publicationDate
       ? new Date(issue.publicationDate).toLocaleDateString()

@@ -24,6 +24,7 @@ class GeneralSettingsResource(CamelModel):
     log_level: str
     auth_enabled: bool
     scheduled_task_interval: int
+    import_mode: str
 
 
 class GeneralSettingsUpdateResource(CamelModel):
@@ -31,6 +32,7 @@ class GeneralSettingsUpdateResource(CamelModel):
     log_level: str | None = None
     auth_enabled: bool | None = None
     scheduled_task_interval: int | None = None
+    import_mode: str | None = None
 
 
 @router.get("/general", response_model=GeneralSettingsResource)
@@ -40,6 +42,7 @@ async def get_general_settings(config=Depends(get_config)):
         log_level=config.log_level,
         auth_enabled=config.auth_enabled,
         scheduled_task_interval=config.rss_sync_interval // 60,
+        import_mode=config.import_mode,
     )
 
 
@@ -56,6 +59,8 @@ async def save_general_settings(
         config.auth_enabled = body.auth_enabled
     if body.scheduled_task_interval is not None:
         config.rss_sync_interval = body.scheduled_task_interval * 60
+    if body.import_mode is not None and body.import_mode in ("copy", "move", "copy_delete"):
+        config.import_mode = body.import_mode
     config.save()
 
     return GeneralSettingsResource(
@@ -63,6 +68,7 @@ async def save_general_settings(
         log_level=config.log_level,
         auth_enabled=config.auth_enabled,
         scheduled_task_interval=config.rss_sync_interval // 60,
+        import_mode=config.import_mode,
     )
 
 

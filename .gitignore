@@ -33,9 +33,12 @@ coverage/
 Thumbs.db
 
 # Pressarr runtime
-**/config/pressarr.db*
+*.db
+*.db-wal
+*.db-shm
 **/config/pressarr.yml
 **/config/logs/
+.dev-config/
 
 # Build artifacts
 *.tsbuildinfo

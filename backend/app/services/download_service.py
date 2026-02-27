@@ -209,16 +209,10 @@ async def monitor_downloads(db: AsyncSession) -> None:
                                 imported_any = True
 
                     # Mark as processed and clean up registry
+                    # (download stays in client for seeding / user management)
                     if imported_any and item.download_id:
                         _processed_downloads.add(item.download_id)
                         _grab_registry.pop(item.download_id, None)
-                        try:
-                            await client.remove(item.download_id)
-                        except Exception:
-                            logger.warning(
-                                "Failed to remove completed download %s",
-                                item.download_id, exc_info=True,
-                            )
         except Exception:
             logger.warning(
                 "Monitor error for %s", client_record.name, exc_info=True

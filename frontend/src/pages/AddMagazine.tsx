@@ -44,6 +44,7 @@ export default function AddMagazine() {
   const [manualOpen, setManualOpen] = useState(false)
   const [manualTitle, setManualTitle] = useState('')
   const [manualFrequency, setManualFrequency] = useState('monthly')
+  const [excludedDays, setExcludedDays] = useState<number[]>([])
   const [rootFolderId, setRootFolderId] = useState<string>('')
   const [qualityProfileId, setQualityProfileId] = useState<string>('')
   const [monitoringStartDate, setMonitoringStartDate] = useState('')
@@ -105,12 +106,14 @@ export default function AddMagazine() {
     setSelectedResult(result)
     setManualTitle(result.title)
     if (result.frequency) setManualFrequency(result.frequency)
+    setExcludedDays([])
     setManualOpen(true)
   }
 
   function openManualAdd() {
     setSelectedResult(null)
     setManualTitle('')
+    setExcludedDays([])
     setManualOpen(true)
   }
 
@@ -121,6 +124,7 @@ export default function AddMagazine() {
       const magazine = await createMagazine({
         title: manualTitle.trim(),
         frequency: manualFrequency,
+        excludedDays: excludedDays.length > 0 ? excludedDays : undefined,
         rootFolderId: rootFolderId ? Number(rootFolderId) : undefined,
         qualityProfileId: qualityProfileId ? Number(qualityProfileId) : undefined,
         monitoringStartDate: monitoringStartDate || undefined,
@@ -268,6 +272,7 @@ export default function AddMagazine() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="daily">{t('addMagazine.daily')}</SelectItem>
                   <SelectItem value="weekly">{t('addMagazine.weekly')}</SelectItem>
                   <SelectItem value="biweekly">{t('addMagazine.biweekly')}</SelectItem>
                   <SelectItem value="monthly">{t('addMagazine.monthly')}</SelectItem>
@@ -278,6 +283,41 @@ export default function AddMagazine() {
                   <SelectItem value="irregular">{t('addMagazine.irregular')}</SelectItem>
                 </SelectContent>
               </Select>
+              {['daily', 'weekly', 'biweekly'].includes(manualFrequency) && (
+                <div className="grid gap-1.5 mt-2">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('addMagazine.excludedDays')}
+                  </label>
+                  <div className="flex gap-1">
+                    {([
+                      [0, 'addMagazine.mon'],
+                      [1, 'addMagazine.tue'],
+                      [2, 'addMagazine.wed'],
+                      [3, 'addMagazine.thu'],
+                      [4, 'addMagazine.fri'],
+                      [5, 'addMagazine.sat'],
+                      [6, 'addMagazine.sun'],
+                    ] as [number, string][]).map(([day, key]) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() =>
+                          setExcludedDays((prev) =>
+                            prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                          )
+                        }
+                        className={`px-2 py-1 text-xs rounded border ${
+                          excludedDays.includes(day)
+                            ? 'bg-red-900/50 border-red-700 text-red-300'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                        }`}
+                      >
+                        {t(key)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Root Folder */}

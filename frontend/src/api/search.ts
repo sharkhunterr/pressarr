@@ -21,16 +21,20 @@ export const searchIssue = (issueId: number) =>
 export const searchMagazine = (magazineId: number) =>
   apiFetch<SearchResult[]>(`/search?magazineId=${magazineId}`)
 
+export const searchIndexers = (query: string) =>
+  apiFetch<SearchResult[]>(`/search?query=${encodeURIComponent(query)}`)
+
 export const grabRelease = (
   issueId: number,
   downloadUrl: string,
   title: string,
   protocol: string,
   guid: string,
+  magazineId?: number,
 ) =>
   apiFetch<void>('/search/grab', {
     method: 'POST',
-    body: JSON.stringify({ issueId, downloadUrl, title, protocol, guid }),
+    body: JSON.stringify({ issueId: issueId || undefined, downloadUrl, title, protocol, guid, magazineId }),
   })
 
 // Internet Archive

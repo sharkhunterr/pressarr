@@ -99,6 +99,11 @@ async def generate_forecasts(
     if magazine.frequency == "irregular" or magazine.frequency not in FREQUENCY_DELTAS:
         return []
 
+    # Parse excluded weekdays (ISO: 0=Monday … 6=Sunday)
+    excluded: set[int] = set()
+    if magazine.excluded_days:
+        excluded = {int(d) for d in magazine.excluded_days.split(",") if d.strip()}
+
     today = date.today()
     end_date = _add_months(today, months_ahead)
 
@@ -162,7 +167,8 @@ async def generate_forecasts(
         periods_skipped = 0
         while _advance_date(cursor, magazine.frequency) < max(next_date, start_date):
             cursor = _advance_date(cursor, magazine.frequency)
-            periods_skipped += 1
+            if cursor.weekday() not in excluded:
+                periods_skipped += 1
         number = last_number + periods_skipped + 1
     elif last_number is not None:
         number = last_number + 1
@@ -173,7 +179,7 @@ async def generate_forecasts(
     created = []
 
     while next_date <= end_date:
-        if next_date >= start_date:
+        if next_date >= start_date and next_date.weekday() not in excluded:
             # Skip numbers already taken by real issues
             if number is not None:
                 while number in existing_numbers:

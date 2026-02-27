@@ -40,6 +40,7 @@ export interface GeneralSettings {
   logLevel: string
   authEnabled: boolean
   scheduledTaskInterval: number
+  importMode: string
 }
 
 export interface NamingTemplate {

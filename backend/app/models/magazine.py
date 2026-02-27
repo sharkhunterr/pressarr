@@ -38,6 +38,7 @@ class Magazine(Base):
     )
     last_searched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_metadata_refresh: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    excluded_days: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")

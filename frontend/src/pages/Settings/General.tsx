@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 
 const LOG_LEVELS = ['debug', 'info', 'warning', 'error']
+const IMPORT_MODES = ['copy', 'move', 'copy_delete'] as const
 
 export default function General() {
   const { t } = useTranslation()
@@ -27,6 +28,7 @@ export default function General() {
   const [logLevel, setLogLevel] = useState('info')
   const [authEnabled, setAuthEnabled] = useState(false)
   const [taskInterval, setTaskInterval] = useState(60)
+  const [importMode, setImportMode] = useState('copy')
   const [initialized, setInitialized] = useState(false)
 
   const { isLoading } = useQuery({
@@ -38,6 +40,7 @@ export default function General() {
         setLogLevel(data.logLevel ?? 'info')
         setAuthEnabled(data.authEnabled ?? false)
         setTaskInterval(data.scheduledTaskInterval ?? 60)
+        setImportMode(data.importMode ?? 'copy')
         setInitialized(true)
       }
       return data
@@ -51,6 +54,7 @@ export default function General() {
         logLevel,
         authEnabled,
         scheduledTaskInterval: taskInterval,
+        importMode,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['generalSettings'] })
@@ -179,6 +183,35 @@ export default function General() {
               </div>
               <p className="text-xs text-zinc-500">
                 {t('general.taskIntervalDescription')}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Import Mode */}
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">{t('general.importMode')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('general.importModeLabel')}
+              </label>
+              <Select value={importMode} onValueChange={setImportMode}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {IMPORT_MODES.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {t(`general.importMode_${mode}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-zinc-500">
+                {t('general.importModeDescription')}
               </p>
             </div>
           </CardContent>

@@ -142,6 +142,7 @@ class ParseResult:
     volume: int | None = None
     year: int | None = None
     month: int | None = None
+    day: int | None = None
     language: str = "unknown"
     quality: str = "unknown"
     format: str = "unknown"
@@ -181,12 +182,14 @@ _RE_SPECIAL = re.compile(
 )
 
 # Issue number patterns (order matters)
+# Use negative lookbehind (?<![a-zA-Zà-ÿ]) to avoid matching the trailing
+# letter of words like "Parisien" as "N<number>".
 _RE_ISSUE = re.compile(
     r"(?:"
-    r"[Nn][\s.]?(\d+)(?:\s*[-–]\s*(\d+))?"  # N1285, N 1285, N.1285, N1285-1286
+    r"(?<![a-zA-Z\u00C0-\u024F])[Nn][\s.]?(\d+)(?:\s*[-–]\s*(\d+))?"  # N1285, N 1285, N.1285
     r"|[Ii]ssue\s+(\d+)"                      # Issue 12
     r"|#(\d+)"                                 # #42
-    r"|[Nn][oO]\.?\s*(\d+)"                    # No.5, No 5
+    r"|(?<![a-zA-Z\u00C0-\u024F])[Nn][oO]\.?\s*(\d+)"  # No.5, No 5
     r"|[Nn]um[eé]ro\s+(\d+)"                   # Numero 10
     r"|[Nn]r\.?\s*(\d+)"                        # Nr.5, Nr 5
     r")",
@@ -202,8 +205,14 @@ _RE_VOLUME = re.compile(
     re.IGNORECASE,
 )
 
+# Full date pattern: 2025-03-27 or 2025/03/27
+_RE_YEAR_MONTH_DAY = re.compile(r"\b((?:19|20)\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b")
+
 # Year-month pattern: 2025-03 or 2025/03
 _RE_YEAR_MONTH = re.compile(r"\b((?:19|20)\d{2})[-/](0[1-9]|1[0-2])\b")
+
+# Day-month-year with month name: "27 Février 2025", "27 Feb 2025"
+# Built dynamically after month name lookup is ready (see below)
 
 # Standalone year
 _RE_YEAR = re.compile(r"\b((?:19|20)\d{2})\b")
@@ -292,34 +301,52 @@ def parse_magazine_filename(filename: str) -> ParseResult:
                     break
 
         # 9. Extract date
-        # Try year-month format first (2025-03)
-        working, ym_match = _consume(working, _RE_YEAR_MONTH)
-        if ym_match:
-            result.year = int(ym_match.group(1))
-            result.month = int(ym_match.group(2))
+        # Try full date format first (2025-03-27)
+        working, ymd_match = _consume(working, _RE_YEAR_MONTH_DAY)
+        if ymd_match:
+            result.year = int(ymd_match.group(1))
+            result.month = int(ymd_match.group(2))
+            result.day = int(ymd_match.group(3))
         else:
-            # Extract year first (standalone 4-digit year)
-            working, y_match = _consume(working, _RE_YEAR)
-            if y_match:
-                result.year = int(y_match.group(1))
+            # Try year-month format (2025-03)
+            working, ym_match = _consume(working, _RE_YEAR_MONTH)
+            if ym_match:
+                result.year = int(ym_match.group(1))
+                result.month = int(ym_match.group(2))
+            else:
+                # Extract year first (standalone 4-digit year)
+                working, y_match = _consume(working, _RE_YEAR)
+                if y_match:
+                    result.year = int(y_match.group(1))
 
-            # Only try month name extraction if a year was found
-            # (prevents false matches like "Mag" → Italian May)
-            if result.year is not None:
-                working_lower = working.lower()
-                mn_match = _RE_MONTH_NAME.search(working_lower)
-                if mn_match:
-                    month_str = mn_match.group(1).lower()
-                    month_val = MONTH_NAMES.get(month_str) or MONTH_NAMES.get(
-                        _strip_accents(month_str)
-                    )
-                    if month_val:
-                        result.month = month_val
-                        working = (
-                            working[:mn_match.start()]
-                            + " "
-                            + working[mn_match.end():]
+                # Only try month name extraction if a year was found
+                # (prevents false matches like "Mag" → Italian May)
+                if result.year is not None:
+                    working_lower = working.lower()
+                    mn_match = _RE_MONTH_NAME.search(working_lower)
+                    if mn_match:
+                        month_str = mn_match.group(1).lower()
+                        month_val = MONTH_NAMES.get(month_str) or MONTH_NAMES.get(
+                            _strip_accents(month_str)
                         )
+                        if month_val:
+                            result.month = month_val
+                            working = (
+                                working[:mn_match.start()]
+                                + " "
+                                + working[mn_match.end():]
+                            )
+                            working = re.sub(r"\s+", " ", working).strip()
+
+            # Try "day month_name year" pattern: "27 Février 2025"
+            if result.year is not None and result.month is not None and result.day is None:
+                # Look for a bare day number near the month name
+                day_match = re.search(r"\b(0?[1-9]|[12]\d|3[01])\b", working)
+                if day_match:
+                    candidate = int(day_match.group(1))
+                    if 1 <= candidate <= 31:
+                        result.day = candidate
+                        working = working[:day_match.start()] + " " + working[day_match.end():]
                         working = re.sub(r"\s+", " ", working).strip()
 
         # 10. Remaining tokens = title
