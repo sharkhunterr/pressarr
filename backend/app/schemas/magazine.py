@@ -79,6 +79,12 @@ class MagazineUpdateResource(CamelModel):
     cover_issue_id: int | None = None
 
 
+class SourceInfo(CamelModel):
+    provider: str
+    provider_id: str
+    count: int = 1
+
+
 class MetadataSearchResult(CamelModel):
     provider: str
     provider_id: str
@@ -90,3 +96,4 @@ class MetadataSearchResult(CamelModel):
     issn: str | None = None
     frequency: str | None = None
     already_in_library: bool = False
+    sources: list[SourceInfo] = []

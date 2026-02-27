@@ -189,9 +189,16 @@ export default function AddMagazine() {
                   <p className="text-sm font-medium text-zinc-100 truncate">
                     {result.title}
                   </p>
-                  <Badge variant="outline" className="text-xs shrink-0">
-                    {result.provider === 'internet_archive' ? 'Internet Archive' : 'Google Books'}
-                  </Badge>
+                  {result.sources.map((s) => {
+                    const label = s.provider === 'internet_archive'
+                      ? t('addMagazine.sourceInternetArchive')
+                      : t('addMagazine.sourceGoogleBooks')
+                    return (
+                      <Badge key={s.provider} variant="outline" className="text-xs shrink-0">
+                        {s.count > 1 ? `${label} (${s.count})` : label}
+                      </Badge>
+                    )
+                  })}
                   {result.alreadyInLibrary && (
                     <Badge variant="secondary" className="text-xs">
                       <Library className="size-3" />

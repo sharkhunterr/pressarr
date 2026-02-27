@@ -30,6 +30,12 @@ export interface Magazine {
   }
 }
 
+export interface SourceInfo {
+  provider: string
+  providerId: string
+  count: number
+}
+
 export interface MetadataSearchResult {
   provider: string
   providerId: string
@@ -41,6 +47,7 @@ export interface MetadataSearchResult {
   issn: string | null
   frequency: string | null
   alreadyInLibrary: boolean
+  sources: SourceInfo[]
 }
 
 export const getMagazines = () =>

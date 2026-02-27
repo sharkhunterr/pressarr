@@ -93,7 +93,9 @@
     "monitoringStartDate": "Date de début de surveillance",
     "searchForMissing": "Rechercher les numéros manquants à l'ajout",
     "added": "Magazine ajouté avec succès.",
-    "addError": "Échec de l'ajout du magazine."
+    "addError": "Échec de l'ajout du magazine.",
+    "sourceGoogleBooks": "Google Books",
+    "sourceInternetArchive": "Internet Archive"
   },
   "magazineDetail": {
     "editTitle": "Modifier le magazine",

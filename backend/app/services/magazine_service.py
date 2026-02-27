@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.magazine import Magazine
 from app.models.issue import Issue
-from app.schemas.magazine import MetadataSearchResult
+from app.schemas.magazine import MetadataSearchResult, SourceInfo
 
 logger = logging.getLogger(__name__)
 
@@ -246,19 +246,43 @@ async def search_metadata(
         existing_slugs = {row[0] for row in result.all()}
 
     all_results: list[MetadataSearchResult] = []
-    seen_titles: set[str] = set()
+    seen_slugs: dict[str, int] = {}  # slug -> index in all_results
 
     for results in [google_results, archive_results]:
         if isinstance(results, BaseException):
             logger.warning("Metadata provider error: %s", results)
             continue
         for r in results:
-            # Deduplicate by normalized title
-            key = r.title.lower().strip()
-            if key in seen_titles:
-                continue
-            seen_titles.add(key)
             slug = generate_title_slug(r.title)
+            source = SourceInfo(provider=r.provider, provider_id=r.provider_id)
+
+            if slug in seen_slugs:
+                # Merge into existing entry
+                existing = all_results[seen_slugs[slug]]
+                # Increment count for existing provider or add new one
+                provider_source = next(
+                    (s for s in existing.sources if s.provider == r.provider), None
+                )
+                if provider_source:
+                    provider_source.count += 1
+                else:
+                    existing.sources.append(source)
+                if not existing.cover_url and r.cover_url:
+                    existing.cover_url = r.cover_url
+                if not existing.publisher and r.publisher:
+                    existing.publisher = r.publisher
+                if r.description and (
+                    not existing.description
+                    or len(r.description) > len(existing.description)
+                ):
+                    existing.description = r.description
+                if not existing.frequency and r.frequency:
+                    existing.frequency = r.frequency
+                if not existing.issn and r.issn:
+                    existing.issn = r.issn
+                continue
+
+            seen_slugs[slug] = len(all_results)
             all_results.append(
                 MetadataSearchResult(
                     provider=r.provider,
@@ -271,6 +295,7 @@ async def search_metadata(
                     issn=r.issn,
                     frequency=r.frequency,
                     already_in_library=slug in existing_slugs,
+                    sources=[source],
                 )
             )
 
