@@ -223,56 +223,46 @@ def _apply_path_mapping(path_str: str, remote_path: str | None, local_path: str 
 
 
 def _resolve_save_path(item, remote_path: str | None = None, local_path: str | None = None) -> Path | None:
-    """Resolve the actual file/folder path from a download client item.
+    """Resolve the exact file/folder path for a torrent item.
 
-    Download clients like Deluge report save_path as the parent directory.
-    We combine it with the torrent name to find the actual file/folder.
-    Applies remote→local path mapping if configured.
-
-    IMPORTANT: Never returns the bare base_path (e.g. /downloads) to avoid
-    scanning the entire downloads directory and importing unrelated files.
+    Strict mode: returns ONLY base_path/torrent_name.
+    No fallback, no directory scanning. If the exact path doesn't exist,
+    returns None so the caller reports an error.
     """
     mapped_save_path = _apply_path_mapping(item.save_path, remote_path, local_path)
     base_path = Path(mapped_save_path)
     torrent_name = item.name if item.name else None
 
     if not torrent_name:
-        # No torrent name — only use base_path if it's a file, not a directory
-        if base_path.is_file():
-            return base_path
+        logger.warning("No torrent name provided, cannot resolve path")
         return None
 
-    # 1. Direct: base_path / torrent_name (standard case)
     torrent_path = base_path / torrent_name
     if torrent_path.exists():
         return torrent_path
 
-    # 2. Search for the file by name in subdirectories of base_path
-    #    (handles cases where the volume mount adds an extra level)
-    if base_path.is_dir():
-        for match in base_path.rglob(torrent_name):
-            logger.info("Found torrent file via rglob: %s", match)
-            return match
-
     logger.warning(
-        "Could not find '%s' in %s or subdirectories",
-        torrent_name, base_path,
+        "Torrent file not found at exact path: %s "
+        "(base=%s, name=%s). Check volume mounts and Remote Path Mapping.",
+        torrent_path, base_path, torrent_name,
     )
     return None
 
 
 def _collect_importable_files(save_path: Path) -> list[Path]:
-    """Collect supported files from a path (file or directory).
+    """Return the torrent file(s) to import.
 
-    If save_path is a directory (e.g. a multi-file torrent), scan it
-    recursively. This is safe because _resolve_save_path already
-    narrowed down to the torrent-specific directory/file.
+    - If save_path is a supported file → return it directly.
+    - If save_path is a directory (multi-file torrent) → return only
+      the supported files inside that specific torrent folder.
     """
     supported = {".pdf", ".epub", ".cbr", ".cbz"}
+    if save_path.is_file():
+        if save_path.suffix.lower() in supported:
+            return [save_path]
+        return []
     if save_path.is_dir():
         return [f for f in save_path.rglob("*") if f.is_file() and f.suffix.lower() in supported]
-    if save_path.suffix.lower() in supported:
-        return [save_path]
     return []
 
 
