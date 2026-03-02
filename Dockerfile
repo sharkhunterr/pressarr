@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 
 # Copy built frontend
-COPY --from=frontend-builder /build/dist /app/static
+COPY --from=frontend-builder /build/dist /app/app/static
 
 # Create default directories
 RUN mkdir -p /config /magazines /downloads
