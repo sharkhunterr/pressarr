@@ -89,6 +89,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to existing tables (SQLite ALTER TABLE)
+        await conn.run_sync(_migrate_add_columns)
     logger.info("Database tables ensured")
 
     # Auto-generate API key on first start
@@ -101,6 +103,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Create default root folder /magazines if the directory exists
     await _create_default_root_folder()
+
+    # Load persistent grab registry
+    from app.services.download_service import _load_registry
+    _load_registry()
 
     # Start scheduler
     from app.scheduler import start_scheduler
@@ -115,6 +121,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     stop_scheduler()
     await close_database()
     logger.info("Pressarr stopped")
+
+
+def _migrate_add_columns(connection) -> None:
+    """Add new columns to existing tables (safe for SQLite)."""
+    import sqlalchemy as sa
+    migrations = [
+        ("download_client", "remote_path", "VARCHAR(500)"),
+        ("download_client", "local_path", "VARCHAR(500)"),
+    ]
+    for table, column, col_type in migrations:
+        try:
+            connection.execute(sa.text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+            logger.info("Migration: added %s.%s", table, column)
+        except Exception:
+            pass  # Column already exists
 
 
 async def _create_default_quality_profile() -> None:

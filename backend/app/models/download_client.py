@@ -20,6 +20,8 @@ class DownloadClient(Base):
     password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="pressarr")
+    remote_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    local_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

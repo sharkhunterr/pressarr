@@ -205,6 +205,29 @@ async def remove_from_queue(
     return {}
 
 
+@router.post("/{item_id}/import")
+async def trigger_manual_import(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger import for a completed download."""
+    from app.services.download_service import trigger_import
+
+    items = await _get_queue_items(db)
+    item = next((i for i in items if i.id == item_id), None)
+
+    if not item:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Queue item not found")
+
+    if not item.download_id:
+        from fastapi import HTTPException
+        raise HTTPException(400, "No download ID for this item")
+
+    result = await trigger_import(db, item.download_id)
+    return result
+
+
 @router.delete("/bulk")
 async def bulk_remove_from_queue(
     body: QueueBulkDeleteRequest,

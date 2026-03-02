@@ -1,6 +1,8 @@
 """Download management service."""
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,9 @@ from app.schemas.search import GrabResponse
 from app.services.history_service import create_event
 
 logger = logging.getLogger(__name__)
+
+# Persistent file for grab registry (survives container restarts)
+_GRAB_REGISTRY_PATH: Path | None = None
 
 
 @dataclass
@@ -26,6 +31,40 @@ _grab_registry: dict[str, _GrabInfo] = {}
 
 # download_ids that have already been imported (prevents re-processing)
 _processed_downloads: set[str] = set()
+
+
+def _get_registry_path() -> Path:
+    """Get the path for the persistent grab registry file."""
+    global _GRAB_REGISTRY_PATH
+    if _GRAB_REGISTRY_PATH is None:
+        from app.dependencies import get_config
+        config = get_config()
+        _GRAB_REGISTRY_PATH = config.config_path.parent / "grab_registry.json"
+    return _GRAB_REGISTRY_PATH
+
+
+def _save_registry() -> None:
+    """Persist grab registry to disk."""
+    try:
+        path = _get_registry_path()
+        data = {k: asdict(v) for k, v in _grab_registry.items()}
+        path.write_text(json.dumps(data, indent=2))
+    except Exception:
+        logger.debug("Could not save grab registry", exc_info=True)
+
+
+def _load_registry() -> None:
+    """Load grab registry from disk on startup."""
+    try:
+        path = _get_registry_path()
+        if path.exists():
+            data = json.loads(path.read_text())
+            for k, v in data.items():
+                if k not in _grab_registry:
+                    _grab_registry[k] = _GrabInfo(**v)
+            logger.info("Loaded %d entries from grab registry", len(data))
+    except Exception:
+        logger.debug("Could not load grab registry", exc_info=True)
 
 
 def get_grab_info(download_id: str) -> _GrabInfo | None:
@@ -73,6 +112,7 @@ async def grab_release(
                 issue_id=issue.id,
                 magazine_id=issue.magazine_id,
             )
+            _save_registry()
             logger.info(
                 "Registered grab: download_id=%s → issue_id=%d, magazine_id=%d",
                 download_id, issue.id, issue.magazine_id,
@@ -165,8 +205,57 @@ def _instantiate_client(record: DownloadClient):
         raise ValueError(f"Unknown client type: {client_type}")
 
 
+def _apply_path_mapping(path_str: str, remote_path: str | None, local_path: str | None) -> str:
+    """Apply remote→local path mapping (like Radarr/Sonarr Remote Path Mapping).
+
+    If the download client reports save_path=/data/complete and the mapping is
+    remote=/data/complete → local=/downloads, the result is /downloads.
+    """
+    if not remote_path or not local_path:
+        return path_str
+    # Normalize: ensure trailing slash for prefix matching
+    remote = remote_path.rstrip("/") + "/"
+    if path_str.startswith(remote) or path_str.rstrip("/") + "/" == remote:
+        mapped = path_str.replace(remote_path.rstrip("/"), local_path.rstrip("/"), 1)
+        logger.info("Path mapping: %s → %s", path_str, mapped)
+        return mapped
+    return path_str
+
+
+def _resolve_save_path(item, remote_path: str | None = None, local_path: str | None = None) -> Path | None:
+    """Resolve the actual file/folder path from a download client item.
+
+    Download clients like Deluge report save_path as the parent directory.
+    We combine it with the torrent name to find the actual file/folder.
+    Applies remote→local path mapping if configured.
+    """
+    mapped_save_path = _apply_path_mapping(item.save_path, remote_path, local_path)
+    base_path = Path(mapped_save_path)
+    torrent_path = base_path / item.name if item.name else base_path
+    # Use torrent-specific path if it exists, otherwise fall back
+    if torrent_path.exists():
+        return torrent_path
+    if base_path.exists():
+        return base_path
+    return None
+
+
+def _collect_importable_files(save_path: Path) -> list[Path]:
+    """Collect supported files from a path (file or directory)."""
+    supported = {".pdf", ".epub", ".cbr", ".cbz"}
+    if save_path.is_dir():
+        return [f for f in save_path.iterdir() if f.suffix.lower() in supported]
+    if save_path.suffix.lower() in supported:
+        return [save_path]
+    return []
+
+
 async def monitor_downloads(db: AsyncSession) -> None:
     """Poll all download clients, detect completed downloads, trigger import."""
+    # Ensure grab registry is loaded from disk
+    if not _grab_registry:
+        _load_registry()
+
     result = await db.execute(select(DownloadClient))
     clients = result.scalars().all()
 
@@ -180,64 +269,118 @@ async def monitor_downloads(db: AsyncSession) -> None:
                     item.download_id, item.status, item.save_path, item.name,
                 )
                 if item.status == "completed" and item.save_path:
-                    # Skip already-processed downloads
-                    if item.download_id and item.download_id in _processed_downloads:
-                        continue
-
-                    from pathlib import Path
-
-                    from app.dependencies import get_config
-                    from app.services.import_service import process_downloaded_file
-
-                    config = get_config()
-                    # save_path from Deluge is the parent directory;
-                    # combine with torrent name to find the actual file/folder
-                    base_path = Path(item.save_path)
-                    torrent_path = base_path / item.name if item.name else base_path
-                    # Use torrent-specific path if it exists, otherwise fall back
-                    if torrent_path.exists():
-                        save_path = torrent_path
-                    else:
-                        save_path = base_path
-                    logger.info(
-                        "Monitor: completed download %s — save_path=%s, exists=%s, is_dir=%s",
-                        item.download_id, save_path, save_path.exists(), save_path.is_dir() if save_path.exists() else "N/A",
+                    await _try_import_item(
+                        db, item,
+                        remote_path=client_record.remote_path,
+                        local_path=client_record.local_path,
                     )
-                    if not save_path.exists():
-                        logger.warning(
-                            "Monitor: path %s does not exist in container! Check volume mounts.",
-                            save_path,
-                        )
-                        continue
-                    files = (
-                        list(save_path.iterdir())
-                        if save_path.is_dir()
-                        else [save_path]
-                    )
-                    logger.info("Monitor: found files to check: %s", [str(f) for f in files])
-
-                    # Look up grab registry for issue association
-                    grab = _grab_registry.get(item.download_id) if item.download_id else None
-                    issue_id = grab.issue_id if grab else None
-                    magazine_id = grab.magazine_id if grab else None
-
-                    imported_any = False
-                    for f in files:
-                        if f.suffix.lower() in {".pdf", ".epub", ".cbr", ".cbz"}:
-                            result_info = await process_downloaded_file(
-                                db, f, config,
-                                magazine_id=magazine_id,
-                                issue_id=issue_id,
-                            )
-                            if result_info.get("success"):
-                                imported_any = True
-
-                    # Mark as processed and clean up registry
-                    # (download stays in client for seeding / user management)
-                    if imported_any and item.download_id:
-                        _processed_downloads.add(item.download_id)
-                        _grab_registry.pop(item.download_id, None)
         except Exception:
             logger.warning(
                 "Monitor error for %s", client_record.name, exc_info=True
             )
+
+
+async def _try_import_item(
+    db: AsyncSession,
+    item,
+    force: bool = False,
+    remote_path: str | None = None,
+    local_path: str | None = None,
+) -> dict:
+    """Try to import a completed download item. Returns import result dict."""
+    from app.dependencies import get_config
+    from app.services.import_service import process_downloaded_file
+
+    # Skip already-processed downloads (unless forced)
+    if not force and item.download_id and item.download_id in _processed_downloads:
+        return {"success": False, "message": "Already processed"}
+
+    config = get_config()
+    save_path = _resolve_save_path(item, remote_path=remote_path, local_path=local_path)
+
+    logger.info(
+        "Monitor: completed download %s — resolved_path=%s, name=%s, "
+        "original_save_path=%s, remote_path=%s, local_path=%s",
+        item.download_id, save_path, item.name,
+        item.save_path, remote_path, local_path,
+    )
+
+    if not save_path:
+        logger.warning(
+            "Monitor: path %s (+ name=%s) does not exist in container! "
+            "Check volume mounts or Remote Path Mapping. "
+            "Deluge save_path=%s, remote_path=%s, local_path=%s",
+            item.save_path, item.name, item.save_path, remote_path, local_path,
+        )
+        return {"success": False, "message": f"Path not found: {item.save_path}"}
+
+    files = _collect_importable_files(save_path)
+    logger.info("Monitor: found %d importable files: %s", len(files), [f.name for f in files])
+
+    if not files:
+        logger.warning("Monitor: no supported files found in %s", save_path)
+        return {"success": False, "message": f"No supported files in {save_path}"}
+
+    # Look up grab registry for issue association
+    grab = _grab_registry.get(item.download_id) if item.download_id else None
+    issue_id = grab.issue_id if grab else None
+    magazine_id = grab.magazine_id if grab else None
+
+    if grab:
+        logger.info(
+            "Monitor: grab registry hit — issue_id=%d, magazine_id=%d",
+            issue_id, magazine_id,
+        )
+    else:
+        logger.info("Monitor: no grab registry entry, will use filename parsing")
+
+    imported_any = False
+    last_result = {}
+    for f in files:
+        result_info = await process_downloaded_file(
+            db, f, config,
+            magazine_id=magazine_id,
+            issue_id=issue_id,
+        )
+        logger.info(
+            "Monitor: import result for %s: %s",
+            f.name, result_info,
+        )
+        last_result = result_info
+        if result_info.get("success"):
+            imported_any = True
+
+    # Mark as processed and clean up registry
+    # (download stays in client for seeding / user management)
+    if imported_any and item.download_id:
+        _processed_downloads.add(item.download_id)
+        _grab_registry.pop(item.download_id, None)
+        _save_registry()
+
+    return last_result
+
+
+async def trigger_import(db: AsyncSession, download_id: str) -> dict:
+    """Manually trigger import for a specific download by its ID.
+
+    Used by the queue API for manual import button.
+    """
+    result = await db.execute(select(DownloadClient))
+    clients = result.scalars().all()
+
+    for client_record in clients:
+        try:
+            client = _instantiate_client(client_record)
+            status = await client.get_status(download_id)
+            if status and status.save_path:
+                return await _try_import_item(
+                    db, status, force=True,
+                    remote_path=client_record.remote_path,
+                    local_path=client_record.local_path,
+                )
+        except Exception:
+            logger.warning(
+                "trigger_import error for %s", client_record.name, exc_info=True
+            )
+
+    return {"success": False, "message": f"Download {download_id} not found in any client"}

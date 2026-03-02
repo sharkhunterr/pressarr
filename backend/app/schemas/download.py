@@ -47,6 +47,8 @@ class DownloadClientResource(CamelModel):
     username: str | None = None
     # NOTE: password and api_key NEVER exposed in GET responses
     category: str
+    remote_path: str | None = None
+    local_path: str | None = None
     is_default: bool
     priority: int
 
@@ -64,6 +66,8 @@ class DownloadClientCreateResource(CamelModel):
     password: str | None = None
     api_key: str | None = None
     category: str = "pressarr"
+    remote_path: str | None = None
+    local_path: str | None = None
     is_default: bool = False
     priority: int = 1
 
@@ -79,6 +83,8 @@ class DownloadClientUpdateResource(CamelModel):
     password: str | None = None
     api_key: str | None = None
     category: str | None = None
+    remote_path: str | None = None
+    local_path: str | None = None
     is_default: bool | None = None
     priority: int | None = None
 
