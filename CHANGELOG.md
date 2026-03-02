@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.10](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.9...v0.1.10) (2026-03-02)
+
+
+### Bug Fixes
+
+* strict path resolution — no fallback, only exact torrent path ([3d739a7](https://github.com/sharkhunterr/pressarr/-/commit/3d739a727699b49652364f5b1cbccc5b25fe37d0))
+
 ### [0.1.9](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.8...v0.1.9) (2026-03-02)
 
 
