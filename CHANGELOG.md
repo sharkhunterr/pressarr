@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.8](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.7...v0.1.8) (2026-03-02)
+
+
+### Features
+
+* recursive file discovery and manual import button in queue UI ([96827cb](https://github.com/sharkhunterr/pressarr/-/commit/96827cb90255cca648e27b32b56c65688069a42b))
+
 ### [0.1.7](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.6...v0.1.7) (2026-03-02)
 
 
