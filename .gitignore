@@ -18,6 +18,7 @@ frontend/.vite/
 
 # Coverage
 coverage/
+.coverage
 
 # Environment
 .env*
