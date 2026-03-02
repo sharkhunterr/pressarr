@@ -17,9 +17,8 @@ class ProwlarrClient(IndexerBase):
         self, query: str, categories: list[int] | None = None
     ) -> list[RawSearchResult]:
         """Search via Prowlarr /api/v1/search with X-Api-Key header."""
-        params: dict = {"query": query, "type": "search"}
-        if categories:
-            params["categories"] = categories
+        cats = categories or [7010, 7020]
+        params: dict = {"query": query, "type": "search", "categories": cats}
         headers = {"X-Api-Key": self.api_key}
         resp = await self._client.get(
             f"{self.url}/api/v1/search", params=params, headers=headers

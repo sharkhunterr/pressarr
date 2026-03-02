@@ -44,12 +44,12 @@ export default function Library() {
         break
       case 'complete':
         result = result.filter(
-          (m) => m.issueCount > 0 && m.availableCount === m.issueCount,
+          (m) => m.statistics.issueCount > 0 && m.statistics.availableCount === m.statistics.issueCount,
         )
         break
       case 'incomplete':
         result = result.filter(
-          (m) => m.issueCount === 0 || m.availableCount < m.issueCount,
+          (m) => m.statistics.issueCount === 0 || m.statistics.availableCount < m.statistics.issueCount,
         )
         break
     }
@@ -64,8 +64,8 @@ export default function Library() {
         break
       case 'nextIssue':
         result.sort((a, b) => {
-          const aDate = a.lastRefreshed ? new Date(a.lastRefreshed).getTime() : 0
-          const bDate = b.lastRefreshed ? new Date(b.lastRefreshed).getTime() : 0
+          const aDate = a.lastMetadataRefresh ? new Date(a.lastMetadataRefresh).getTime() : 0
+          const bDate = b.lastMetadataRefresh ? new Date(b.lastMetadataRefresh).getTime() : 0
           return bDate - aDate
         })
         break

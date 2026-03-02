@@ -44,7 +44,6 @@ import {
 } from '@/api/issues'
 import {
   searchIssue,
-  searchMagazine,
   searchIndexers,
   grabRelease,
   searchInternetArchive,

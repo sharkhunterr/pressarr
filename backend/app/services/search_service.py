@@ -43,7 +43,7 @@ async def search_issue(
     from app.models.indexer_config import IndexerConfig
 
     indexer_result = await db.execute(
-        select(IndexerConfig).where(IndexerConfig.enabled == True)
+        select(IndexerConfig).where(IndexerConfig.enabled.is_(True))
     )
     indexers = indexer_result.scalars().all()
 
@@ -103,7 +103,7 @@ async def search_free(
     from app.models.indexer_config import IndexerConfig
 
     indexer_result = await db.execute(
-        select(IndexerConfig).where(IndexerConfig.enabled == True)
+        select(IndexerConfig).where(IndexerConfig.enabled.is_(True))
     )
     indexers = indexer_result.scalars().all()
 
@@ -151,7 +151,7 @@ async def search_magazine_missing(
         select(Issue).where(
             Issue.magazine_id == magazine_id,
             Issue.status.in_(["wanted"]),
-            Issue.monitored == True,
+            Issue.monitored.is_(True),
         )
     )
     wanted_issues = result.scalars().all()
@@ -188,7 +188,11 @@ def score_release(
     # Quality vs profile (30 pts max)
     quality_rank = _QUALITY_INDEX.get(quality, 0)
     cutoff_rank = max(
-        (_QUALITY_INDEX.get(item["quality"], 0) for item in profile_items if item.get("cutoff")),
+        (
+            _QUALITY_INDEX.get(item["quality"], 0)
+            for item in profile_items
+            if item.get("cutoff")
+        ),
         default=3,
     )
     if cutoff_rank > 0:
@@ -231,8 +235,9 @@ async def match_ia_results(
     results: list[SearchResultResource],
     magazine_id: int,
 ) -> list[SearchResultResource]:
-    """Compare Internet Archive results against wanted issues by normalized title + date/number.
+    """Compare IA results against wanted issues.
 
+    Match by normalized title + date/number.
     Results that match a wanted issue get a score boost; non-matching results
     are kept but scored lower.
     """
@@ -249,7 +254,7 @@ async def match_ia_results(
         select(Issue).where(
             Issue.magazine_id == magazine_id,
             Issue.status.in_(["wanted", "missing"]),
-            Issue.monitored == True,
+            Issue.monitored.is_(True),
         )
     )
     wanted_issues = issue_result.scalars().all()
@@ -312,6 +317,10 @@ async def _get_quality_items(db: AsyncSession, profile_id: int | None) -> list[d
     )
     items = result.scalars().all()
     return [
-        {"quality": item.quality, "allowed": item.allowed, "sort_order": item.sort_order}
+        {
+            "quality": item.quality,
+            "allowed": item.allowed,
+            "sort_order": item.sort_order,
+        }
         for item in items
     ]
