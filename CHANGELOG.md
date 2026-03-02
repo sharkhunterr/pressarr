@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.3](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.2...v0.1.3) (2026-03-02)
+
+
+### Bug Fixes
+
+* correct frontend static files path in Dockerfile ([bd0c1d9](https://github.com/sharkhunterr/pressarr/-/commit/bd0c1d92ec82f5e70103dbb80a8e859e407f2784))
+* resolve all ruff linting errors in backend ([dacb906](https://github.com/sharkhunterr/pressarr/-/commit/dacb9069ef7579537d01f7c10a286d02a8f2b6a7))
+* resolve remaining E501 line-too-long ruff errors ([0b7e69d](https://github.com/sharkhunterr/pressarr/-/commit/0b7e69d03af79e158939a5ac4fd5cdc985f0b8a5))
+
 ### [0.1.2](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.1...v0.1.2) (2026-03-02)
 
 
