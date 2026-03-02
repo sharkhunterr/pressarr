@@ -280,7 +280,8 @@ async def monitor_downloads(db: AsyncSession) -> None:
             client = _instantiate_client(client_record)
             items = await client.get_all(category=client_record.category)
             for item in items:
-                logger.debug(
+                log_fn = logger.info if item.status == "completed" else logger.debug
+                log_fn(
                     "Monitor: %s status=%s save_path=%s name=%s",
                     item.download_id, item.status, item.save_path, item.name,
                 )
@@ -320,6 +321,7 @@ async def _try_import_item(
 
     # Skip already-processed downloads (unless forced)
     if not force and item.download_id and item.download_id in _processed_downloads:
+        logger.debug("Skipping already-processed download %s", item.download_id)
         return {"success": False, "message": "Already processed"}
 
     config = get_config()
