@@ -1,6 +1,6 @@
 """Issue and issue file Pydantic schemas."""
 
-from datetime import datetime, date
+from datetime import date, datetime
 
 from app.schemas import CamelModel
 

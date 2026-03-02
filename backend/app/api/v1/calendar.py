@@ -43,8 +43,9 @@ async def skip_forecast(
     if issue is None:
         raise HTTPException(404, "Forecast not found")
     # Build response
-    from app.models.magazine import Magazine
     from sqlalchemy import select
+
+    from app.models.magazine import Magazine
     mag_result = await db.execute(select(Magazine).where(Magazine.id == issue.magazine_id))
     mag = mag_result.scalars().first()
     return CalendarResource(
@@ -67,8 +68,9 @@ async def unskip_forecast(
     issue = await calendar_service.unskip_forecast(db, issue_id)
     if issue is None:
         raise HTTPException(404, "Forecast not found or not skipped")
-    from app.models.magazine import Magazine
     from sqlalchemy import select
+
+    from app.models.magazine import Magazine
     mag_result = await db.execute(select(Magazine).where(Magazine.id == issue.magazine_id))
     mag = mag_result.scalars().first()
     return CalendarResource(

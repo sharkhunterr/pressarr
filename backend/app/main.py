@@ -2,8 +2,8 @@
 
 import logging
 import os
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
@@ -12,8 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import Config
-from app.database import init_database, close_database
-from app.dependencies import set_config, get_config
+from app.database import close_database, init_database
+from app.dependencies import get_config, set_config
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +84,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_database(str(config.db_path))
 
     # Auto-create tables (Alembic used for dev migrations)
-    from app.database import engine, Base
     import app.models  # noqa: F401 — register all models
+    from app.database import Base, engine
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -119,8 +119,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 async def _create_default_quality_profile() -> None:
     """Create the default quality profile if none exists."""
-    from app.database import async_session_factory
     from sqlalchemy import select
+
+    from app.database import async_session_factory
 
     if async_session_factory is None:
         return
@@ -167,8 +168,9 @@ async def _create_default_root_folder() -> None:
     if not magazines_path.is_dir():
         return
 
-    from app.database import async_session_factory
     from sqlalchemy import select
+
+    from app.database import async_session_factory
 
     if async_session_factory is None:
         return
@@ -234,22 +236,22 @@ def create_app() -> FastAPI:
     app.add_middleware(ApiKeyMiddleware)
 
     # Register API routes
-    from app.api.v1.command import router as command_router
-    from app.api.v1.quality_profile import router as quality_router
-    from app.api.v1.system import router as system_router
-    from app.api.v1.root_folder import router as root_folder_router
-    from app.api.v1.indexer import router as indexer_router
-    from app.api.v1.download_client import router as download_client_router
-    from app.api.v1.notification import router as notification_router
-    from app.api.v1.history import router as history_router
     from app.api.v1.blocklist import router as blocklist_router
-    from app.api.v1.websocket import router as ws_router
-    from app.api.v1.magazine import router as magazine_router
-    from app.api.v1.issue import router as issue_router
-    from app.api.v1.search import router as search_router
     from app.api.v1.calendar import router as calendar_router
+    from app.api.v1.command import router as command_router
+    from app.api.v1.download_client import router as download_client_router
+    from app.api.v1.history import router as history_router
+    from app.api.v1.indexer import router as indexer_router
+    from app.api.v1.issue import router as issue_router
+    from app.api.v1.magazine import router as magazine_router
+    from app.api.v1.notification import router as notification_router
+    from app.api.v1.quality_profile import router as quality_router
     from app.api.v1.queue import router as queue_router
+    from app.api.v1.root_folder import router as root_folder_router
+    from app.api.v1.search import router as search_router
     from app.api.v1.settings import router as settings_router
+    from app.api.v1.system import router as system_router
+    from app.api.v1.websocket import router as ws_router
 
     app.include_router(command_router)
     app.include_router(quality_router)

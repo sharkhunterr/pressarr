@@ -7,7 +7,6 @@ from pydantic import field_validator
 
 from app.schemas import CamelModel
 
-
 # Keys in notification settings that contain secrets
 _SECRET_KEYS = {"webhook_url", "token", "app_token", "bot_token", "api_key", "password"}
 

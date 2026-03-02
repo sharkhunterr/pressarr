@@ -1,13 +1,13 @@
 """History event tracking and blocklist management."""
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, func, delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.history import History
 from app.models.blocklist import Blocklist
+from app.models.history import History
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ async def list_events(
 
 
 async def purge_old_events(db: AsyncSession, retention_days: int = 365) -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
     result = await db.execute(
         delete(History).where(History.date < cutoff)
     )

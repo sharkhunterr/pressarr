@@ -1,7 +1,7 @@
 """History event endpoints."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -10,7 +10,6 @@ from app.models.issue import Issue
 from app.models.magazine import Magazine
 from app.schemas import PaginatedResource
 from app.schemas.history import HistoryResource
-from app.services import history_service
 
 router = APIRouter(prefix="/api/v1/history", tags=["History"])
 

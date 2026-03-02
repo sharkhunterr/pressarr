@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
 from app.schemas import PaginatedResource
-from app.schemas.history import BlocklistResource, BlocklistBulkDeleteRequest
+from app.schemas.history import BlocklistBulkDeleteRequest, BlocklistResource
 from app.services import history_service
 
 router = APIRouter(prefix="/api/v1/blocklist", tags=["Blocklist"])

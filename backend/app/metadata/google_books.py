@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import select
@@ -116,7 +116,7 @@ class GoogleBooksProvider(MetadataProviderBase):
 
     async def _get_cache(self, cache_key: str) -> str | None:
         assert self.db is not None
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = (
             select(MetadataCache.response_json)
             .where(
@@ -131,7 +131,7 @@ class GoogleBooksProvider(MetadataProviderBase):
 
     async def _set_cache(self, cache_key: str, response_json: str) -> None:
         assert self.db is not None
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(hours=CACHE_TTL_HOURS)
 
         # Upsert: delete old then insert

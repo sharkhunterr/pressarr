@@ -7,7 +7,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
-from app.schemas.issue import IssueBatchMonitorRequest, IssueResource, IssueUpdateRequest
+from app.schemas.issue import (
+    IssueBatchMonitorRequest,
+    IssueResource,
+    IssueUpdateRequest,
+)
 from app.services import issue_service
 from app.services.command_service import execute_command, register_command
 
@@ -120,6 +124,7 @@ async def download_issue_file(
     """Download the file associated with an issue."""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
     from app.models.issue import Issue
 
     result = await db.execute(

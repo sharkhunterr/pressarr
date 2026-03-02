@@ -222,7 +222,9 @@ async def _run_import(
                     await db.commit()
                     logger.info("[_run_import] DB committed OK")
                     return result
-                logger.warning("[_run_import] import_file_for_issue not successful, falling through to process_downloaded_file")
+                logger.warning(
+                    "[_run_import] import_file_for_issue not successful, falling through to process_downloaded_file"
+                )
             # Fallback to generic filename-based import (with magazine_id hint)
             logger.info("[_run_import] Using process_downloaded_file (fallback, magazine_id=%s)", magazine_id)
             from app.services.import_service import (
@@ -248,6 +250,7 @@ async def _lookup_issue_info(
     if not issue_id:
         return None, None, None
     from sqlalchemy import select
+
     from app.models.issue import Issue
     from app.models.magazine import Magazine
 
@@ -276,6 +279,7 @@ async def _resolve_or_create_issue(
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
     from app.models.issue import Issue
     from app.parser.magazine_parser import parse_magazine_filename
 
@@ -432,6 +436,7 @@ async def download_from_internet_archive(
     if not magazine_id and body.magazine_id:
         magazine_id = body.magazine_id
         from sqlalchemy import select as sa_select
+
         from app.models.magazine import Magazine
         mag_result = await db.execute(
             sa_select(Magazine.title).where(Magazine.id == body.magazine_id)
@@ -527,6 +532,7 @@ async def _create_grab_event(
             # If we have an issue_id, set its status to "snatched"
             if issue_id:
                 from sqlalchemy import select as sa_select
+
                 from app.models.issue import Issue
 
                 result = await db.execute(
@@ -561,9 +567,9 @@ async def _ia_download_task(
     config,
 ) -> None:
     """Background task: download from Internet Archive + import."""
+    from app.api.v1.websocket import manager
     from app.download_clients.internet_archive import InternetArchiveClient
     from app.services.direct_download_tracker import tracker
-    from app.api.v1.websocket import manager
 
     ia_client = InternetArchiveClient()
 
@@ -779,6 +785,7 @@ async def download_from_annas_archive(
     if not magazine_id and body.magazine_id:
         magazine_id = body.magazine_id
         from sqlalchemy import select as sa_select
+
         from app.models.magazine import Magazine
         mag_result = await db.execute(
             sa_select(Magazine.title).where(Magazine.id == body.magazine_id)
@@ -838,9 +845,9 @@ async def _aa_download_task(
     config,
 ) -> None:
     """Background task: download from Anna's Archive + import."""
+    from app.api.v1.websocket import manager
     from app.download_clients.annas_archive import AnnasArchiveClient
     from app.services.direct_download_tracker import tracker
-    from app.api.v1.websocket import manager
 
     aa_client = AnnasArchiveClient(mirror=mirror)
 

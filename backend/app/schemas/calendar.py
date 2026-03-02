@@ -1,5 +1,6 @@
 """Calendar and forecast Pydantic schemas."""
 from datetime import date
+
 from app.schemas import CamelModel
 
 

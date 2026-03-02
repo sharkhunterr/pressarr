@@ -10,7 +10,7 @@ import re
 import socket
 import time
 from pathlib import Path
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 import httpx
 from lxml import html as lxml_html

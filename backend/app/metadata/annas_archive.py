@@ -240,7 +240,7 @@ class AnnasArchiveProvider:
         )
 
         # Keywords that indicate a download mirror/link
-        _DOWNLOAD_KEYWORDS = [
+        download_keywords = [
             "libgen",
             "library.lol",
             "library.gift",
@@ -255,7 +255,7 @@ class AnnasArchiveProvider:
             "/dl/",
         ]
         # Keywords to exclude (navigation, search, etc.)
-        _EXCLUDE_KEYWORDS = [
+        exclude_keywords = [
             "/search",
             "/md5/",
             "javascript:",
@@ -272,10 +272,10 @@ class AnnasArchiveProvider:
             if not href.startswith("http"):
                 continue
             # Skip self-referencing / navigation links
-            if any(excl in href for excl in _EXCLUDE_KEYWORDS):
+            if any(excl in href for excl in exclude_keywords):
                 continue
             # Check if it matches any download keyword
-            if any(kw in href.lower() for kw in _DOWNLOAD_KEYWORDS):
+            if any(kw in href.lower() for kw in download_keywords):
                 seen.add(href)
                 links.append(href)
 
@@ -287,7 +287,7 @@ class AnnasArchiveProvider:
                 if (
                     href.startswith("http")
                     and href not in seen
-                    and not any(excl in href for excl in _EXCLUDE_KEYWORDS)
+                    and not any(excl in href for excl in exclude_keywords)
                 ):
                     seen.add(href)
                     links.append(href)

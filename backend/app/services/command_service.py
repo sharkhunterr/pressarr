@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.schemas.command import CommandResource, CommandStatus
@@ -49,7 +49,7 @@ async def _run_command(command_id: int, name: str, body: dict | None) -> None:
     """Run a command handler and update status."""
     command = _commands[command_id]
     command.status = CommandStatus.started
-    command.started = datetime.now(timezone.utc)
+    command.started = datetime.now(UTC)
 
     try:
         handler = _command_handlers[name]
@@ -61,7 +61,7 @@ async def _run_command(command_id: int, name: str, body: dict | None) -> None:
         command.status = CommandStatus.failed
         command.message = str(e)
     finally:
-        command.ended = datetime.now(timezone.utc)
+        command.ended = datetime.now(UTC)
 
 
 def get_command(command_id: int) -> CommandResource | None:

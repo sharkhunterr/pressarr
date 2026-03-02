@@ -8,8 +8,8 @@ from sqlalchemy.orm import selectinload
 
 from app.models.issue import Issue
 from app.models.magazine import Magazine
-from app.models.quality_profile import QualityProfile, QualityProfileItem
-from app.parser.magazine_parser import parse_magazine_filename, fuzzy_match_title
+from app.models.quality_profile import QualityProfileItem
+from app.parser.magazine_parser import fuzzy_match_title, parse_magazine_filename
 from app.schemas.search import SearchResultResource
 from app.services.history_service import is_blocklisted
 from app.services.quality_service import QUALITY_ORDER

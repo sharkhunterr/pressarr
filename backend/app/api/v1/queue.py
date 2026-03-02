@@ -72,6 +72,7 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
     # Batch-load issue + magazine metadata for all grab-registered downloads
     if pending_enrichments:
         from sqlalchemy.orm import selectinload
+
         from app.models.issue import Issue
 
         issue_ids = [eid for eid, _ in pending_enrichments.values()]
@@ -127,19 +128,32 @@ def _instantiate_client(record: DownloadClient):
 
     if client_type == "deluge":
         from app.download_clients.deluge import DelugeClient
-        return DelugeClient(host=record.host, port=record.port, password=record.password or "", use_ssl=record.use_ssl)
+        return DelugeClient(
+            host=record.host, port=record.port, password=record.password or "", use_ssl=record.use_ssl,
+        )
     elif client_type == "qbittorrent":
         from app.download_clients.qbittorrent import QBittorrentClient
-        return QBittorrentClient(host=record.host, port=record.port, username=record.username or "admin", password=record.password or "", use_ssl=record.use_ssl)
+        return QBittorrentClient(
+            host=record.host, port=record.port, username=record.username or "admin",
+            password=record.password or "", use_ssl=record.use_ssl,
+        )
     elif client_type == "transmission":
         from app.download_clients.transmission import TransmissionClient
-        return TransmissionClient(host=record.host, port=record.port, username=record.username, password=record.password, use_ssl=record.use_ssl)
+        return TransmissionClient(
+            host=record.host, port=record.port, username=record.username,
+            password=record.password, use_ssl=record.use_ssl,
+        )
     elif client_type == "sabnzbd":
         from app.download_clients.sabnzbd import SABnzbdClient
-        return SABnzbdClient(host=record.host, port=record.port, api_key=record.api_key or "", use_ssl=record.use_ssl)
+        return SABnzbdClient(
+            host=record.host, port=record.port, api_key=record.api_key or "", use_ssl=record.use_ssl,
+        )
     elif client_type == "nzbget":
         from app.download_clients.nzbget import NZBGetClient
-        return NZBGetClient(host=record.host, port=record.port, username=record.username or "nzbget", password=record.password or "", use_ssl=record.use_ssl)
+        return NZBGetClient(
+            host=record.host, port=record.port, username=record.username or "nzbget",
+            password=record.password or "", use_ssl=record.use_ssl,
+        )
     else:
         raise ValueError(f"Unknown client type: {client_type}")
 

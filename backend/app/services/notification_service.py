@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification
 from app.notifications.base import NotificationPayload, NotificationProvider
-from app.schemas.notification import NotificationCreateResource, NotificationUpdateResource
+from app.schemas.notification import (
+    NotificationCreateResource,
+    NotificationUpdateResource,
+)
 
 logger = logging.getLogger(__name__)
 

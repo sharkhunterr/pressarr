@@ -2,19 +2,19 @@
 
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, get_config
-from app.models.magazine import Magazine
+from app.dependencies import get_config, get_db
 from app.models.issue import Issue
+from app.models.magazine import Magazine
 from app.schemas.system import (
     DiskSpaceResource,
-    SystemStatusResource,
     HealthCheckResource,
+    SystemStatusResource,
 )
 
 router = APIRouter(prefix="/api/v1/system", tags=["System"])
@@ -60,7 +60,7 @@ async def get_status(db: AsyncSession = Depends(get_db)):
 
     return SystemStatusResource(
         version=config.version if hasattr(config, "version") else "0.1.0",
-        start_time=datetime.fromtimestamp(_start_time, tz=timezone.utc),
+        start_time=datetime.fromtimestamp(_start_time, tz=UTC),
         uptime_seconds=time.time() - _start_time,
         magazine_count=mag_count,
         issue_count=issue_count,

@@ -4,14 +4,15 @@ import io
 import logging
 import re
 import unicodedata
+from datetime import UTC
 from pathlib import Path
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.magazine import Magazine
 from app.models.issue import Issue
+from app.models.magazine import Magazine
 from app.schemas.magazine import MetadataSearchResult, SourceInfo
 
 logger = logging.getLogger(__name__)
@@ -330,8 +331,8 @@ async def refresh_metadata(db: AsyncSession, magazine_id: int) -> str | None:
     if not magazine.metadata_provider or not magazine.metadata_provider_id:
         return "No metadata provider configured"
 
-    from datetime import datetime, timezone
-    magazine.last_metadata_refresh = datetime.now(timezone.utc)
+    from datetime import datetime
+    magazine.last_metadata_refresh = datetime.now(UTC)
     await db.flush()
 
     return f"Metadata refreshed for '{magazine.title}'"

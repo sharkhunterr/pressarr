@@ -1,12 +1,12 @@
 """Async SQLAlchemy engine and session factory for SQLite."""
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import event
 
 
 class Base(DeclarativeBase):

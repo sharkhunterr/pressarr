@@ -181,8 +181,9 @@ async def monitor_downloads(db: AsyncSession) -> None:
                         continue
 
                     from pathlib import Path
-                    from app.services.import_service import process_downloaded_file
+
                     from app.dependencies import get_config
+                    from app.services.import_service import process_downloaded_file
 
                     config = get_config()
                     save_path = Path(item.save_path)

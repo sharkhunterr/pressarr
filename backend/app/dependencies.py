@@ -4,8 +4,8 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import Config
 import app.database as db_module
+from app.config import Config
 
 _config: Config | None = None
 

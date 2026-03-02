@@ -139,7 +139,6 @@ async def extract_cover(pdf_path: str | Path, output_dir: str | Path) -> str | N
     Returns path to cover image or None on failure.
     """
     import asyncio
-    from functools import partial
 
     pdf_path = Path(pdf_path)
     output_dir = Path(output_dir)
@@ -266,7 +265,7 @@ async def process_downloaded_file(
     from app.models.issue_file import IssueFile
     from app.models.magazine import Magazine
     from app.models.root_folder import RootFolder
-    from app.parser.magazine_parser import parse_magazine_filename, fuzzy_match_title
+    from app.parser.magazine_parser import fuzzy_match_title, parse_magazine_filename
     from app.services.history_service import create_event
     from app.services.quality_service import should_upgrade
 
@@ -321,7 +320,11 @@ async def process_downloaded_file(
             match = fuzzy_match_title(parsed.title, known_titles, threshold=80.0)
             if not match:
                 # Move to unmatched directory
-                unmatched_dir = Path(config.download_path) / "unmatched" if hasattr(config, "download_path") else file_path.parent / "unmatched"
+                unmatched_dir = (
+                    Path(config.download_path) / "unmatched"
+                    if hasattr(config, "download_path")
+                    else file_path.parent / "unmatched"
+                )
                 unmatched_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(file_path), str(unmatched_dir / file_path.name))
                 await create_event(db, "unmatched", details=f"Unmatched file: {file_path.name}")
@@ -425,7 +428,10 @@ async def process_downloaded_file(
                 cutoff = qp.cutoff
 
         if not should_upgrade(existing_file.quality, parsed.quality, cutoff, quality_items):
-            logger.info("Skipping %s — quality %s not an upgrade over %s", file_path.name, parsed.quality, existing_file.quality)
+            logger.info(
+                "Skipping %s — quality %s not an upgrade over %s",
+                file_path.name, parsed.quality, existing_file.quality,
+            )
             return {"success": False, "issue_id": issue.id, "message": "Not a quality upgrade"}
 
         # Remove old file

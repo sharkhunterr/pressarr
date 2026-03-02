@@ -5,7 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.quality_profile import QualityProfile, QualityProfileItem
-from app.schemas.quality import QualityProfileCreateResource, QualityProfileUpdateResource
+from app.schemas.quality import (
+    QualityProfileCreateResource,
+    QualityProfileUpdateResource,
+)
 
 # Ordered from lowest to highest quality.
 QUALITY_ORDER: list[str] = [
