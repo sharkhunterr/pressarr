@@ -311,6 +311,8 @@ async def _try_import_item(
     force: bool = False,
     remote_path: str | None = None,
     local_path: str | None = None,
+    override_issue_id: int | None = None,
+    override_magazine_id: int | None = None,
 ) -> dict:
     """Try to import a completed download item. Returns import result dict."""
     from app.dependencies import get_config
@@ -337,7 +339,15 @@ async def _try_import_item(
             "Deluge save_path=%s, remote_path=%s, local_path=%s",
             item.save_path, item.name, item.save_path, remote_path, local_path,
         )
-        return {"success": False, "message": f"Path not found: {item.save_path}"}
+        mapped = _apply_path_mapping(item.save_path, remote_path, local_path)
+        expected = f"{mapped}/{item.name}" if item.name else mapped
+        return {
+            "success": False,
+            "message": (
+                f"File not found: {expected} "
+                f"(remote_path={remote_path!r}, local_path={local_path!r})"
+            ),
+        }
 
     files = _collect_importable_files(save_path)
     logger.info("Monitor: found %d importable files: %s", len(files), [f.name for f in files])
@@ -346,18 +356,27 @@ async def _try_import_item(
         logger.warning("Monitor: no supported files found in %s", save_path)
         return {"success": False, "message": f"No supported files in {save_path}"}
 
-    # Look up grab registry for issue association
-    grab = _grab_registry.get(item.download_id) if item.download_id else None
-    issue_id = grab.issue_id if grab else None
-    magazine_id = grab.magazine_id if grab else None
+    # Resolve issue/magazine association:
+    # 1. Override params (from queue item metadata) take priority
+    # 2. Then grab registry (from grab time)
+    # 3. Fallback: filename parsing in process_downloaded_file
+    issue_id = override_issue_id
+    magazine_id = override_magazine_id
 
-    if grab:
+    if not issue_id:
+        grab = _grab_registry.get(item.download_id) if item.download_id else None
+        if grab:
+            issue_id = grab.issue_id
+            magazine_id = grab.magazine_id
+
+    if issue_id:
         logger.info(
-            "Monitor: grab registry hit — issue_id=%d, magazine_id=%d",
+            "Monitor: issue association — issue_id=%d, magazine_id=%s (source=%s)",
             issue_id, magazine_id,
+            "queue_item" if override_issue_id else "grab_registry",
         )
     else:
-        logger.info("Monitor: no grab registry entry, will use filename parsing")
+        logger.info("Monitor: no issue association, will use filename parsing")
 
     imported_any = False
     last_result = {}
@@ -385,10 +404,16 @@ async def _try_import_item(
     return last_result
 
 
-async def trigger_import(db: AsyncSession, download_id: str) -> dict:
+async def trigger_import(
+    db: AsyncSession,
+    download_id: str,
+    issue_id: int | None = None,
+    magazine_id: int | None = None,
+) -> dict:
     """Manually trigger import for a specific download by its ID.
 
-    Used by the queue API for manual import button.
+    When issue_id/magazine_id are provided (from the queue item metadata),
+    they take priority over the grab registry lookup.
     """
     # Load all clients upfront to avoid lazy-loading issues after rollback
     result = await db.execute(select(DownloadClient))
@@ -425,6 +450,8 @@ async def trigger_import(db: AsyncSession, download_id: str) -> dict:
                     db, status, force=True,
                     remote_path=cfg["remote_path"],
                     local_path=cfg["local_path"],
+                    override_issue_id=issue_id,
+                    override_magazine_id=magazine_id,
                 )
         except Exception:
             logger.warning(

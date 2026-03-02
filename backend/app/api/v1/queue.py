@@ -224,7 +224,11 @@ async def trigger_manual_import(
         from fastapi import HTTPException
         raise HTTPException(400, "No download ID for this item")
 
-    result = await trigger_import(db, item.download_id)
+    result = await trigger_import(
+        db, item.download_id,
+        issue_id=item.issue_id,
+        magazine_id=item.magazine_id,
+    )
     return result
 
 

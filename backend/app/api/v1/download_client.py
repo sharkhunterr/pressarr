@@ -101,6 +101,8 @@ async def create_download_client(
         password=body.password,
         api_key=body.api_key,
         category=body.category,
+        remote_path=body.remote_path,
+        local_path=body.local_path,
         is_default=body.is_default,
         priority=body.priority,
     )
