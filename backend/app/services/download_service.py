@@ -228,33 +228,48 @@ def _resolve_save_path(item, remote_path: str | None = None, local_path: str | N
     Download clients like Deluge report save_path as the parent directory.
     We combine it with the torrent name to find the actual file/folder.
     Applies remote→local path mapping if configured.
+
+    IMPORTANT: Never returns the bare base_path (e.g. /downloads) to avoid
+    scanning the entire downloads directory and importing unrelated files.
     """
     mapped_save_path = _apply_path_mapping(item.save_path, remote_path, local_path)
     base_path = Path(mapped_save_path)
-    torrent_path = base_path / item.name if item.name else base_path
-    # Use torrent-specific path if it exists, otherwise fall back
+    torrent_name = item.name if item.name else None
+
+    if not torrent_name:
+        # No torrent name — only use base_path if it's a file, not a directory
+        if base_path.is_file():
+            return base_path
+        return None
+
+    # 1. Direct: base_path / torrent_name (standard case)
+    torrent_path = base_path / torrent_name
     if torrent_path.exists():
         return torrent_path
-    if base_path.exists():
-        return base_path
+
+    # 2. Search for the file by name in subdirectories of base_path
+    #    (handles cases where the volume mount adds an extra level)
+    if base_path.is_dir():
+        for match in base_path.rglob(torrent_name):
+            logger.info("Found torrent file via rglob: %s", match)
+            return match
+
+    logger.warning(
+        "Could not find '%s' in %s or subdirectories",
+        torrent_name, base_path,
+    )
     return None
 
 
 def _collect_importable_files(save_path: Path) -> list[Path]:
-    """Collect supported files from a path (file or directory), recursively."""
+    """Collect supported files from a path (file or directory).
+
+    If save_path is a directory (e.g. a multi-file torrent), scan it
+    recursively. This is safe because _resolve_save_path already
+    narrowed down to the torrent-specific directory/file.
+    """
     supported = {".pdf", ".epub", ".cbr", ".cbz"}
     if save_path.is_dir():
-        # Log directory contents for diagnostics
-        try:
-            contents = list(save_path.iterdir())
-            logger.info(
-                "Directory listing for %s: %s",
-                save_path,
-                [f"{c.name} ({'dir' if c.is_dir() else c.suffix})" for c in contents[:30]],
-            )
-        except Exception:
-            logger.warning("Could not list directory %s", save_path, exc_info=True)
-        # Recursive search using rglob
         return [f for f in save_path.rglob("*") if f.is_file() and f.suffix.lower() in supported]
     if save_path.suffix.lower() in supported:
         return [save_path]
@@ -280,11 +295,20 @@ async def monitor_downloads(db: AsyncSession) -> None:
                     item.download_id, item.status, item.save_path, item.name,
                 )
                 if item.status == "completed" and item.save_path:
-                    await _try_import_item(
-                        db, item,
-                        remote_path=client_record.remote_path,
-                        local_path=client_record.local_path,
-                    )
+                    try:
+                        await _try_import_item(
+                            db, item,
+                            remote_path=client_record.remote_path,
+                            local_path=client_record.local_path,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Monitor: import failed for %s", item.download_id, exc_info=True
+                        )
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
         except Exception:
             logger.warning(
                 "Monitor error for %s", client_record.name, exc_info=True
@@ -376,22 +400,50 @@ async def trigger_import(db: AsyncSession, download_id: str) -> dict:
 
     Used by the queue API for manual import button.
     """
+    # Load all clients upfront to avoid lazy-loading issues after rollback
     result = await db.execute(select(DownloadClient))
-    clients = result.scalars().all()
+    clients = list(result.scalars().all())
+    # Eagerly read all attributes we need before any potential rollback
+    client_configs = [
+        {
+            "record": cr,
+            "name": cr.name,
+            "client_type": cr.client_type,
+            "host": cr.host,
+            "port": cr.port,
+            "use_ssl": cr.use_ssl,
+            "username": cr.username,
+            "password": cr.password,
+            "api_key": cr.api_key,
+            "remote_path": cr.remote_path,
+            "local_path": cr.local_path,
+        }
+        for cr in clients
+    ]
 
-    for client_record in clients:
+    for cfg in client_configs:
         try:
-            client = _instantiate_client(client_record)
+            client = _instantiate_client(cfg["record"])
             status = await client.get_status(download_id)
             if status and status.save_path:
+                # Rollback any failed transaction before attempting import
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
                 return await _try_import_item(
                     db, status, force=True,
-                    remote_path=client_record.remote_path,
-                    local_path=client_record.local_path,
+                    remote_path=cfg["remote_path"],
+                    local_path=cfg["local_path"],
                 )
         except Exception:
             logger.warning(
-                "trigger_import error for %s", client_record.name, exc_info=True
+                "trigger_import error for %s", cfg["name"], exc_info=True
             )
+            # Ensure session is usable for next iteration
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
     return {"success": False, "message": f"Download {download_id} not found in any client"}
