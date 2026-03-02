@@ -241,10 +241,21 @@ def _resolve_save_path(item, remote_path: str | None = None, local_path: str | N
 
 
 def _collect_importable_files(save_path: Path) -> list[Path]:
-    """Collect supported files from a path (file or directory)."""
+    """Collect supported files from a path (file or directory), recursively."""
     supported = {".pdf", ".epub", ".cbr", ".cbz"}
     if save_path.is_dir():
-        return [f for f in save_path.iterdir() if f.suffix.lower() in supported]
+        # Log directory contents for diagnostics
+        try:
+            contents = list(save_path.iterdir())
+            logger.info(
+                "Directory listing for %s: %s",
+                save_path,
+                [f"{c.name} ({'dir' if c.is_dir() else c.suffix})" for c in contents[:30]],
+            )
+        except Exception:
+            logger.warning("Could not list directory %s", save_path, exc_info=True)
+        # Recursive search using rglob
+        return [f for f in save_path.rglob("*") if f.is_file() and f.suffix.lower() in supported]
     if save_path.suffix.lower() in supported:
         return [save_path]
     return []

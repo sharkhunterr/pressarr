@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import { X, Trash2, Inbox } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { removeFromQueue, bulkRemove } from '@/api/queue'
+import { removeFromQueue, bulkRemove, triggerImport } from '@/api/queue'
 import { useQueue } from '@/hooks/useQueue'
 import { QueueItem } from '@/components/QueueItem'
 import { Button } from '@/components/ui/button'
@@ -34,6 +34,19 @@ export default function Queue() {
       toast.success(t('queue.bulkRemoved'))
     },
     onError: () => toast.error(t('queue.removeError')),
+  })
+
+  const importMutation = useMutation({
+    mutationFn: (id: number) => triggerImport(id),
+    onSuccess: (data) => {
+      invalidate()
+      if (data.success) {
+        toast.success(t('queue.importSuccess'))
+      } else {
+        toast.error(data.message || t('queue.importError'))
+      }
+    },
+    onError: () => toast.error(t('queue.importError')),
   })
 
   const handleSelect = useCallback((id: number, checked: boolean) => {
@@ -140,6 +153,7 @@ export default function Queue() {
               onCancel={(id) => removeMutation.mutate({ id })}
               onRemove={(id) => removeMutation.mutate({ id })}
               onBlocklist={(id) => removeMutation.mutate({ id, blocklist: true })}
+              onImport={(id) => importMutation.mutate(id)}
             />
           ))}
         </div>

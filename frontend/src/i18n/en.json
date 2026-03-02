@@ -245,7 +245,10 @@
     "status_failed": "Failed",
     "status_completed": "Completed",
     "status_importing": "Importing",
-    "status_imported": "Imported"
+    "status_imported": "Imported",
+    "import": "Import manually",
+    "importSuccess": "Import completed successfully.",
+    "importError": "Import failed."
   },
   "history": {
     "title": "History",

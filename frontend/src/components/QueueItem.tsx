@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { X, Trash2, Ban } from 'lucide-react'
+import { X, Trash2, Ban, Import } from 'lucide-react'
 
 import { type QueueEntry } from '@/api/queue'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,7 @@ interface QueueItemProps {
   onCancel: (id: number) => void
   onRemove: (id: number) => void
   onBlocklist: (id: number) => void
+  onImport?: (id: number) => void
 }
 
 export function QueueItem({
@@ -46,6 +47,7 @@ export function QueueItem({
   onCancel,
   onRemove,
   onBlocklist,
+  onImport,
 }: QueueItemProps) {
   const { t } = useTranslation()
 
@@ -110,6 +112,16 @@ export function QueueItem({
 
       {/* Actions */}
       <div className="flex items-center gap-1">
+        {entry.status === 'completed' && onImport && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onImport(entry.id)}
+            title={t('queue.import')}
+          >
+            <Import className="size-3.5 text-[#7C3AED]" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-xs"

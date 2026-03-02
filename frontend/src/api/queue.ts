@@ -32,3 +32,6 @@ export const bulkRemove = (ids: number[], blocklist?: boolean) =>
     method: 'DELETE',
     body: JSON.stringify({ ids, blocklist: blocklist ?? false }),
   })
+
+export const triggerImport = (id: number) =>
+  apiFetch<{ success: boolean; message?: string }>(`/queue/${id}/import`, { method: 'POST' })
