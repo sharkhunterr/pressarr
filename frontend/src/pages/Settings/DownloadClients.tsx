@@ -58,6 +58,8 @@ interface ClientFormState {
   username: string
   password: string
   category: string
+  remotePath: string
+  localPath: string
   isDefault: boolean
   priority: number
 }
@@ -73,6 +75,8 @@ function emptyForm(): ClientFormState {
     username: '',
     password: '',
     category: 'pressarr',
+    remotePath: '',
+    localPath: '',
     isDefault: false,
     priority: 1,
   }
@@ -89,6 +93,8 @@ function clientToForm(c: DownloadClient): ClientFormState {
     username: c.username ?? '',
     password: c.password ?? '',
     category: c.category,
+    remotePath: c.remotePath ?? '',
+    localPath: c.localPath ?? '',
     isDefault: c.isDefault,
     priority: c.priority,
   }
@@ -188,6 +194,8 @@ export default function DownloadClients() {
       useSsl: form.useSsl,
       username: form.username || undefined,
       category: form.category,
+      remotePath: form.remotePath || undefined,
+      localPath: form.localPath || undefined,
       isDefault: form.isDefault,
       priority: form.priority,
     }
@@ -429,6 +437,36 @@ export default function DownloadClients() {
                 placeholder="pressarr"
                 className="bg-zinc-900 border-zinc-700 text-zinc-100"
               />
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('downloadClients.remotePath')}
+              </label>
+              <Input
+                value={form.remotePath}
+                onChange={(e) => setForm({ ...form, remotePath: e.target.value })}
+                placeholder={t('downloadClients.remotePathPlaceholder')}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+              <p className="text-xs text-zinc-500">
+                {t('downloadClients.remotePathHelp')}
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('downloadClients.localPath')}
+              </label>
+              <Input
+                value={form.localPath}
+                onChange={(e) => setForm({ ...form, localPath: e.target.value })}
+                placeholder={t('downloadClients.localPathPlaceholder')}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+              <p className="text-xs text-zinc-500">
+                {t('downloadClients.localPathHelp')}
+              </p>
             </div>
 
             <div className="grid gap-1.5">

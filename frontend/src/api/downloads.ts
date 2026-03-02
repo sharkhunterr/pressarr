@@ -21,6 +21,8 @@ export interface DownloadClient {
   password?: string
   apiKey?: string
   category: string
+  remotePath?: string
+  localPath?: string
   isDefault: boolean
   priority: number
 }
