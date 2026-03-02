@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.5](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.4...v0.1.5) (2026-03-02)
+
+
+### Bug Fixes
+
+* SPA routing fallback and download monitor path resolution ([bb70575](https://github.com/sharkhunterr/pressarr/-/commit/bb705757c09aea6fb3dc1b690707fdbe673c7656))
+
 ### [0.1.4](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.3...v0.1.4) (2026-03-02)
 
 
