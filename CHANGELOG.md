@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.7](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.6...v0.1.7) (2026-03-02)
+
+
+### Features
+
+* **ui:** add remote path and local path fields to download client form ([466a61c](https://github.com/sharkhunterr/pressarr/-/commit/466a61c95dfdb22bf7f1d0de4dfcbc4a07519cde))
+
 ### [0.1.6](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.5...v0.1.6) (2026-03-02)
 
 
