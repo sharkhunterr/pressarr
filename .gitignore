@@ -42,3 +42,17 @@ Thumbs.db
 
 # Build artifacts
 *.tsbuildinfo
+
+# Node.js root (release scripts)
+package-lock.json
+
+# Reports
+reports/
+htmlcov/
+junit.xml
+coverage.xml
+ruff-report.*
+eslint-report.*
+
+# Example folder
+exemple/

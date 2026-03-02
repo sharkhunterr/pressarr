@@ -447,7 +447,7 @@ export default function MagazineDetail() {
       if (issue.isForecast) continue
 
       const hasNumber = issue.number !== null
-      let hasDate = !!(issue.year || issue.publicationDate)
+      const hasDate = !!(issue.year || issue.publicationDate)
 
       if (hasNumber && !hasDate) {
         // Deduce year+month from number

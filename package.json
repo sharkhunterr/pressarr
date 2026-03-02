@@ -1,0 +1,66 @@
+{
+  "name": "pressarr",
+  "version": "0.1.0",
+  "description": "Pressarr - Automated magazine collection manager for the *arr ecosystem",
+  "scripts": {
+    "predev": "npm run kill",
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && source .venv/bin/activate 2>/dev/null || true && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8585} --reload",
+    "kill": "pkill -f 'uvicorn app.main:app' 2>/dev/null || true; pkill -f 'vite' 2>/dev/null || true",
+    "install": "npm run install:all",
+    "install:all": "npm ci && npm run setup:backend && cd frontend && npm ci",
+    "setup:backend": "cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",
+    "build": "cd frontend && npm run build",
+    "docker": "docker compose -f docker/docker-compose.yml up --build",
+    "docker:detach": "docker compose -f docker/docker-compose.yml up -d --build",
+    "docker:stop": "docker compose -f docker/docker-compose.yml down",
+    "docker:logs": "docker compose -f docker/docker-compose.yml logs -f",
+    "docker:build": "node scripts/docker-deploy.js --build-only",
+    "docker:deploy": "node scripts/docker-deploy.js --push",
+    "docker:deploy:multi": "node scripts/docker-deploy.js --push --multi-platform",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && . .venv/bin/activate && pytest",
+    "test:frontend": "cd frontend && npm run build",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && . .venv/bin/activate && ruff check .",
+    "lint:frontend": "cd frontend && npm run lint",
+    "fix": "bash scripts/fix-linting.sh",
+    "clean": "rm -rf backend/.venv frontend/node_modules frontend/dist",
+    "push": "node scripts/push.js",
+    "push:github": "node scripts/push.js --github",
+    "push:all": "node scripts/push.js --all",
+    "push:tags": "node scripts/push.js --tags-only",
+    "push:notags": "node scripts/push.js --no-tags",
+    "release": "node scripts/release.js",
+    "release:patch": "node scripts/release.js patch",
+    "release:minor": "node scripts/release.js minor",
+    "release:major": "node scripts/release.js major",
+    "release:github": "node scripts/release.js --github",
+    "release:deploy": "node scripts/release.js --deploy",
+    "release:full": "node scripts/release.js --github --deploy",
+    "release:dry": "node scripts/release.js --dry-run"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "standard-version": "^9.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "python": ">=3.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sharkhunterr/pressarr"
+  },
+  "keywords": [
+    "magazine",
+    "pressarr",
+    "arr",
+    "automation",
+    "self-hosted",
+    "homelab"
+  ],
+  "author": "",
+  "license": "MIT"
+}

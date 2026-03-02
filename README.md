@@ -2,9 +2,9 @@
 
 <img src="docs/images/banner.svg" alt="Pressarr Banner" width="800"/>
 
-[![Version](https://img.shields.io/github/v/tag/pressarr/pressarr?label=version&color=7C3AED)](https://github.com/pressarr/pressarr/releases)
-[![Docker](https://img.shields.io/docker/v/pressarr/pressarr?label=docker&color=2496ED)](https://hub.docker.com/r/pressarr/pressarr)
-[![Docker Pulls](https://img.shields.io/docker/pulls/pressarr/pressarr?color=2496ED)](https://hub.docker.com/r/pressarr/pressarr)
+[![Version](https://img.shields.io/github/v/tag/sharkhunterr/pressarr?label=version&color=7C3AED)](https://github.com/sharkhunterr/pressarr/releases)
+[![Docker](https://img.shields.io/docker/v/sharkhunterr/pressarr?label=docker&color=2496ED)](https://hub.docker.com/r/sharkhunterr/pressarr)
+[![Docker Pulls](https://img.shields.io/docker/pulls/sharkhunterr/pressarr?color=2496ED)](https://hub.docker.com/r/sharkhunterr/pressarr)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://python.org)
@@ -15,7 +15,7 @@
 
 **[Quick Start](#-quick-start)** •
 **[Features](#-features)** •
-**[Docker Hub](https://hub.docker.com/r/pressarr/pressarr)** •
+**[Docker Hub](https://hub.docker.com/r/sharkhunterr/pressarr)** •
 **[Screenshots](#-screenshots)**
 
 </div>
@@ -118,7 +118,7 @@ Receive alerts on grab, download, import, and errors:
 ```yaml
 services:
   pressarr:
-    image: pressarr/pressarr:latest
+    image: sharkhunterr/pressarr:latest
     container_name: pressarr
     ports:
       - "8585:8585"
@@ -152,7 +152,7 @@ docker run -d \
   -v $(pwd)/magazines:/magazines \
   -v $(pwd)/downloads:/downloads \
   -e TZ=Europe/Paris \
-  pressarr/pressarr:latest
+  sharkhunterr/pressarr:latest
 ```
 
 ---
@@ -470,6 +470,6 @@ MIT License — see [LICENSE](LICENSE) file for details.
 
 **Built with Claude Code 🤖 for the *arr community 📚**
 
-[⭐ Star on GitHub](https://github.com/pressarr/pressarr) • [🐛 Report Bug](https://github.com/pressarr/pressarr/issues) • [💡 Request Feature](https://github.com/pressarr/pressarr/issues)
+[⭐ Star on GitHub](https://github.com/sharkhunterr/pressarr) • [🐛 Report Bug](https://github.com/sharkhunterr/pressarr/issues) • [💡 Request Feature](https://github.com/sharkhunterr/pressarr/issues)
 
 </div>

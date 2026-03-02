@@ -22,3 +22,7 @@ coverage
 .ruff_cache
 .mypy_cache
 .pytest_cache
+exemple
+docs
+scripts
+reports

@@ -1,0 +1,28 @@
+services:
+  pressarr:
+    image: sharkhunterr/pressarr:latest
+    container_name: pressarr
+    hostname: pressarr
+    ports:
+      - "8585:8585"
+    volumes:
+      - pressarr-config:/config
+      - pressarr-magazines:/magazines
+      - pressarr-downloads:/downloads
+    environment:
+      - TZ=Europe/Paris
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  pressarr-config:
+    driver: local
+  pressarr-magazines:
+    driver: local
+  pressarr-downloads:
+    driver: local
