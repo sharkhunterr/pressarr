@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.12](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.11...v0.1.12) (2026-03-02)
+
+
+### Bug Fixes
+
+* improve monitor logging for completed downloads ([e8c4c4a](https://github.com/sharkhunterr/pressarr/-/commit/e8c4c4ac2c9f1695088d7302c33cd810d26919cc))
+
 ### [0.1.11](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.10...v0.1.11) (2026-03-02)
 
 
