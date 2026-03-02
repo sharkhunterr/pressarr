@@ -31,11 +31,7 @@ variables:
 # =============================================================================
 workflow:
   rules:
-    - if: '$CI_COMMIT_TAG'                    # Toujours exécuter sur les tags
-    - if: '$CI_COMMIT_MESSAGE =~ /^chore\(release\)/'
-      when: never                              # Ignorer les commits de release
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'  # MRs
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'       # Branche principale uniquement
+    - if: '$CI_COMMIT_TAG'                    # Exécuter uniquement sur les tags
 
 # =============================================================================
 # Stages du pipeline
@@ -133,10 +129,6 @@ validate:backend:
       codequality: backend/ruff-report.json
     expire_in: 1 week
   allow_failure: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - if: '$CI_COMMIT_TAG'
 
 validate:frontend:
   stage: validate
@@ -157,10 +149,6 @@ validate:frontend:
       - frontend/eslint-report.txt
     expire_in: 1 week
   allow_failure: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - if: '$CI_COMMIT_TAG'
 
 # =============================================================================
 # Stage: Test
