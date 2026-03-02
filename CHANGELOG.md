@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.6](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.5...v0.1.6) (2026-03-02)
+
+
+### Features
+
+* remote path mapping, persistent grab registry, and manual import ([2c29341](https://github.com/sharkhunterr/pressarr/-/commit/2c293413d23383dbdf1ba4f46c23f4258780dc51))
+
 ### [0.1.5](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.4...v0.1.5) (2026-03-02)
 
 
