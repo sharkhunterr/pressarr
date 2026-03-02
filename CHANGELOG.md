@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.9](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.8...v0.1.9) (2026-03-02)
+
+
+### Bug Fixes
+
+* scope file discovery to torrent-specific path and fix DB session errors ([b63e5c6](https://github.com/sharkhunterr/pressarr/-/commit/b63e5c6900da907b6e206b78614bf5ff38cd982b))
+
 ### [0.1.8](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.7...v0.1.8) (2026-03-02)
 
 
