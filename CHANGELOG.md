@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.11](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.10...v0.1.11) (2026-03-02)
+
+
+### Bug Fixes
+
+* pass issue/magazine association through import pipeline ([11bb518](https://github.com/sharkhunterr/pressarr/-/commit/11bb518293161c555c3d0016408925deb642dd0d))
+
 ### [0.1.10](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.9...v0.1.10) (2026-03-02)
 
 
