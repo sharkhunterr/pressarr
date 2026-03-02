@@ -150,5 +150,9 @@ async def test_notification(db: AsyncSession, notif_id: int) -> tuple[bool, str]
         provider = _get_provider(notification)
         return await provider.test()
     except Exception as exc:
-        logger.warning("Test for notification %s failed", notification.name, exc_info=True)
+        logger.warning(
+            "Test for notification %s failed",
+            notification.name,
+            exc_info=True,
+        )
         return False, f"Test failed: {exc}"

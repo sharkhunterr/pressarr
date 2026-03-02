@@ -58,7 +58,11 @@ async def search_issue(
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
-                language = parsed.language if parsed.language != "unknown" else "unknown"
+                language = (
+                    parsed.language
+                    if parsed.language != "unknown"
+                    else "unknown"
+                )
 
                 blocked = await is_blocklisted(db, raw.title)
 
@@ -118,7 +122,11 @@ async def search_free(
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
-                language = parsed.language if parsed.language != "unknown" else "unknown"
+                language = (
+                    parsed.language
+                    if parsed.language != "unknown"
+                    else "unknown"
+                )
 
                 blocked = await is_blocklisted(db, raw.title)
 

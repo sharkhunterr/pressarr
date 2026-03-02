@@ -183,7 +183,10 @@ async def delete_magazine(
 
     if delete_files:
         # TODO: implement actual file deletion from disk
-        logger.info("delete_files=True for magazine %d (not yet implemented)", magazine_id)
+        logger.info(
+            "delete_files=True for magazine %d (not yet implemented)",
+            magazine_id,
+        )
 
     await db.delete(magazine)
     await db.flush()
