@@ -175,6 +175,10 @@ async def monitor_downloads(db: AsyncSession) -> None:
             client = _instantiate_client(client_record)
             items = await client.get_all(category=client_record.category)
             for item in items:
+                logger.debug(
+                    "Monitor: %s status=%s save_path=%s name=%s",
+                    item.download_id, item.status, item.save_path, item.name,
+                )
                 if item.status == "completed" and item.save_path:
                     # Skip already-processed downloads
                     if item.download_id and item.download_id in _processed_downloads:
@@ -186,12 +190,31 @@ async def monitor_downloads(db: AsyncSession) -> None:
                     from app.services.import_service import process_downloaded_file
 
                     config = get_config()
-                    save_path = Path(item.save_path)
+                    # save_path from Deluge is the parent directory;
+                    # combine with torrent name to find the actual file/folder
+                    base_path = Path(item.save_path)
+                    torrent_path = base_path / item.name if item.name else base_path
+                    # Use torrent-specific path if it exists, otherwise fall back
+                    if torrent_path.exists():
+                        save_path = torrent_path
+                    else:
+                        save_path = base_path
+                    logger.info(
+                        "Monitor: completed download %s — save_path=%s, exists=%s, is_dir=%s",
+                        item.download_id, save_path, save_path.exists(), save_path.is_dir() if save_path.exists() else "N/A",
+                    )
+                    if not save_path.exists():
+                        logger.warning(
+                            "Monitor: path %s does not exist in container! Check volume mounts.",
+                            save_path,
+                        )
+                        continue
                     files = (
                         list(save_path.iterdir())
                         if save_path.is_dir()
                         else [save_path]
                     )
+                    logger.info("Monitor: found files to check: %s", [str(f) for f in files])
 
                     # Look up grab registry for issue association
                     grab = _grab_registry.get(item.download_id) if item.download_id else None

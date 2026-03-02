@@ -273,7 +273,19 @@ def create_app() -> FastAPI:
     # Serve frontend static files (after all API routes)
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     if os.path.isdir(static_dir):
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
+        app.mount("/static-assets", StaticFiles(directory=static_dir), name="static-assets")
+
+        # SPA catch-all: serve index.html for any non-API route
+        from fastapi.responses import FileResponse
+
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            # Serve actual static files (js, css, images, etc.)
+            file_path = os.path.join(static_dir, full_path)
+            if full_path and os.path.isfile(file_path):
+                return FileResponse(file_path)
+            # Everything else gets index.html (SPA routing)
+            return FileResponse(os.path.join(static_dir, "index.html"))
 
     return app
 
