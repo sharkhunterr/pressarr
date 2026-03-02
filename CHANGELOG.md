@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.2](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.1...v0.1.2) (2026-03-02)
+
+
+### Bug Fixes
+
+* resolve CI failures in validate and test stages ([ce15d18](https://github.com/sharkhunterr/pressarr/-/commit/ce15d18803b1556d7258c60adb574e0930058e2f))
+
 ### 0.1.1 (2026-03-02)
 
 
