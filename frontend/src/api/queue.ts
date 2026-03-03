@@ -22,9 +22,12 @@ export interface QueueEntry {
 export const getQueue = () =>
   apiFetch<QueueEntry[]>('/queue')
 
-export const removeFromQueue = (id: number, blocklist?: boolean) => {
-  const params = blocklist ? '?blocklist=true' : ''
-  return apiFetch<void>(`/queue/${id}${params}`, { method: 'DELETE' })
+export const removeFromQueue = (id: number, opts?: { blocklist?: boolean; removeFromClient?: boolean }) => {
+  const params = new URLSearchParams()
+  if (opts?.blocklist) params.set('blocklist', 'true')
+  if (opts?.removeFromClient) params.set('remove_from_client', 'true')
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  return apiFetch<void>(`/queue/${id}${qs}`, { method: 'DELETE' })
 }
 
 export const bulkRemove = (ids: number[], blocklist?: boolean) =>

@@ -9,17 +9,34 @@ import { useQueue } from '@/hooks/useQueue'
 import { QueueItem } from '@/components/QueueItem'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 export default function Queue() {
   const { t } = useTranslation()
   const { queue, isLoading, invalidate } = useQueue()
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [removeDialog, setRemoveDialog] = useState<{
+    open: boolean
+    id: number | null
+    title: string
+    blocklist: boolean
+  }>({ open: false, id: null, title: '', blocklist: false })
+  const [removeFromClient, setRemoveFromClient] = useState(false)
 
   const removeMutation = useMutation({
-    mutationFn: ({ id, blocklist }: { id: number; blocklist?: boolean }) =>
-      removeFromQueue(id, blocklist),
+    mutationFn: ({ id, blocklist, removeFromClient: rfc }: { id: number; blocklist?: boolean; removeFromClient?: boolean }) =>
+      removeFromQueue(id, { blocklist, removeFromClient: rfc }),
     onSuccess: () => {
       invalidate()
+      setRemoveDialog({ open: false, id: null, title: '', blocklist: false })
+      setRemoveFromClient(false)
       toast.success(t('queue.removed'))
     },
     onError: () => toast.error(t('queue.removeError')),
@@ -76,6 +93,26 @@ export default function Queue() {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
     bulkRemoveMutation.mutate({ ids })
+  }
+
+  function openRemoveDialog(id: number, blocklist: boolean) {
+    const entry = queue.find((e) => e.id === id)
+    setRemoveFromClient(false)
+    setRemoveDialog({
+      open: true,
+      id,
+      title: entry?.title ?? '',
+      blocklist,
+    })
+  }
+
+  function confirmRemove() {
+    if (removeDialog.id === null) return
+    removeMutation.mutate({
+      id: removeDialog.id,
+      blocklist: removeDialog.blocklist,
+      removeFromClient,
+    })
   }
 
   if (isLoading) {
@@ -150,14 +187,61 @@ export default function Queue() {
               entry={entry}
               selected={selectedIds.has(entry.id)}
               onSelect={handleSelect}
-              onCancel={(id) => removeMutation.mutate({ id })}
-              onRemove={(id) => removeMutation.mutate({ id })}
-              onBlocklist={(id) => removeMutation.mutate({ id, blocklist: true })}
+              onCancel={(id) => openRemoveDialog(id, false)}
+              onRemove={(id) => openRemoveDialog(id, false)}
+              onBlocklist={(id) => openRemoveDialog(id, true)}
               onImport={(id) => importMutation.mutate(id)}
             />
           ))}
         </div>
       )}
+
+      {/* Remove Confirmation Dialog */}
+      <Dialog open={removeDialog.open} onOpenChange={(open) => {
+        if (!open) setRemoveDialog({ open: false, id: null, title: '', blocklist: false })
+      }}>
+        <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800">
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">
+              {removeDialog.blocklist
+                ? t('queue.blocklistTitle')
+                : t('queue.removeTitle')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-zinc-400">
+              {t('queue.removeConfirm', { title: removeDialog.title })}
+            </p>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('queue.removeFromClient')}
+              </label>
+              <Switch
+                checked={removeFromClient}
+                onCheckedChange={(checked) => setRemoveFromClient(checked === true)}
+              />
+            </div>
+            <p className="text-xs text-zinc-500">
+              {t('queue.removeFromClientHelp')}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRemoveDialog({ open: false, id: null, title: '', blocklist: false })}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={removeMutation.isPending}
+              onClick={confirmRemove}
+            >
+              {t('common.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

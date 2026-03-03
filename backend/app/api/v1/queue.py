@@ -30,7 +30,7 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
 
     # 1. Regular download clients (torrent/usenet)
     # Collect all download_ids first, then batch-load issue/magazine metadata
-    from app.services.download_service import get_grab_info
+    from app.services.download_service import get_grab_info, is_dismissed
 
     pending_enrichments: dict[int, tuple[int, int]] = {}  # item_index → (issue_id, magazine_id)
 
@@ -40,6 +40,10 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
             status_list = await client.get_all(category=client_record.category)
 
             for entry in status_list:
+                # Skip downloads that have been dismissed or already imported
+                if entry.download_id and is_dismissed(entry.download_id):
+                    continue
+
                 item_id += 1
                 size_left = int(entry.size * (1.0 - entry.progress)) if entry.size else 0
                 resource = QueueItemResource(
@@ -168,15 +172,26 @@ async def get_queue(db: AsyncSession = Depends(get_db)):
 async def remove_from_queue(
     item_id: int,
     blocklist: bool = Query(False),
+    remove_from_client: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove an item from the queue (cancel download)."""
+    """Remove an item from the queue.
+
+    By default, only hides the item from Pressarr's queue (marks as
+    processed). The torrent/download is NOT removed from the client.
+    Pass remove_from_client=true to also delete from Deluge/qBittorrent.
+    """
+    from app.services.download_service import dismiss_download
+
     items = await _get_queue_items(db)
     item = next((i for i in items if i.id == item_id), None)
 
     if item and item.download_id:
-        if item.download_client_id:
-            # Regular download client (torrent/usenet)
+        # Always mark as dismissed in Pressarr (hides from queue)
+        dismiss_download(item.download_id)
+
+        # Only remove from download client if explicitly requested
+        if remove_from_client and item.download_client_id:
             client_result = await db.execute(
                 select(DownloadClient).where(DownloadClient.id == item.download_client_id)
             )
@@ -187,7 +202,8 @@ async def remove_from_queue(
                     await client.remove(item.download_id)
                 except Exception:
                     logger.warning("Failed to remove download %s", item.download_id, exc_info=True)
-        else:
+
+        if not item.download_client_id:
             # Direct download (AA/IA) — remove from tracker (cancels task)
             from app.services.direct_download_tracker import tracker as dd_tracker
             dd_tracker.remove(item.download_id)

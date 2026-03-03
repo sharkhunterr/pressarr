@@ -248,7 +248,12 @@
     "status_imported": "Importé",
     "import": "Importer manuellement",
     "importSuccess": "Import terminé avec succès.",
-    "importError": "Échec de l'import."
+    "importError": "Échec de l'import.",
+    "removeTitle": "Retirer de la file d'attente",
+    "blocklistTitle": "Retirer et bloquer",
+    "removeConfirm": "Retirer \"{{title}}\" de la file d'attente ?",
+    "removeFromClient": "Supprimer aussi du client de téléchargement",
+    "removeFromClientHelp": "Si activé, le torrent sera aussi supprimé de Deluge/qBittorrent. Sinon, il sera juste masqué de la file d'attente de Pressarr."
   },
   "history": {
     "title": "Historique",

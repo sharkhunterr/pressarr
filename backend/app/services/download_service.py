@@ -72,6 +72,22 @@ def get_grab_info(download_id: str) -> _GrabInfo | None:
     return _grab_registry.get(download_id)
 
 
+def dismiss_download(download_id: str) -> None:
+    """Mark a download as dismissed — hides it from the queue and monitor.
+
+    Does NOT remove the torrent from the download client.
+    """
+    _processed_downloads.add(download_id)
+    _grab_registry.pop(download_id, None)
+    _save_registry()
+    logger.info("Dismissed download %s from queue", download_id)
+
+
+def is_dismissed(download_id: str) -> bool:
+    """Check if a download has been dismissed or already processed."""
+    return download_id in _processed_downloads
+
+
 async def grab_release(
     db: AsyncSession,
     issue_id: int,

@@ -248,7 +248,12 @@
     "status_imported": "Imported",
     "import": "Import manually",
     "importSuccess": "Import completed successfully.",
-    "importError": "Import failed."
+    "importError": "Import failed.",
+    "removeTitle": "Remove from Queue",
+    "blocklistTitle": "Remove & Blocklist",
+    "removeConfirm": "Remove \"{{title}}\" from the queue?",
+    "removeFromClient": "Also delete from download client",
+    "removeFromClientHelp": "If enabled, the torrent/download will also be removed from Deluge/qBittorrent. Otherwise, only hidden from Pressarr's queue."
   },
   "history": {
     "title": "History",

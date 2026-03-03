@@ -106,6 +106,10 @@ async def check_downloads():
             await db.commit()
         except Exception:
             logger.error("Download check failed", exc_info=True)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
 
 async def purge_history():
