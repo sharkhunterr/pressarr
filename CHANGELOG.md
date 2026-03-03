@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.14](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.13...v0.1.14) (2026-03-03)
+
+
+### Features
+
+* smart RSS matching, forecast promotion, and search history events ([57c3eaa](https://github.com/sharkhunterr/pressarr/-/commit/57c3eaa72a4b496221f8dfb09e1a9be91aae0918))
+
 ### [0.1.13](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.12...v0.1.13) (2026-03-03)
 
 
