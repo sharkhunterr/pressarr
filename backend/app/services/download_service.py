@@ -147,6 +147,11 @@ async def grab_release(
             details=f"Grabbed: {title}",
         )
 
+        # Invalidate smart matcher pattern cache so new grabs inform future matches
+        from app.services.smart_matcher import invalidate_pattern_cache
+
+        invalidate_pattern_cache(issue.magazine_id)
+
         return GrabResponse(
             issue_id=issue_id,
             download_id=download_id,

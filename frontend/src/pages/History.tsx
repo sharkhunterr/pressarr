@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-const EVENT_TYPES = ['grab', 'download_completed', 'import', 'upgrade', 'unmatched', 'error']
+const EVENT_TYPES = ['grab', 'download_completed', 'import', 'upgrade', 'searched', 'unmatched', 'error']
 
 function eventVariant(eventType: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (eventType) {
@@ -34,6 +34,8 @@ function eventVariant(eventType: string): 'default' | 'secondary' | 'destructive
     case 'import':
     case 'upgrade':
       return 'secondary'
+    case 'searched':
+      return 'outline'
     case 'error':
     case 'unmatched':
       return 'destructive'

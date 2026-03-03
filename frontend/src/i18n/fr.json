@@ -270,6 +270,7 @@
     "event_download_completed": "Téléchargé",
     "event_import": "Importé",
     "event_upgrade": "Mis à jour",
+    "event_searched": "Recherche",
     "event_unmatched": "Non reconnu",
     "event_error": "Erreur"
   },

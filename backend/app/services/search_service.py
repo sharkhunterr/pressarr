@@ -11,7 +11,7 @@ from app.models.magazine import Magazine
 from app.models.quality_profile import QualityProfileItem
 from app.parser.magazine_parser import fuzzy_match_title, parse_magazine_filename
 from app.schemas.search import SearchResultResource
-from app.services.history_service import is_blocklisted
+from app.services.history_service import create_event, is_blocklisted
 from app.services.quality_service import QUALITY_ORDER
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,15 @@ async def search_issue(
             logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
 
     all_results.sort(key=lambda r: r.score, reverse=True)
+
+    await create_event(
+        db,
+        event_type="searched",
+        magazine_id=magazine.id,
+        issue_id=issue.id,
+        details=f"Manual search: {query} ({len(all_results)} results)",
+    )
+
     return all_results
 
 
@@ -149,6 +158,12 @@ async def search_free(
         except Exception:
             logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
 
+    await create_event(
+        db,
+        event_type="searched",
+        details=f"Free search: '{query}' ({len(all_results)} results)",
+    )
+
     return all_results
 
 
@@ -169,6 +184,15 @@ async def search_magazine_missing(
         results = await search_issue(db, issue.id, config)
         if results:
             results_by_issue[issue.id] = results
+
+    total_results = sum(len(r) for r in results_by_issue.values())
+    await create_event(
+        db,
+        event_type="searched",
+        magazine_id=magazine_id,
+        details=f"Missing issues search: {len(wanted_issues)} issues, {total_results} results",
+    )
+
     return results_by_issue
 
 

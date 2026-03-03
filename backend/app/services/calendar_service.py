@@ -237,6 +237,32 @@ async def reconcile_forecast(
     return False
 
 
+async def promote_due_forecasts(db: AsyncSession) -> int:
+    """Promote forecast issues from 'upcoming' to 'wanted' when their
+    publication_date has arrived (publication_date <= today).
+
+    Only promotes forecasts that are monitored and still 'upcoming'.
+    Does NOT touch 'skipped' or 'delayed' forecasts.
+    """
+    today = date.today()
+    result = await db.execute(
+        select(Issue).where(
+            Issue.is_forecast == True,  # noqa: E712
+            Issue.status == "upcoming",
+            Issue.monitored == True,  # noqa: E712
+            Issue.publication_date <= today,
+        )
+    )
+    forecasts = result.scalars().all()
+    count = 0
+    for forecast in forecasts:
+        forecast.status = "wanted"
+        count += 1
+    if count:
+        await db.flush()
+    return count
+
+
 async def mark_delayed_forecasts(db: AsyncSession) -> int:
     """Mark forecasts that are more than 7 days past their date as delayed."""
     cutoff = date.today() - timedelta(days=7)
@@ -244,7 +270,7 @@ async def mark_delayed_forecasts(db: AsyncSession) -> int:
         select(Issue).where(
             Issue.is_forecast == True,  # noqa: E712
             Issue.publication_date < cutoff,
-            Issue.status != "delayed",
+            Issue.status.in_(["upcoming", "wanted"]),
         )
     )
     forecasts = result.scalars().all()

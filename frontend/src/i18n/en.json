@@ -270,6 +270,7 @@
     "event_download_completed": "Downloaded",
     "event_import": "Imported",
     "event_upgrade": "Upgraded",
+    "event_searched": "Searched",
     "event_unmatched": "Unmatched",
     "event_error": "Error"
   },
