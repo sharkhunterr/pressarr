@@ -221,6 +221,51 @@ def _instantiate_client(record: DownloadClient):
         raise ValueError(f"Unknown client type: {client_type}")
 
 
+def _instantiate_client_from_dict(cfg: dict):
+    """Instantiate a download client from an eagerly-loaded config dict.
+
+    Used by monitor_downloads and trigger_import to avoid lazy-loading
+    ORM attributes after a session rollback (MissingGreenlet).
+    """
+    client_type = cfg["client_type"].lower()
+
+    if client_type == "deluge":
+        from app.download_clients.deluge import DelugeClient
+        return DelugeClient(
+            host=cfg["host"], port=cfg["port"],
+            password=cfg["password"] or "", use_ssl=cfg["use_ssl"],
+        )
+    elif client_type == "qbittorrent":
+        from app.download_clients.qbittorrent import QBittorrentClient
+        return QBittorrentClient(
+            host=cfg["host"], port=cfg["port"],
+            username=cfg["username"] or "admin",
+            password=cfg["password"] or "", use_ssl=cfg["use_ssl"],
+        )
+    elif client_type == "transmission":
+        from app.download_clients.transmission import TransmissionClient
+        return TransmissionClient(
+            host=cfg["host"], port=cfg["port"],
+            username=cfg["username"], password=cfg["password"],
+            use_ssl=cfg["use_ssl"],
+        )
+    elif client_type == "sabnzbd":
+        from app.download_clients.sabnzbd import SABnzbdClient
+        return SABnzbdClient(
+            host=cfg["host"], port=cfg["port"],
+            api_key=cfg["api_key"] or "", use_ssl=cfg["use_ssl"],
+        )
+    elif client_type == "nzbget":
+        from app.download_clients.nzbget import NZBGetClient
+        return NZBGetClient(
+            host=cfg["host"], port=cfg["port"],
+            username=cfg["username"] or "nzbget",
+            password=cfg["password"] or "", use_ssl=cfg["use_ssl"],
+        )
+    else:
+        raise ValueError(f"Unknown client type: {client_type}")
+
+
 def _apply_path_mapping(path_str: str, remote_path: str | None, local_path: str | None) -> str:
     """Apply remote→local path mapping (like Radarr/Sonarr Remote Path Mapping).
 
@@ -291,10 +336,28 @@ async def monitor_downloads(db: AsyncSession) -> None:
     result = await db.execute(select(DownloadClient))
     clients = result.scalars().all()
 
-    for client_record in clients:
+    # Eagerly read all client attributes to avoid lazy-loading after rollback
+    client_configs = [
+        {
+            "name": cr.name,
+            "client_type": cr.client_type,
+            "host": cr.host,
+            "port": cr.port,
+            "use_ssl": cr.use_ssl,
+            "username": cr.username,
+            "password": cr.password,
+            "api_key": cr.api_key,
+            "category": cr.category,
+            "remote_path": cr.remote_path,
+            "local_path": cr.local_path,
+        }
+        for cr in clients
+    ]
+
+    for cfg in client_configs:
         try:
-            client = _instantiate_client(client_record)
-            items = await client.get_all(category=client_record.category)
+            client = _instantiate_client_from_dict(cfg)
+            items = await client.get_all(category=cfg["category"])
             for item in items:
                 log_fn = logger.info if item.status == "completed" else logger.debug
                 log_fn(
@@ -303,11 +366,14 @@ async def monitor_downloads(db: AsyncSession) -> None:
                 )
                 if item.status == "completed" and item.save_path:
                     try:
-                        await _try_import_item(
+                        import_result = await _try_import_item(
                             db, item,
-                            remote_path=client_record.remote_path,
-                            local_path=client_record.local_path,
+                            remote_path=cfg["remote_path"],
+                            local_path=cfg["local_path"],
                         )
+                        # Commit after each successful import to isolate DB state
+                        if import_result.get("success"):
+                            await db.commit()
                     except Exception:
                         logger.warning(
                             "Monitor: import failed for %s", item.download_id, exc_info=True
@@ -318,7 +384,7 @@ async def monitor_downloads(db: AsyncSession) -> None:
                             pass
         except Exception:
             logger.warning(
-                "Monitor error for %s", client_record.name, exc_info=True
+                "Monitor error for %s", cfg["name"], exc_info=True
             )
 
 
@@ -439,7 +505,6 @@ async def trigger_import(
     # Eagerly read all attributes we need before any potential rollback
     client_configs = [
         {
-            "record": cr,
             "name": cr.name,
             "client_type": cr.client_type,
             "host": cr.host,
@@ -456,7 +521,7 @@ async def trigger_import(
 
     for cfg in client_configs:
         try:
-            client = _instantiate_client(cfg["record"])
+            client = _instantiate_client_from_dict(cfg)
             status = await client.get_status(download_id)
             if status and status.save_path:
                 # Rollback any failed transaction before attempting import
