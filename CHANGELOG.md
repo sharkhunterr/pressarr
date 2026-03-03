@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.13](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.12...v0.1.13) (2026-03-03)
+
+
+### Features
+
+* safe queue removal with confirmation dialog ([df3310f](https://github.com/sharkhunterr/pressarr/-/commit/df3310fb85c8770493dea64d7bc178dca2245f80))
+
+
+### Bug Fixes
+
+* prevent MissingGreenlet by eagerly loading client attributes ([327e82e](https://github.com/sharkhunterr/pressarr/-/commit/327e82ee94321ff3e8a3452ff8e692a260e131d8))
+
 ### [0.1.12](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.11...v0.1.12) (2026-03-02)
 
 
