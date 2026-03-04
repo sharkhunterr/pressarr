@@ -404,35 +404,16 @@ async def process_downloaded_file(
 
     # 4. Check quality upgrade
     if existing_file:
-        quality_items = []
         if magazine.quality_profile_id:
-            from app.models.quality_profile import QualityProfileItem
-            qi_result = await db.execute(
-                select(QualityProfileItem).where(
-                    QualityProfileItem.quality_profile_id == magazine.quality_profile_id
+            from app.services.quality_service import get_profile
+
+            profile = await get_profile(db, magazine.quality_profile_id)
+            if profile and not should_upgrade(existing_file.quality, parsed.quality, profile):
+                logger.info(
+                    "Skipping %s — quality %s not an upgrade over %s",
+                    file_path.name, parsed.quality, existing_file.quality,
                 )
-            )
-            quality_items = [
-                {"quality": qi.quality, "allowed": qi.allowed, "sort_order": qi.sort_order}
-                for qi in qi_result.scalars().all()
-            ]
-
-        cutoff = "pdf_hq"
-        if magazine.quality_profile_id:
-            from app.models.quality_profile import QualityProfile
-            qp_result = await db.execute(
-                select(QualityProfile).where(QualityProfile.id == magazine.quality_profile_id)
-            )
-            qp = qp_result.scalars().first()
-            if qp:
-                cutoff = qp.cutoff
-
-        if not should_upgrade(existing_file.quality, parsed.quality, cutoff, quality_items):
-            logger.info(
-                "Skipping %s — quality %s not an upgrade over %s",
-                file_path.name, parsed.quality, existing_file.quality,
-            )
-            return {"success": False, "issue_id": issue.id, "message": "Not a quality upgrade"}
+                return {"success": False, "issue_id": issue.id, "message": "Not a quality upgrade"}
 
         # Remove old file
         old_path = Path(existing_file.path)

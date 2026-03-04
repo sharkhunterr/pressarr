@@ -43,18 +43,27 @@ def _get_registry_path() -> Path:
     return _GRAB_REGISTRY_PATH
 
 
+def _get_processed_path() -> Path:
+    """Get the path for the persistent processed-downloads file."""
+    return _get_registry_path().with_name("processed_downloads.json")
+
+
 def _save_registry() -> None:
-    """Persist grab registry to disk."""
+    """Persist grab registry and processed set to disk."""
     try:
         path = _get_registry_path()
         data = {k: asdict(v) for k, v in _grab_registry.items()}
         path.write_text(json.dumps(data, indent=2))
     except Exception:
         logger.debug("Could not save grab registry", exc_info=True)
+    try:
+        _get_processed_path().write_text(json.dumps(list(_processed_downloads)))
+    except Exception:
+        logger.debug("Could not save processed downloads", exc_info=True)
 
 
 def _load_registry() -> None:
-    """Load grab registry from disk on startup."""
+    """Load grab registry and processed set from disk on startup."""
     try:
         path = _get_registry_path()
         if path.exists():
@@ -65,6 +74,14 @@ def _load_registry() -> None:
             logger.info("Loaded %d entries from grab registry", len(data))
     except Exception:
         logger.debug("Could not load grab registry", exc_info=True)
+    try:
+        proc_path = _get_processed_path()
+        if proc_path.exists():
+            ids = json.loads(proc_path.read_text())
+            _processed_downloads.update(ids)
+            logger.info("Loaded %d processed download IDs", len(ids))
+    except Exception:
+        logger.debug("Could not load processed downloads", exc_info=True)
 
 
 def get_grab_info(download_id: str) -> _GrabInfo | None:
@@ -445,6 +462,10 @@ async def _try_import_item(
 
     if not files:
         logger.warning("Monitor: no supported files found in %s", save_path)
+        # Mark as processed so we don't retry every 30 seconds
+        if item.download_id:
+            _processed_downloads.add(item.download_id)
+            _save_registry()
         return {"success": False, "message": f"No supported files in {save_path}"}
 
     # Resolve issue/magazine association:
