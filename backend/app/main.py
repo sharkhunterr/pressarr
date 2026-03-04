@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Auth-exempt paths
 AUTH_EXEMPT_PATHS = {
     "/api/v1/system/status",
+    "/api/v1/system/logs",
     "/api/docs",
     "/api/redoc",
     "/openapi.json",
@@ -70,6 +71,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    # Add in-memory ring-buffer handler for remote log viewing
+    from app.log_buffer import log_buffer_handler
+
+    logging.getLogger().addHandler(log_buffer_handler)
 
     # Auto-create /config directory
     config.config_path.parent.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,7 @@ import shutil
 import time
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,3 +84,28 @@ async def get_health(db: AsyncSession = Depends(get_db)):
         database=db_ok,
         message="ok" if db_ok else "database error",
     )
+
+
+@router.get("/logs")
+async def get_logs(
+    limit: int = Query(200, ge=1, le=2000),
+    level: str | None = Query(None, description="Filter by log level (DEBUG, INFO, WARNING, ERROR)"),
+    logger_filter: str | None = Query(None, alias="logger", description="Filter by logger name substring"),
+):
+    """Return recent application logs from the in-memory ring buffer."""
+    from app.log_buffer import log_buffer_handler
+
+    entries = log_buffer_handler.get_entries(
+        limit=limit,
+        level=level,
+        logger_filter=logger_filter,
+    )
+    return [
+        {
+            "timestamp": e.timestamp,
+            "level": e.level,
+            "logger": e.logger_name,
+            "message": e.message,
+        }
+        for e in entries
+    ]

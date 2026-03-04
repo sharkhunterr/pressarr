@@ -139,11 +139,14 @@ async def generate_forecasts(
     if last_issue and last_issue.number is not None:
         last_number = last_issue.number
 
-    # Remove existing forecasts for this magazine
+    # Remove existing forecasts for this magazine — but KEEP forecasts that
+    # have been promoted to "wanted" or grabbed ("snatched"), as those are
+    # actively tracked for download.
     existing_forecasts = await db.execute(
         select(Issue).where(
             Issue.magazine_id == magazine.id,
             Issue.is_forecast == True,  # noqa: E712
+            Issue.status.in_(["upcoming", "delayed", "skipped"]),
         )
     )
     for forecast in existing_forecasts.scalars().all():

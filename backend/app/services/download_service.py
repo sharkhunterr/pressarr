@@ -134,8 +134,10 @@ async def grab_release(
                 download_id, issue.id, issue.magazine_id,
             )
 
-        # Update issue status
+        # Update issue status (and clear forecast flag so generate_forecasts
+        # won't delete it while the download is in progress)
         issue.status = "snatched"
+        issue.is_forecast = False
         await db.flush()
 
         # Record history event

@@ -35,6 +35,7 @@ class MatchWeights:
     pattern_bonus: float = 25.0     # Bonus for matching a learned naming pattern
     language_match: float = 5.0     # Bonus for matching expected language
     quality_bonus: float = 5.0      # Bonus for a recognized quality tag
+    title_threshold: float = 80.0   # Minimum fuzzy match % for title (prevents false positives)
     min_threshold: float = 55.0     # Minimum score to accept a match
 
 
@@ -304,7 +305,7 @@ async def smart_match_rss_item(
         title_match = fuzzy_match_title(
             parsed.title,
             [magazine.title],
-            threshold=65.0,
+            threshold=weights.title_threshold,
         )
         if title_match:
             _, fuzzy_pct = title_match
@@ -320,7 +321,7 @@ async def smart_match_rss_item(
                 st_match = fuzzy_match_title(
                     parsed.title,
                     terms,
-                    threshold=65.0,
+                    threshold=weights.title_threshold,
                 )
                 if st_match:
                     _, st_pct = st_match
