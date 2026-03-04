@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.16](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.15...v0.1.16) (2026-03-04)
+
+
+### Bug Fixes
+
+* should_upgrade() argument mismatch and queue persistence ([7751623](https://github.com/sharkhunterr/pressarr/-/commit/7751623c099a2a294263a2fdb415f26b36fcb823))
+
 ### [0.1.15](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.14...v0.1.15) (2026-03-04)
 
 
