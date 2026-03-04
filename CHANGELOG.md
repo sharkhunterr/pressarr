@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.15](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.14...v0.1.15) (2026-03-04)
+
+
+### Bug Fixes
+
+* prevent false positive matching, forecast deletion, and add remote logs ([a05fd5c](https://github.com/sharkhunterr/pressarr/-/commit/a05fd5c48a033d37ce7a74405d210579e4cc4427))
+
 ### [0.1.14](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.13...v0.1.14) (2026-03-03)
 
 
