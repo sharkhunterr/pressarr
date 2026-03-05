@@ -124,8 +124,8 @@ export default function Calendar() {
       </div>
 
       {/* Month navigation */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div className="flex items-center justify-center gap-2">
           <Button variant="outline" size="icon-sm" onClick={prevMonth}>
             <ChevronLeft className="size-4" />
           </Button>
@@ -140,7 +140,7 @@ export default function Calendar() {
         {/* Filters */}
         <div className="flex items-center gap-2">
           <Select value={magazineFilter} onValueChange={setMagazineFilter}>
-            <SelectTrigger className="w-44 bg-zinc-900 border-zinc-700 text-zinc-100">
+            <SelectTrigger className="w-full sm:w-44 bg-zinc-900 border-zinc-700 text-zinc-100">
               <SelectValue placeholder={t('calendar.allMagazines')} />
             </SelectTrigger>
             <SelectContent>
@@ -154,7 +154,7 @@ export default function Calendar() {
           </Select>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36 bg-zinc-900 border-zinc-700 text-zinc-100">
+            <SelectTrigger className="w-full sm:w-36 bg-zinc-900 border-zinc-700 text-zinc-100">
               <SelectValue placeholder={t('calendar.allStatuses')} />
             </SelectTrigger>
             <SelectContent>

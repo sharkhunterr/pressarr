@@ -35,7 +35,7 @@ async def search(
         all_results.sort(key=lambda r: r.score, reverse=True)
         return all_results
     elif query:
-        return await search_service.search_free(db, query, config)
+        return await search_service.search_free(db, query, config, magazine_id=magazine_id)
     raise HTTPException(422, "Provide issueId, magazineId, or query")
 
 

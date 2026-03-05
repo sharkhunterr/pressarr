@@ -23,8 +23,11 @@ export const searchIssue = (issueId: number) =>
 export const searchMagazine = (magazineId: number) =>
   apiFetch<SearchResult[]>(`/search?magazineId=${magazineId}`)
 
-export const searchIndexers = (query: string) =>
-  apiFetch<SearchResult[]>(`/search?query=${encodeURIComponent(query)}`)
+export const searchIndexers = (query: string, magazineId?: number) => {
+  const params = new URLSearchParams({ query })
+  if (magazineId) params.set('magazineId', String(magazineId))
+  return apiFetch<SearchResult[]>(`/search?${params}`)
+}
 
 export const grabRelease = (
   issueId: number,

@@ -58,7 +58,10 @@
     "filterUnmonitored": "Non surveillés",
     "filterComplete": "Complets",
     "filterIncomplete": "Incomplets",
-    "empty": "Aucun magazine dans votre bibliothèque."
+    "empty": "Aucun magazine dans votre bibliothèque.",
+    "today": "Aujourd'hui",
+    "tomorrow": "Demain",
+    "inDays": "Dans {{count}}j"
   },
   "addMagazine": {
     "title": "Ajouter un magazine",
@@ -261,6 +264,7 @@
     "eventType": "Événement",
     "magazine": "Magazine",
     "issue": "Numéro",
+    "issueDate": "Date du numéro",
     "details": "Détails",
     "allEvents": "Tous les événements",
     "allMagazines": "Tous les magazines",

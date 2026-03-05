@@ -697,7 +697,7 @@ export default function MagazineDetail() {
       } else if (activeTab === 'internetarchive') {
         results = await searchInternetArchive(manualSearchQuery, magazineId)
       } else if (activeTab === 'indexers') {
-        results = await searchIndexers(manualSearchQuery)
+        results = await searchIndexers(manualSearchQuery, magazineId)
       }
       setManualSearchResults(results)
     } catch {

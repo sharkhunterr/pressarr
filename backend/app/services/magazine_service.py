@@ -214,11 +214,23 @@ async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:
     missing_count = issue_count - available_count
     percent_complete = (available_count / issue_count * 100) if issue_count > 0 else 0.0
 
+    # Next issue date: earliest upcoming/wanted forecast
+    next_date_result = await db.execute(
+        select(Issue.publication_date).where(
+            Issue.magazine_id == magazine_id,
+            Issue.is_forecast == True,  # noqa: E712
+            Issue.status.in_(["upcoming", "wanted"]),
+            Issue.publication_date.isnot(None),
+        ).order_by(Issue.publication_date.asc()).limit(1)
+    )
+    next_issue_date = next_date_result.scalar()
+
     return {
         "issue_count": issue_count,
         "available_count": available_count,
         "missing_count": missing_count,
         "percent_complete": round(percent_complete, 1),
+        "next_issue_date": next_issue_date,
     }
 
 

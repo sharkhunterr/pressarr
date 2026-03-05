@@ -10,6 +10,20 @@ function completionPercent(magazine: Magazine): number {
   return Math.round((stats.availableCount / stats.issueCount) * 100)
 }
 
+function formatNextDate(dateStr: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  const date = new Date(dateStr + 'T00:00:00')
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const diffMs = date.getTime() - now.getTime()
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffDays === 0) return t('library.today')
+  if (diffDays === 1) return t('library.tomorrow')
+  if (diffDays > 1 && diffDays <= 7) return t('library.inDays', { count: diffDays })
+
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
 interface MagazineCardProps {
   magazine: Magazine
 }
@@ -19,6 +33,7 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
   const { t } = useTranslation()
 
   const percent = completionPercent(magazine)
+  const nextDate = magazine.statistics?.nextIssueDate
 
   return (
     <button
@@ -40,8 +55,16 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
           </div>
         )}
 
-        {/* Status badge */}
-        <div className="absolute top-2 right-2">
+        {/* Top badges */}
+        <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-1">
+          {/* Frequency badge (left) */}
+          {magazine.monitored && magazine.frequency && magazine.frequency !== 'irregular' ? (
+            <Badge variant="secondary" className="bg-zinc-900/80 text-zinc-300 text-[10px] px-1.5 py-0.5 backdrop-blur-sm">
+              {t(`addMagazine.${magazine.frequency}`)}
+            </Badge>
+          ) : <div />}
+
+          {/* Monitored badge (right) */}
           <Badge
             variant={magazine.monitored ? 'default' : 'outline'}
             className={magazine.monitored ? 'bg-[#7C3AED]' : ''}
@@ -49,6 +72,15 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
             {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
           </Badge>
         </div>
+
+        {/* Next issue date badge (bottom) */}
+        {magazine.monitored && nextDate && (
+          <div className="absolute bottom-2 left-2">
+            <Badge variant="secondary" className="bg-zinc-900/80 text-zinc-300 text-[10px] px-1.5 py-0.5 backdrop-blur-sm">
+              {formatNextDate(nextDate, t)}
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* Info */}

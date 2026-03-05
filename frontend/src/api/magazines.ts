@@ -27,6 +27,7 @@ export interface Magazine {
     availableCount: number
     missingCount: number
     percentComplete: number
+    nextIssueDate: string | null
   }
 }
 

@@ -12,6 +12,7 @@ class MagazineStatistics(CamelModel):
     available_count: int = 0
     missing_count: int = 0
     percent_complete: float = 0.0
+    next_issue_date: date | None = None
 
 
 class MagazineResource(CamelModel):

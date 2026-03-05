@@ -7,6 +7,7 @@ export interface HistoryEntry {
   magazineTitle: string | null
   issueId: number | null
   issueNumber: number | null
+  issueDate: string | null
   details: string | null
   date: string
 }

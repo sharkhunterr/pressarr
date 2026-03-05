@@ -109,7 +109,7 @@ async def search_issue(
 
 
 async def search_free(
-    db: AsyncSession, query: str, config
+    db: AsyncSession, query: str, config, magazine_id: int | None = None
 ) -> list[SearchResultResource]:
     """Free-text search across all enabled indexers (Prowlarr)."""
     from app.indexers.prowlarr import ProwlarrClient
@@ -161,6 +161,7 @@ async def search_free(
     await create_event(
         db,
         event_type="searched",
+        magazine_id=magazine_id,
         details=f"Free search: '{query}' ({len(all_results)} results)",
     )
 

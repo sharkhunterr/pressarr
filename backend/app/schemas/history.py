@@ -1,6 +1,6 @@
 """History and blocklist schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from app.schemas import CamelModel
 
@@ -13,6 +13,7 @@ class HistoryResource(CamelModel):
     magazine_title: str | None = None
     issue_id: int | None = None
     issue_number: int | None = None
+    issue_date: date | None = None
     details: str | None = None
 
 

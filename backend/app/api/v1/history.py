@@ -22,12 +22,13 @@ async def list_history(
     magazine_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    # Build query with LEFT JOINs to get magazine title and issue number
+    # Build query with LEFT JOINs to get magazine title, issue number, and publication date
     query = (
         select(
             History,
             Magazine.title.label("magazine_title"),
             Issue.number.label("issue_number"),
+            Issue.publication_date.label("issue_date"),
         )
         .outerjoin(Magazine, History.magazine_id == Magazine.id)
         .outerjoin(Issue, History.issue_id == Issue.id)
@@ -58,6 +59,7 @@ async def list_history(
             magazine_title=row.magazine_title,
             issue_id=event.issue_id,
             issue_number=row.issue_number,
+            issue_date=row.issue_date,
             details=event.details,
         ))
 

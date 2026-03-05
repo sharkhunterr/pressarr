@@ -58,7 +58,10 @@
     "filterUnmonitored": "Unmonitored",
     "filterComplete": "Complete",
     "filterIncomplete": "Incomplete",
-    "empty": "No magazines in your library yet."
+    "empty": "No magazines in your library yet.",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "inDays": "In {{count}}d"
   },
   "addMagazine": {
     "title": "Add Magazine",
@@ -261,6 +264,7 @@
     "eventType": "Event",
     "magazine": "Magazine",
     "issue": "Issue",
+    "issueDate": "Issue Date",
     "details": "Details",
     "allEvents": "All Events",
     "allMagazines": "All Magazines",

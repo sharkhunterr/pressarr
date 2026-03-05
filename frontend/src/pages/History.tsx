@@ -131,6 +131,7 @@ export default function History() {
                 <TableHead className="text-zinc-400">{t('history.eventType')}</TableHead>
                 <TableHead className="text-zinc-400">{t('history.magazine')}</TableHead>
                 <TableHead className="text-zinc-400">{t('history.issue')}</TableHead>
+                <TableHead className="text-zinc-400">{t('history.issueDate')}</TableHead>
                 <TableHead className="text-zinc-400">{t('history.details')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -150,6 +151,9 @@ export default function History() {
                   </TableCell>
                   <TableCell className="text-zinc-400 text-sm">
                     {entry.issueNumber !== null ? `#${entry.issueNumber}` : '-'}
+                  </TableCell>
+                  <TableCell className="text-zinc-400 text-sm">
+                    {entry.issueDate ? new Date(entry.issueDate + 'T00:00:00').toLocaleDateString() : '-'}
                   </TableCell>
                   <TableCell className="text-zinc-500 text-sm max-w-xs truncate">
                     {entry.details}
