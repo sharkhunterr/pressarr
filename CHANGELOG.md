@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.22](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.21...v0.1.22) (2026-03-06)
+
+
+### Features
+
+* add manual import button for snatched issues ([0843adf](https://github.com/sharkhunterr/pressarr/-/commit/0843adf100a0d4fa848074e45fec6ea9fab4cb09))
+
+
+### Bug Fixes
+
+* support dot-separated dates and detect quality tags in parentheses ([45eb171](https://github.com/sharkhunterr/pressarr/-/commit/45eb171ed6a4837aadc581ce6ac3e5d73a419145))
+
 ### [0.1.21](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.20...v0.1.21) (2026-03-06)
 
 
