@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.24](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.23...v0.1.24) (2026-03-06)
+
+
+### Features
+
+* add issue viewer for PDF, CBZ, and CBR files ([304e2a6](https://github.com/sharkhunterr/pressarr/-/commit/304e2a68584794cb37cef96680d09ac0b671f203))
+
+
+### Bug Fixes
+
+* issue viewer auth and double close button ([10a4e27](https://github.com/sharkhunterr/pressarr/-/commit/10a4e274b0a74271450d03a47264a1bcd73d9a97))
+
 ### [0.1.23](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.22...v0.1.23) (2026-03-06)
 
 
