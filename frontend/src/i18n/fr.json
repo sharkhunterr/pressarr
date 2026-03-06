@@ -44,6 +44,11 @@
     "upcoming": "À venir",
     "skipped": "Ignoré"
   },
+  "search": {
+    "placeholder": "Rechercher des magazines...",
+    "noResults": "Aucun magazine trouvé",
+    "hint": "Ctrl+K"
+  },
   "library": {
     "title": "Bibliothèque",
     "addMagazine": "Ajouter un magazine",
@@ -54,11 +59,16 @@
     "sortTitle": "Trier par titre",
     "sortAdded": "Trier par date d'ajout",
     "sortNextIssue": "Trier par prochain numéro",
+    "sortMissing": "Trier par manquants",
+    "sortCompletion": "Trier par complétion",
     "filterAll": "Tous",
     "filterMonitored": "Surveillés",
     "filterUnmonitored": "Non surveillés",
     "filterComplete": "Complets",
     "filterIncomplete": "Incomplets",
+    "searchPlaceholder": "Filtrer par titre...",
+    "viewGrid": "Vue grille",
+    "viewList": "Vue liste",
     "empty": "Aucun magazine dans votre bibliothèque.",
     "today": "Aujourd'hui",
     "tomorrow": "Demain",

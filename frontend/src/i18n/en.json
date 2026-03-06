@@ -44,6 +44,11 @@
     "upcoming": "Upcoming",
     "skipped": "Skipped"
   },
+  "search": {
+    "placeholder": "Search magazines...",
+    "noResults": "No magazines found",
+    "hint": "Ctrl+K"
+  },
   "library": {
     "title": "Library",
     "addMagazine": "Add Magazine",
@@ -54,11 +59,16 @@
     "sortTitle": "Sort by Title",
     "sortAdded": "Sort by Date Added",
     "sortNextIssue": "Sort by Next Issue",
+    "sortMissing": "Sort by Missing",
+    "sortCompletion": "Sort by Completion",
     "filterAll": "All",
     "filterMonitored": "Monitored",
     "filterUnmonitored": "Unmonitored",
     "filterComplete": "Complete",
     "filterIncomplete": "Incomplete",
+    "searchPlaceholder": "Filter by title...",
+    "viewGrid": "Grid view",
+    "viewList": "List view",
     "empty": "No magazines in your library yet.",
     "today": "Today",
     "tomorrow": "Tomorrow",
