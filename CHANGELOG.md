@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.21](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.20...v0.1.21) (2026-03-06)
+
+
+### Bug Fixes
+
+* prioritize query over magazineId in search endpoint ([f198108](https://github.com/sharkhunterr/pressarr/-/commit/f19810816cd5a1fc2318edf58cd19b63d010503f))
+
 ### [0.1.20](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.19...v0.1.20) (2026-03-06)
 
 
