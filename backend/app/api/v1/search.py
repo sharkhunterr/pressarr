@@ -377,7 +377,7 @@ async def _resolve_or_create_issue(
         month=parsed.month,
         day=parsed.day,
         is_special=parsed.is_special,
-        status="snatched",
+        status="wanted",
         monitored=True,
     )
     db.add(issue)
