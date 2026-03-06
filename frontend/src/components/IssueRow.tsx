@@ -3,7 +3,7 @@ import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil } fro
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import {
   TableCell,
@@ -20,20 +20,6 @@ function formatBytes(bytes: number): string {
 function formatSpeed(bytesPerSecond: number): string {
   if (bytesPerSecond === 0) return ''
   return `${formatBytes(bytesPerSecond)}/s`
-}
-
-function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case 'available':
-      return 'default'
-    case 'wanted':
-    case 'snatched':
-      return 'secondary'
-    case 'missing':
-      return 'destructive'
-    default:
-      return 'outline'
-  }
 }
 
 export interface DeducedFields {
@@ -153,16 +139,7 @@ export function IssueRow({
             </div>
           </div>
         ) : (
-          <>
-            <Badge variant={statusVariant(issue.status)}>
-              {t(`status.${issue.status}`, issue.status)}
-            </Badge>
-            {issue.isForecast && (
-              <Badge variant="outline" className="ml-1 text-xs">
-                {t('issues.forecast')}
-              </Badge>
-            )}
-          </>
+          <StatusBadge status={issue.status} />
         )}
       </TableCell>
       <TableCell className="text-zinc-400 text-sm">

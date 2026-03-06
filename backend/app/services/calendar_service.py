@@ -260,9 +260,11 @@ async def promote_due_forecasts(db: AsyncSession) -> int:
     count = 0
     for forecast in forecasts:
         forecast.status = "wanted"
+        forecast.is_forecast = False
         count += 1
     if count:
         await db.flush()
+        logger.info("Promoted %d due forecasts to wanted", count)
     return count
 
 

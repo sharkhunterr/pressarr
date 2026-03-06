@@ -93,7 +93,7 @@ import { useQueue } from '@/hooks/useQueue'
 
 const RESULTS_PER_PAGE = 50
 
-type StatusFilter = 'all' | 'available' | 'wanted' | 'missing' | 'upcoming'
+type StatusFilter = 'all' | 'available' | 'wanted' | 'upcoming'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -196,8 +196,8 @@ export default function MagazineDetail() {
   })
 
   const { data: issues = [], isLoading: issuesLoading } = useQuery({
-    queryKey: ['issues', magazineId, statusFilter === 'all' || statusFilter === 'upcoming' ? undefined : statusFilter],
-    queryFn: () => getIssues(magazineId, statusFilter === 'all' || statusFilter === 'upcoming' ? undefined : statusFilter),
+    queryKey: ['issues', magazineId],
+    queryFn: () => getIssues(magazineId),
     enabled: !isNaN(magazineId),
   })
 
@@ -365,11 +365,19 @@ export default function MagazineDetail() {
     onError: () => toast.error(t('magazineDetail.deleteError')),
   })
 
+  // A forecast with status "wanted" is effectively a real wanted issue
+  const isUpcoming = (i: Issue) => i.isForecast && i.status !== 'wanted'
+  const isWanted = (i: Issue) => i.status === 'wanted' || i.status === 'missing'
+
   // Group issues by year
-  const filteredIssues = useMemo(
-    () => statusFilter === 'upcoming' ? issues.filter((i) => i.isForecast) : issues,
-    [issues, statusFilter],
-  )
+  const filteredIssues = useMemo(() => {
+    if (statusFilter === 'upcoming') return issues.filter(isUpcoming)
+    // All other filters exclude true upcoming forecasts
+    const real = issues.filter((i) => !isUpcoming(i))
+    if (statusFilter === 'all') return real
+    if (statusFilter === 'wanted') return real.filter(isWanted)
+    return real.filter((i) => i.status === statusFilter)
+  }, [issues, statusFilter])
 
   const groupedIssues = useMemo(() => {
     const groups: Record<string, Issue[]> = {}
@@ -389,14 +397,17 @@ export default function MagazineDetail() {
     return sorted
   }, [filteredIssues, t])
 
-  // Status counts
+  // Status counts — true upcoming forecasts are excluded from "all"
   const statusCounts = useMemo(() => {
-    const counts = { all: issues.length, available: 0, wanted: 0, missing: 0, upcoming: 0 }
+    const counts = { all: 0, available: 0, wanted: 0, upcoming: 0 }
     for (const issue of issues) {
-      if (issue.isForecast) counts.upcoming++
-      else if (issue.status === 'available') counts.available++
-      else if (issue.status === 'wanted') counts.wanted++
-      else if (issue.status === 'missing') counts.missing++
+      if (isUpcoming(issue)) {
+        counts.upcoming++
+      } else {
+        counts.all++
+        if (issue.status === 'available') counts.available++
+        else if (isWanted(issue)) counts.wanted++
+      }
     }
     return counts
   }, [issues])
@@ -557,8 +568,8 @@ export default function MagazineDetail() {
 
   const hasDeductions = deductions.size > 0
 
-  const completionPercent = issues.length > 0
-    ? Math.round((statusCounts.available / issues.length) * 100)
+  const completionPercent = statusCounts.all > 0
+    ? Math.round((statusCounts.available / statusCounts.all) * 100)
     : 0
 
   // Selection handlers
@@ -923,13 +934,13 @@ export default function MagazineDetail() {
             <div className="flex items-center gap-4 mt-4">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-zinc-400">
-                  {t('magazineDetail.totalIssues')}: <span className="text-zinc-100">{issues.length}</span>
+                  {t('magazineDetail.totalIssues')}: <span className="text-zinc-100">{statusCounts.all}</span>
                 </span>
                 <span className="text-zinc-400">
                   {t('status.available')}: <span className="text-green-400">{statusCounts.available}</span>
                 </span>
                 <span className="text-zinc-400">
-                  {t('status.missing')}: <span className="text-red-400">{statusCounts.missing}</span>
+                  {t('status.wanted')}: <span className="text-red-400">{statusCounts.wanted}</span>
                 </span>
                 <span className="text-zinc-400">
                   {t('magazineDetail.completion')}: <span className="text-[#7C3AED]">{completionPercent}%</span>
@@ -950,7 +961,7 @@ export default function MagazineDetail() {
 
       {/* Status Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
-        {(['all', 'available', 'wanted', 'missing', 'upcoming'] as StatusFilter[]).map((filter) => (
+        {(['all', 'available', 'wanted', 'upcoming'] as StatusFilter[]).map((filter) => (
           <Button
             key={filter}
             variant={statusFilter === filter ? 'default' : 'outline'}
@@ -1040,8 +1051,8 @@ export default function MagazineDetail() {
                 </TableHeader>
                 <TableBody>
                   {(() => {
-                    const regular = yearIssues.filter((i) => !i.isForecast)
-                    const upcoming = yearIssues.filter((i) => i.isForecast)
+                    const regular = yearIssues.filter((i) => !i.isForecast || i.status === 'wanted')
+                    const upcoming = yearIssues.filter((i) => i.isForecast && i.status !== 'wanted')
                     const isExpanded = expandedUpcoming.has(year)
 
                     const renderRow = (issue: typeof yearIssues[number]) => (
@@ -1091,9 +1102,6 @@ export default function MagazineDetail() {
                                   <span>
                                     {t('issues.upcomingCollapsed', { count: upcoming.length })}
                                   </span>
-                                  <Badge variant="secondary" className="text-xs px-1.5">
-                                    {t('issues.forecast')}
-                                  </Badge>
                                 </div>
                               </TableCell>
                             </TableRow>

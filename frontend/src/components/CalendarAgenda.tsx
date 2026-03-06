@@ -3,25 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { SkipForward } from 'lucide-react'
 
 import { type CalendarEntry } from '@/api/calendar'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 
 interface CalendarAgendaProps {
   entries: CalendarEntry[]
   onSkip: (issueId: number) => void
-}
-
-function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case 'available':
-      return 'default'
-    case 'wanted':
-      return 'secondary'
-    case 'missing':
-      return 'destructive'
-    default:
-      return 'outline'
-  }
 }
 
 export function CalendarAgenda({ entries, onSkip }: CalendarAgendaProps) {
@@ -94,15 +81,7 @@ export function CalendarAgenda({ entries, onSkip }: CalendarAgendaProps) {
                 </button>
 
                 {/* Status */}
-                <Badge variant={statusVariant(entry.status)}>
-                  {t(`status.${entry.status}`, entry.status)}
-                </Badge>
-
-                {entry.isForecast && (
-                  <Badge variant="outline" className="text-xs">
-                    {t('issues.forecast')}
-                  </Badge>
-                )}
+                <StatusBadge status={entry.status} />
 
                 {/* Skip button for forecasts */}
                 {entry.isForecast && entry.issueId !== null && (

@@ -196,17 +196,21 @@ async def delete_magazine(
 
 async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:
     """Compute statistics for a magazine."""
-    # Total issues
+    # Total issues (exclude forecasts — they're predictions, not real issues)
     total_result = await db.execute(
-        select(func.count(Issue.id)).where(Issue.magazine_id == magazine_id)
+        select(func.count(Issue.id)).where(
+            Issue.magazine_id == magazine_id,
+            Issue.is_forecast == False,  # noqa: E712
+        )
     )
     issue_count = total_result.scalar() or 0
 
-    # Available issues (status != 'missing')
+    # Available issues
     available_result = await db.execute(
         select(func.count(Issue.id)).where(
             Issue.magazine_id == magazine_id,
-            Issue.status != "missing",
+            Issue.is_forecast == False,  # noqa: E712
+            Issue.status == "available",
         )
     )
     available_count = available_result.scalar() or 0
@@ -214,12 +218,12 @@ async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:
     missing_count = issue_count - available_count
     percent_complete = (available_count / issue_count * 100) if issue_count > 0 else 0.0
 
-    # Next issue date: earliest upcoming/wanted forecast
+    # Next issue date: earliest upcoming forecast
     next_date_result = await db.execute(
         select(Issue.publication_date).where(
             Issue.magazine_id == magazine_id,
             Issue.is_forecast == True,  # noqa: E712
-            Issue.status.in_(["upcoming", "wanted"]),
+            Issue.status == "upcoming",
             Issue.publication_date.isnot(None),
         ).order_by(Issue.publication_date.asc()).limit(1)
     )

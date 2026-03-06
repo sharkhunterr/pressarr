@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { X, Trash2, Ban, Import } from 'lucide-react'
 
 import { type QueueEntry } from '@/api/queue'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 
 function formatBytes(bytes: number): string {
@@ -15,19 +15,6 @@ function formatBytes(bytes: number): string {
 function formatSpeed(bytesPerSecond: number): string {
   if (bytesPerSecond === 0) return '-'
   return `${formatBytes(bytesPerSecond)}/s`
-}
-
-function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case 'downloading':
-      return 'default'
-    case 'paused':
-      return 'secondary'
-    case 'failed':
-      return 'destructive'
-    default:
-      return 'outline'
-  }
 }
 
 interface QueueItemProps {
@@ -106,9 +93,7 @@ export function QueueItem({
       </div>
 
       {/* Status */}
-      <Badge variant={statusVariant(entry.status)}>
-        {t(`queue.status_${entry.status}`, entry.status)}
-      </Badge>
+      <StatusBadge status={entry.status} tKey={`queue.status_${entry.status}`} />
 
       {/* Actions */}
       <div className="flex items-center gap-1">

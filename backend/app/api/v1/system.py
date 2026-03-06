@@ -27,16 +27,22 @@ async def get_status(db: AsyncSession = Depends(get_db)):
     config = get_config()
 
     mag_count = (await db.execute(select(func.count(Magazine.id)))).scalar() or 0
-    issue_count = (await db.execute(select(func.count(Issue.id)))).scalar() or 0
+    issue_count = (await db.execute(
+        select(func.count(Issue.id)).where(Issue.is_forecast == False)  # noqa: E712
+    )).scalar() or 0
     available_count = (
         await db.execute(
-            select(func.count(Issue.id)).where(Issue.status == "available")
+            select(func.count(Issue.id)).where(
+                Issue.is_forecast == False,  # noqa: E712
+                Issue.status == "available",
+            )
         )
     ).scalar() or 0
     wanted_count = (
         await db.execute(
             select(func.count(Issue.id)).where(
-                Issue.status.in_(["missing", "wanted"])
+                Issue.is_forecast == False,  # noqa: E712
+                Issue.status.in_(["missing", "wanted"]),
             )
         )
     ).scalar() or 0

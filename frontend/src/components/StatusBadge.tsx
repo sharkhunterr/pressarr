@@ -1,23 +1,32 @@
-const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
-  available: { bg: 'bg-green-600', text: 'text-green-100' },
-  wanted: { bg: 'bg-orange-600', text: 'text-orange-100' },
-  missing: { bg: 'bg-red-600', text: 'text-red-100' },
-  downloading: { bg: 'bg-blue-600', text: 'text-blue-100' },
-  snatched: { bg: 'bg-purple-600', text: 'text-purple-100' },
-  upcoming: { bg: 'bg-zinc-600', text: 'text-zinc-100' },
-  skipped: { bg: 'bg-zinc-600', text: 'text-zinc-100' },
+import { useTranslation } from 'react-i18next'
+
+const STATUS_STYLES: Record<string, string> = {
+  available: 'bg-green-600',
+  wanted: 'bg-red-500',
+  missing: 'bg-orange-400',
+  downloading: 'bg-blue-500',
+  snatched: 'bg-purple-500',
+  upcoming: 'bg-zinc-500',
+  skipped: 'bg-zinc-400',
+  delayed: 'bg-yellow-500',
+  completed: 'bg-green-600',
+  paused: 'bg-zinc-400',
+  failed: 'bg-red-500',
 }
 
 interface StatusBadgeProps {
   status: string
   className?: string
+  tKey?: string
 }
 
-export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
-  const style = STATUS_STYLES[status] || STATUS_STYLES.missing
+export function StatusBadge({ status, className = '', tKey }: StatusBadgeProps) {
+  const { t } = useTranslation()
+  const bg = STATUS_STYLES[status] || STATUS_STYLES.missing
+  const label = tKey ? t(tKey, status) : t(`status.${status}`, status)
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${style.bg} ${style.text} ${className}`}>
-      {status}
+    <span className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap text-black ${bg} ${className}`}>
+      {label}
     </span>
   )
 }
