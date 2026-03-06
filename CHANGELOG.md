@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.20](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.19...v0.1.20) (2026-03-06)
+
+
+### Bug Fixes
+
+* add grab-registry fallback for download monitoring when Label plugin is unavailable ([17d3a07](https://github.com/sharkhunterr/pressarr/-/commit/17d3a07d1c6d4365f440f37bd2fc4fb997aa10e6))
+
 ### [0.1.19](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.18...v0.1.19) (2026-03-06)
 
 
