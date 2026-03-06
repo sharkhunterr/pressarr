@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.23](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.22...v0.1.23) (2026-03-06)
+
+
+### Features
+
+* show grab/download source info in issue edit modal ([39168f3](https://github.com/sharkhunterr/pressarr/-/commit/39168f31865de8f0523a50f565dc9e93f0b78b56))
+
+
+### Bug Fixes
+
+* create issue as 'wanted' until grab succeeds ([4c608db](https://github.com/sharkhunterr/pressarr/-/commit/4c608dbd6c636dd594bf7a24c736f5fe96c72eb3))
+
 ### [0.1.22](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.21...v0.1.22) (2026-03-06)
 
 
