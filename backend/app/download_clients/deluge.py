@@ -1,6 +1,11 @@
 """Deluge download client via JSON-RPC."""
 
+import logging
+import re
+
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from app.download_clients.base import DownloadClientBase, DownloadStatus
 
@@ -56,9 +61,19 @@ class DelugeClient(DownloadClientBase):
         """Add a torrent by URL and tag it with the given label."""
         await self._ensure_auth()
         options: dict = {}
-        torrent_id = await self._call(
-            "core.add_torrent_url", [url, options]
-        )
+        try:
+            torrent_id = await self._call(
+                "core.add_torrent_url", [url, options]
+            )
+        except RuntimeError as e:
+            # Deluge returns AddTorrentError when the torrent is already in session.
+            # Extract the hash and treat it as a successful add.
+            match = re.search(r"already in session \(([0-9a-fA-F]+)\)", str(e))
+            if match:
+                torrent_id = match.group(1)
+                logger.info("Torrent already in Deluge, reusing existing: %s", torrent_id)
+            else:
+                raise
         if not torrent_id:
             raise RuntimeError("Failed to add torrent to Deluge")
 
