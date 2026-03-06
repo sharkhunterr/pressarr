@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.19](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.18...v0.1.19) (2026-03-06)
+
+
+### Bug Fixes
+
+* replace remaining Badge usage in IssueRow with StatusBadge ([e48928a](https://github.com/sharkhunterr/pressarr/-/commit/e48928ab27efca5d06bc3080ca3494f20450c1bc))
+
 ### [0.1.18](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.17...v0.1.18) (2026-03-06)
 
 
