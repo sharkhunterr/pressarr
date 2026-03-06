@@ -17,6 +17,7 @@ dependencies = [
     "websockets>=12.0",
     "pyyaml>=6.0",
     "lxml>=5.0",
+    "rarfile>=4.1",
 ]
 
 [dependency-groups]

@@ -56,6 +56,7 @@ import {
 import { getProfiles } from '@/api/quality'
 import { getRootFolders } from '@/api/system'
 import { IssueRow } from '@/components/IssueRow'
+import { IssueViewer } from '@/components/IssueViewer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -177,6 +178,10 @@ export default function MagazineDetail() {
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingIssueId, setRefreshingIssueId] = useState<number | null>(null)
   const [importingIssueId, setImportingIssueId] = useState<number | null>(null)
+
+  // Viewer state
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerIssueId, setViewerIssueId] = useState<number | null>(null)
 
   // Manual Research modal state
   const [manualSearchOpen, setManualSearchOpen] = useState(false)
@@ -1093,6 +1098,7 @@ export default function MagazineDetail() {
                         onSearch={handleSearch}
                         onRefresh={handleRefreshIssue}
                         onImport={handleImportIssue}
+                        onView={(id) => { setViewerIssueId(id); setViewerOpen(true) }}
                         refreshingId={refreshingIssueId}
                         importingId={importingIssueId}
                       />
@@ -2108,6 +2114,13 @@ export default function MagazineDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Issue Viewer */}
+      <IssueViewer
+        issueId={viewerIssueId}
+        open={viewerOpen}
+        onOpenChange={setViewerOpen}
+      />
     </div>
   )
 }

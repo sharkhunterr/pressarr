@@ -173,6 +173,7 @@
     "selected": "{{count}} selected",
     "batchUpdated": "Monitoring updated successfully.",
     "batchError": "Failed to update monitoring.",
+    "viewIssue": "View issue",
     "downloadFile": "Download file",
     "deleteFile": "Delete file",
     "deleteFileTitle": "Delete Issue File",
@@ -243,6 +244,9 @@
     "skipError": "Failed to skip forecast.",
     "allMagazines": "All Magazines",
     "allStatuses": "All Statuses"
+  },
+  "viewer": {
+    "error": "Failed to load the file."
   },
   "queue": {
     "title": "Queue",

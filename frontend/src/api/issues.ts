@@ -88,3 +88,9 @@ export const triggerIssueImport = (id: number) =>
 
 export const getIssueCoverUrl = (id: number) =>
   `/api/v1/issue/${id}/cover`
+
+export const getIssuePageCount = (id: number) =>
+  apiFetch<{ pageCount: number; format: string }>(`/issue/${id}/pages`)
+
+export const getIssuePageUrl = (id: number, page: number) =>
+  `/api/v1/issue/${id}/page/${page}`

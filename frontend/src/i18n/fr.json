@@ -173,6 +173,7 @@
     "selected": "{{count}} sélectionné(s)",
     "batchUpdated": "Surveillance mise à jour avec succès.",
     "batchError": "Échec de la mise à jour de la surveillance.",
+    "viewIssue": "Voir le numéro",
     "downloadFile": "Télécharger le fichier",
     "deleteFile": "Supprimer le fichier",
     "deleteFileTitle": "Supprimer le fichier",
@@ -243,6 +244,9 @@
     "skipError": "Échec de l'ignorement de la prévision.",
     "allMagazines": "Tous les magazines",
     "allStatuses": "Tous les statuts"
+  },
+  "viewer": {
+    "error": "Impossible de charger le fichier."
   },
   "queue": {
     "title": "File d'attente",

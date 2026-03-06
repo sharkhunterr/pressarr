@@ -1,9 +1,12 @@
 """Issue management API endpoints."""
 
+import io
+import logging
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -14,6 +17,8 @@ from app.schemas.issue import (
 )
 from app.services import issue_service
 from app.services.command_service import execute_command, register_command
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/issue", tags=["Issues"])
 
@@ -210,3 +215,168 @@ async def refresh_issue(
         body={"issue_id": issue_id},
     )
     return command
+
+
+# ---------------------------------------------------------------------------
+# Issue viewer (page extraction)
+# ---------------------------------------------------------------------------
+
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+
+
+def _get_issue_file_path(issue) -> Path:
+    """Return the resolved file path for an issue, or raise 404."""
+    if not issue.file:
+        raise HTTPException(404, "Issue has no file")
+    p = Path(issue.file.path)
+    if not p.is_file():
+        raise HTTPException(404, "File not found on disk")
+    return p
+
+
+def _pdf_page_count(path: Path) -> int:
+    import fitz
+    with fitz.open(str(path)) as doc:
+        return len(doc)
+
+
+def _pdf_render_page(path: Path, page: int) -> bytes:
+    import fitz
+    with fitz.open(str(path)) as doc:
+        if page < 0 or page >= len(doc):
+            raise HTTPException(404, "Page out of range")
+        pix = doc[page].get_pixmap(dpi=150)
+        return pix.tobytes("jpeg")
+
+
+def _cbz_image_list(path: Path) -> list[str]:
+    with zipfile.ZipFile(path) as zf:
+        names = sorted(
+            n for n in zf.namelist()
+            if Path(n).suffix.lower() in _IMAGE_EXTENSIONS and not n.startswith("__MACOSX")
+        )
+    return names
+
+
+def _cbz_page_count(path: Path) -> int:
+    return len(_cbz_image_list(path))
+
+
+def _cbz_render_page(path: Path, page: int) -> tuple[bytes, str]:
+    names = _cbz_image_list(path)
+    if page < 0 or page >= len(names):
+        raise HTTPException(404, "Page out of range")
+    with zipfile.ZipFile(path) as zf:
+        data = zf.read(names[page])
+    ext = Path(names[page]).suffix.lower()
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+            "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
+    return data, mime.get(ext.lstrip("."), "image/jpeg")
+
+
+def _cbr_image_list(path: Path) -> list[str]:
+    import rarfile
+    with rarfile.RarFile(str(path)) as rf:
+        names = sorted(
+            n for n in rf.namelist()
+            if Path(n).suffix.lower() in _IMAGE_EXTENSIONS and not n.startswith("__MACOSX")
+        )
+    return names
+
+
+def _cbr_page_count(path: Path) -> int:
+    return len(_cbr_image_list(path))
+
+
+def _cbr_render_page(path: Path, page: int) -> tuple[bytes, str]:
+    import rarfile
+    names = _cbr_image_list(path)
+    if page < 0 or page >= len(names):
+        raise HTTPException(404, "Page out of range")
+    with rarfile.RarFile(str(path)) as rf:
+        data = rf.read(names[page])
+    ext = Path(names[page]).suffix.lower()
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+            "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
+    return data, mime.get(ext.lstrip("."), "image/jpeg")
+
+
+@router.get("/{issue_id}/pages")
+async def get_issue_page_count(
+    issue_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the number of pages in the issue file."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.issue import Issue
+
+    result = await db.execute(
+        select(Issue).options(selectinload(Issue.file)).where(Issue.id == issue_id)
+    )
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(404, "Issue not found")
+
+    path = _get_issue_file_path(issue)
+    fmt = (issue.file.format or path.suffix.lstrip(".")).lower()
+
+    try:
+        if fmt == "pdf":
+            count = _pdf_page_count(path)
+        elif fmt == "cbz":
+            count = _cbz_page_count(path)
+        elif fmt == "cbr":
+            count = _cbr_page_count(path)
+        else:
+            raise HTTPException(400, f"Unsupported format: {fmt}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Failed to get page count for issue %d: %s", issue_id, e)
+        raise HTTPException(500, f"Failed to read file: {e}")
+
+    return {"pageCount": count, "format": fmt}
+
+
+@router.get("/{issue_id}/page/{page}")
+async def get_issue_page(
+    issue_id: int,
+    page: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Render a single page from the issue file as an image."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.issue import Issue
+
+    result = await db.execute(
+        select(Issue).options(selectinload(Issue.file)).where(Issue.id == issue_id)
+    )
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(404, "Issue not found")
+
+    path = _get_issue_file_path(issue)
+    fmt = (issue.file.format or path.suffix.lstrip(".")).lower()
+
+    try:
+        if fmt == "pdf":
+            data = _pdf_render_page(path, page)
+            return Response(content=data, media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=3600"})
+        elif fmt == "cbz":
+            data, mime = _cbz_render_page(path, page)
+            return Response(content=data, media_type=mime,
+                            headers={"Cache-Control": "public, max-age=3600"})
+        elif fmt == "cbr":
+            data, mime = _cbr_render_page(path, page)
+            return Response(content=data, media_type=mime,
+                            headers={"Cache-Control": "public, max-age=3600"})
+        else:
+            raise HTTPException(400, f"Unsupported format: {fmt}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Failed to render page %d for issue %d: %s", page, issue_id, e)
+        raise HTTPException(500, f"Failed to render page: {e}")

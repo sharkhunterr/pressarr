@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import } from 'lucide-react'
+import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen } from 'lucide-react'
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
@@ -40,6 +40,7 @@ interface IssueRowProps {
   onSearch: (id: number) => void
   onRefresh: (id: number) => void
   onImport?: (id: number) => void
+  onView?: (id: number) => void
   refreshingId?: number | null
   importingId?: number | null
 }
@@ -56,6 +57,7 @@ export function IssueRow({
   onSearch,
   onRefresh,
   onImport,
+  onView,
   refreshingId,
   importingId,
 }: IssueRowProps) {
@@ -222,6 +224,16 @@ export function IssueRow({
           >
             <RefreshCw className={`size-3.5 text-zinc-400 ${refreshingId === issue.id ? 'animate-spin' : ''}`} />
           </Button>
+          {issue.file && onView && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onView(issue.id)}
+              title={t('issues.viewIssue')}
+            >
+              <BookOpen className="size-3.5 text-zinc-400" />
+            </Button>
+          )}
           {issue.file && (
             <Button
               variant="ghost"
