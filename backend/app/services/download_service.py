@@ -401,7 +401,14 @@ async def monitor_downloads(db: AsyncSession) -> None:
         try:
             client = _instantiate_client_from_dict(cfg)
             items = await client.get_all(category=cfg["category"])
+
+            # Collect download_ids seen from get_all so we know which
+            # grab_registry entries were NOT returned (label missing, etc.)
+            seen_download_ids: set[str] = set()
+
             for item in items:
+                if item.download_id:
+                    seen_download_ids.add(item.download_id)
                 # Skip already-processed/dismissed downloads entirely
                 if item.download_id and item.download_id in _processed_downloads:
                     continue
@@ -410,27 +417,56 @@ async def monitor_downloads(db: AsyncSession) -> None:
                     item.download_id, item.status, item.save_path, item.name,
                 )
                 if item.status == "completed" and item.save_path:
-                    try:
-                        import_result = await _try_import_item(
-                            db, item,
-                            remote_path=cfg["remote_path"],
-                            local_path=cfg["local_path"],
-                        )
-                        # Commit after each successful import to isolate DB state
-                        if import_result.get("success"):
-                            await db.commit()
-                    except Exception:
-                        logger.warning(
-                            "Monitor: import failed for %s", item.download_id, exc_info=True
-                        )
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
+                    await _process_completed_item(db, item, cfg)
+
+            # Fallback: check grab_registry entries not returned by get_all.
+            # This handles cases where the Label plugin is not available or
+            # the label was not applied to the torrent.
+            for download_id, grab_info in list(_grab_registry.items()):
+                if download_id in seen_download_ids:
+                    continue
+                if download_id in _processed_downloads:
+                    continue
+                try:
+                    item = await client.get_status(download_id)
+                    if not item:
+                        continue
+                    logger.info(
+                        "Monitor (fallback): %s status=%s save_path=%s name=%s",
+                        item.download_id, item.status, item.save_path, item.name,
+                    )
+                    if item.status == "completed" and item.save_path:
+                        await _process_completed_item(db, item, cfg)
+                except Exception:
+                    logger.debug(
+                        "Monitor: fallback check failed for %s", download_id, exc_info=True,
+                    )
+
         except Exception:
             logger.warning(
                 "Monitor error for %s", cfg["name"], exc_info=True
             )
+
+
+async def _process_completed_item(db: AsyncSession, item, cfg: dict) -> None:
+    """Process a single completed download item (import + commit)."""
+    try:
+        import_result = await _try_import_item(
+            db, item,
+            remote_path=cfg["remote_path"],
+            local_path=cfg["local_path"],
+        )
+        # Commit after each successful import to isolate DB state
+        if import_result.get("success"):
+            await db.commit()
+    except Exception:
+        logger.warning(
+            "Monitor: import failed for %s", item.download_id, exc_info=True
+        )
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 async def _try_import_item(

@@ -81,9 +81,12 @@ class DelugeClient(DownloadClientBase):
         try:
             await self._ensure_label(category)
             await self._call("label.set_torrent", [torrent_id, category])
-        except RuntimeError:
-            # Label plugin not available — continue without labeling
-            pass
+        except RuntimeError as e:
+            logger.warning(
+                "Could not set label '%s' on torrent %s: %s. "
+                "Enable the Label plugin in Deluge for reliable monitoring.",
+                category, torrent_id, e,
+            )
 
         return torrent_id
 
@@ -117,9 +120,12 @@ class DelugeClient(DownloadClientBase):
             result = await self._call(
                 "core.get_torrents_status", [{"label": category}, fields]
             )
-        except RuntimeError:
-            # Label plugin not available — fall back to returning nothing
-            # rather than all torrents from the client
+        except RuntimeError as e:
+            logger.warning(
+                "Label plugin filter failed ('%s'): %s. "
+                "Grab-registry fallback will be used for monitoring.",
+                category, e,
+            )
             result = None
 
         if not result:
