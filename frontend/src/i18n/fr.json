@@ -246,7 +246,9 @@
     "allStatuses": "Tous les statuts"
   },
   "viewer": {
-    "error": "Impossible de charger le fichier."
+    "error": "Impossible de charger le fichier.",
+    "pageError": "Impossible de charger cette page.",
+    "retry": "Réessayer"
   },
   "queue": {
     "title": "File d'attente",

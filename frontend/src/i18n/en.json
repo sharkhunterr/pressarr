@@ -246,7 +246,9 @@
     "allStatuses": "All Statuses"
   },
   "viewer": {
-    "error": "Failed to load the file."
+    "error": "Failed to load the file.",
+    "pageError": "Failed to load this page.",
+    "retry": "Retry"
   },
   "queue": {
     "title": "Queue",
