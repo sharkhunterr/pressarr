@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil } from 'lucide-react'
+import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import } from 'lucide-react'
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
@@ -39,7 +39,9 @@ interface IssueRowProps {
   onDeleteFile: (id: number) => void
   onSearch: (id: number) => void
   onRefresh: (id: number) => void
+  onImport?: (id: number) => void
   refreshingId?: number | null
+  importingId?: number | null
 }
 
 export function IssueRow({
@@ -53,7 +55,9 @@ export function IssueRow({
   onDeleteFile,
   onSearch,
   onRefresh,
+  onImport,
   refreshingId,
+  importingId,
 }: IssueRowProps) {
   const { t } = useTranslation()
 
@@ -190,6 +194,17 @@ export function IssueRow({
           >
             <Pencil className="size-3.5 text-zinc-400" />
           </Button>
+          {issue.status === 'snatched' && onImport && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onImport(issue.id)}
+              disabled={importingId === issue.id}
+              title={t('issues.importDownload')}
+            >
+              <Import className={`size-3.5 text-[#7C3AED] ${importingId === issue.id ? 'animate-pulse' : ''}`} />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-xs"

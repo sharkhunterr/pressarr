@@ -83,5 +83,8 @@ export const deleteIssue = (id: number) =>
 export const refreshIssue = (id: number) =>
   apiFetch<unknown>(`/issue/${id}/refresh`, { method: 'POST' })
 
+export const triggerIssueImport = (id: number) =>
+  apiFetch<{ success: boolean; message?: string }>(`/issue/${id}/import`, { method: 'POST' })
+
 export const getIssueCoverUrl = (id: number) =>
   `/api/v1/issue/${id}/cover`

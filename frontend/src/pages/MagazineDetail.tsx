@@ -39,6 +39,7 @@ import {
   deleteIssueFile,
   deleteIssue,
   refreshIssue,
+  triggerIssueImport,
   type Issue,
   type IssueUpdate,
 } from '@/api/issues'
@@ -175,6 +176,7 @@ export default function MagazineDetail() {
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingIssueId, setRefreshingIssueId] = useState<number | null>(null)
+  const [importingIssueId, setImportingIssueId] = useState<number | null>(null)
 
   // Manual Research modal state
   const [manualSearchOpen, setManualSearchOpen] = useState(false)
@@ -684,6 +686,23 @@ export default function MagazineDetail() {
     }
   }
 
+  async function handleImportIssue(issueId: number) {
+    setImportingIssueId(issueId)
+    try {
+      const result = await triggerIssueImport(issueId)
+      invalidateIssues()
+      if (result.success) {
+        toast.success(t('issues.importSuccess'))
+      } else {
+        toast.error(result.message || t('issues.importError'))
+      }
+    } catch {
+      toast.error(t('issues.importError'))
+    } finally {
+      setImportingIssueId(null)
+    }
+  }
+
   // Manual Research modal
   function handleOpenManualSearch() {
     if (!magazine) return
@@ -1073,7 +1092,9 @@ export default function MagazineDetail() {
                         }}
                         onSearch={handleSearch}
                         onRefresh={handleRefreshIssue}
+                        onImport={handleImportIssue}
                         refreshingId={refreshingIssueId}
+                        importingId={importingIssueId}
                       />
                     )
 

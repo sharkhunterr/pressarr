@@ -125,6 +125,15 @@ def is_dismissed(download_id: str) -> bool:
     return download_id in _processed_downloads
 
 
+def find_download_ids_for_issue(issue_id: int) -> list[str]:
+    """Reverse lookup: find all download_ids registered for a given issue."""
+    ensure_registry_loaded()
+    return [
+        did for did, info in _grab_registry.items()
+        if info.issue_id == issue_id
+    ]
+
+
 async def grab_release(
     db: AsyncSession,
     issue_id: int,

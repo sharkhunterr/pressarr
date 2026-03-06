@@ -166,6 +166,35 @@ async def get_issue_cover(
     return FileResponse(cover_path)
 
 
+@router.post("/{issue_id}/import", status_code=200)
+async def import_issue_download(
+    issue_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger import for a snatched issue's download."""
+    from app.services.download_service import find_download_ids_for_issue, trigger_import
+
+    issue = await issue_service.get_issue(db, issue_id)
+    if issue is None:
+        raise HTTPException(404, "Issue not found")
+
+    download_ids = find_download_ids_for_issue(issue_id)
+    if not download_ids:
+        raise HTTPException(404, "No download found for this issue in the grab registry")
+
+    # Try each registered download (usually just one)
+    for download_id in download_ids:
+        result = await trigger_import(
+            db, download_id,
+            issue_id=issue_id,
+            magazine_id=issue.magazine_id,
+        )
+        if result.get("success"):
+            return result
+
+    return result  # Return last result even if failed
+
+
 @router.post("/{issue_id}/refresh", status_code=200)
 async def refresh_issue(
     issue_id: int,
