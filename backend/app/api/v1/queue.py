@@ -30,7 +30,10 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
 
     # 1. Regular download clients (torrent/usenet)
     # Collect all download_ids first, then batch-load issue/magazine metadata
-    from app.services.download_service import get_grab_info, is_dismissed
+    from app.services.download_service import ensure_registry_loaded, get_grab_info, is_dismissed
+
+    # Ensure processed-downloads set is loaded from disk (survives backend reload)
+    ensure_registry_loaded()
 
     pending_enrichments: dict[int, tuple[int, int]] = {}  # item_index → (issue_id, magazine_id)
 

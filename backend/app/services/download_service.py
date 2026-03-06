@@ -32,6 +32,12 @@ _grab_registry: dict[str, _GrabInfo] = {}
 # download_ids that have already been imported (prevents re-processing)
 _processed_downloads: set[str] = set()
 
+# Track whether the registry has been loaded from disk
+_registry_loaded: bool = False
+
+# Track consecutive import failures per download_id (avoids warning spam)
+_import_fail_count: dict[str, int] = {}
+
 
 def _get_registry_path() -> Path:
     """Get the path for the persistent grab registry file."""
@@ -52,18 +58,22 @@ def _save_registry() -> None:
     """Persist grab registry and processed set to disk."""
     try:
         path = _get_registry_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
         data = {k: asdict(v) for k, v in _grab_registry.items()}
         path.write_text(json.dumps(data, indent=2))
     except Exception:
-        logger.debug("Could not save grab registry", exc_info=True)
+        logger.warning("Could not save grab registry", exc_info=True)
     try:
-        _get_processed_path().write_text(json.dumps(list(_processed_downloads)))
+        proc_path = _get_processed_path()
+        proc_path.parent.mkdir(parents=True, exist_ok=True)
+        proc_path.write_text(json.dumps(list(_processed_downloads)))
     except Exception:
-        logger.debug("Could not save processed downloads", exc_info=True)
+        logger.warning("Could not save processed downloads", exc_info=True)
 
 
 def _load_registry() -> None:
     """Load grab registry and processed set from disk on startup."""
+    global _registry_loaded
     try:
         path = _get_registry_path()
         if path.exists():
@@ -73,7 +83,7 @@ def _load_registry() -> None:
                     _grab_registry[k] = _GrabInfo(**v)
             logger.info("Loaded %d entries from grab registry", len(data))
     except Exception:
-        logger.debug("Could not load grab registry", exc_info=True)
+        logger.warning("Could not load grab registry", exc_info=True)
     try:
         proc_path = _get_processed_path()
         if proc_path.exists():
@@ -81,7 +91,17 @@ def _load_registry() -> None:
             _processed_downloads.update(ids)
             logger.info("Loaded %d processed download IDs", len(ids))
     except Exception:
-        logger.debug("Could not load processed downloads", exc_info=True)
+        logger.warning("Could not load processed downloads", exc_info=True)
+    _registry_loaded = True
+
+
+def ensure_registry_loaded() -> None:
+    """Ensure the grab/processed registries are loaded from disk.
+
+    Safe to call multiple times — only loads once per process.
+    """
+    if not _registry_loaded:
+        _load_registry()
 
 
 def get_grab_info(download_id: str) -> _GrabInfo | None:
@@ -353,9 +373,8 @@ def _collect_importable_files(save_path: Path) -> list[Path]:
 
 async def monitor_downloads(db: AsyncSession) -> None:
     """Poll all download clients, detect completed downloads, trigger import."""
-    # Ensure grab registry is loaded from disk
-    if not _grab_registry:
-        _load_registry()
+    # Ensure grab registry + processed set are loaded from disk
+    ensure_registry_loaded()
 
     result = await db.execute(select(DownloadClient))
     clients = result.scalars().all()
@@ -383,8 +402,10 @@ async def monitor_downloads(db: AsyncSession) -> None:
             client = _instantiate_client_from_dict(cfg)
             items = await client.get_all(category=cfg["category"])
             for item in items:
-                log_fn = logger.info if item.status == "completed" else logger.debug
-                log_fn(
+                # Skip already-processed/dismissed downloads entirely
+                if item.download_id and item.download_id in _processed_downloads:
+                    continue
+                logger.debug(
                     "Monitor: %s status=%s save_path=%s name=%s",
                     item.download_id, item.status, item.save_path, item.name,
                 )
@@ -441,11 +462,17 @@ async def _try_import_item(
     )
 
     if not save_path:
-        logger.warning(
+        # Track consecutive failures — log WARNING only the first few times,
+        # then switch to DEBUG to avoid spamming the log every 30 seconds.
+        fail_count = _import_fail_count.get(item.download_id, 0) + 1
+        _import_fail_count[item.download_id] = fail_count
+        log_fn = logger.warning if fail_count <= 3 else logger.debug
+        log_fn(
             "Monitor: path %s (+ name=%s) does not exist in container! "
             "Check volume mounts or Remote Path Mapping. "
-            "Deluge save_path=%s, remote_path=%s, local_path=%s",
+            "Deluge save_path=%s, remote_path=%s, local_path=%s (attempt #%d)",
             item.save_path, item.name, item.save_path, remote_path, local_path,
+            fail_count,
         )
         mapped = _apply_path_mapping(item.save_path, remote_path, local_path)
         expected = f"{mapped}/{item.name}" if item.name else mapped
@@ -511,6 +538,7 @@ async def _try_import_item(
     if imported_any and item.download_id:
         _processed_downloads.add(item.download_id)
         _grab_registry.pop(item.download_id, None)
+        _import_fail_count.pop(item.download_id, None)
         _save_registry()
 
     return last_result
