@@ -6,6 +6,7 @@
     "queue": "File d'attente",
     "history": "Historique",
     "blocklist": "Liste noire",
+    "logs": "Logs",
     "settings": "Paramètres",
     "settingsGeneral": "Général",
     "settingsDownloadClients": "Clients de téléchargement",
@@ -512,5 +513,12 @@
     "diskSpace": "Espace disque",
     "freeOf": "libre sur",
     "used": "utilisé"
+  },
+  "logs": {
+    "title": "Logs",
+    "allLevels": "Tous les niveaux",
+    "filterLogger": "Filtrer par logger...",
+    "empty": "Aucune entrée.",
+    "autoRefresh": "Rafraîchissement auto"
   }
 }

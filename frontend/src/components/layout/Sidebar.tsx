@@ -21,6 +21,7 @@ import {
   Database,
   Monitor,
   Wrench,
+  ScrollText,
 } from 'lucide-react'
 
 const MAIN_NAV = [
@@ -30,6 +31,7 @@ const MAIN_NAV = [
   { path: '/queue', labelKey: 'nav.queue', icon: Download },
   { path: '/history', labelKey: 'nav.history', icon: Clock },
   { path: '/blocklist', labelKey: 'nav.blocklist', icon: ShieldBan },
+  { path: '/logs', labelKey: 'nav.logs', icon: ScrollText },
 ]
 
 const SETTINGS_NAV = [

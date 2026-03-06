@@ -54,6 +54,22 @@ export interface MetadataSettings {
   annasArchiveMirror: string
 }
 
+// Logs
+export interface LogEntry {
+  timestamp: string
+  level: string
+  logger: string
+  message: string
+}
+
+export const getLogs = (params?: { limit?: number; level?: string; logger?: string }) => {
+  const search = new URLSearchParams()
+  if (params?.limit) search.set('limit', String(params.limit))
+  if (params?.level) search.set('level', params.level)
+  if (params?.logger) search.set('logger', params.logger)
+  return apiFetch<LogEntry[]>(`/system/logs?${search}`)
+}
+
 // System
 export const getStatus = () => apiFetch<SystemStatus>('/system/status')
 

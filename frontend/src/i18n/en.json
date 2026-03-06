@@ -6,6 +6,7 @@
     "queue": "Queue",
     "history": "History",
     "blocklist": "Blocklist",
+    "logs": "Logs",
     "settings": "Settings",
     "settingsGeneral": "General",
     "settingsDownloadClients": "Download Clients",
@@ -512,5 +513,12 @@
     "diskSpace": "Disk Space",
     "freeOf": "free of",
     "used": "used"
+  },
+  "logs": {
+    "title": "Logs",
+    "allLevels": "All Levels",
+    "filterLogger": "Filter logger...",
+    "empty": "No log entries.",
+    "autoRefresh": "Auto-refresh"
   }
 }

@@ -11,6 +11,7 @@ import Calendar from './pages/Calendar'
 import Queue from './pages/Queue'
 import History from './pages/History'
 import Blocklist from './pages/Blocklist'
+import Logs from './pages/Logs'
 import QualityProfiles from './pages/Settings/QualityProfiles'
 import Indexers from './pages/Settings/Indexers'
 import DownloadClients from './pages/Settings/DownloadClients'
@@ -116,6 +117,7 @@ function App() {
             <Route path="/queue" element={<Queue />} />
             <Route path="/history" element={<History />} />
             <Route path="/blocklist" element={<Blocklist />} />
+            <Route path="/logs" element={<Logs />} />
             <Route path="/settings/general" element={<General />} />
             <Route path="/settings/download-clients" element={<DownloadClients />} />
             <Route path="/settings/indexers" element={<Indexers />} />
