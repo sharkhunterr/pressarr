@@ -120,9 +120,7 @@ export function IssueRow({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
               <Loader2 className="size-3 animate-spin text-[#7C3AED]" />
-              <Badge variant="outline" className="border-[#7C3AED] text-[#7C3AED]">
-                {t(`queue.status_${queueItem.status}`, queueItem.status)}
-              </Badge>
+              <StatusBadge status={queueItem.status} tKey={`queue.status_${queueItem.status}`} className="border border-[#7C3AED] !bg-transparent !text-[#7C3AED]" />
             </div>
             {/* Progress bar */}
             <div className="flex items-center gap-2">
