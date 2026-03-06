@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.18](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.17...v0.1.18) (2026-03-06)
+
+
+### Bug Fixes
+
+* unify status badges, fix forecast/wanted logic, exclude forecasts from stats ([a7f167b](https://github.com/sharkhunterr/pressarr/-/commit/a7f167b9e75ae9b7d92c8d93c3bcad0738a80e38))
+
 ### [0.1.17](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.16...v0.1.17) (2026-03-06)
 
 
