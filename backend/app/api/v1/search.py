@@ -26,7 +26,12 @@ async def search(
 ):
     if issue_id:
         return await search_service.search_issue(db, issue_id, config)
+    elif query:
+        # Free-text search (Manual Research / indexer tab).
+        # magazine_id is passed for scoring context, not for filtering.
+        return await search_service.search_free(db, query, config, magazine_id=magazine_id)
     elif magazine_id:
+        # No query — search all wanted/missing issues for this magazine
         results_by_issue = await search_service.search_magazine_missing(db, magazine_id, config)
         # Flatten all results
         all_results = []
@@ -34,8 +39,6 @@ async def search(
             all_results.extend(issue_results)
         all_results.sort(key=lambda r: r.score, reverse=True)
         return all_results
-    elif query:
-        return await search_service.search_free(db, query, config, magazine_id=magazine_id)
     raise HTTPException(422, "Provide issueId, magazineId, or query")
 
 
