@@ -3,12 +3,23 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Loader2, ZoomIn, ZoomOut, X } from 'lucide-react'
 
-import { getIssuePageCount, getIssuePageUrl } from '@/api/issues'
+import { getIssuePageCount } from '@/api/issues'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
+
+async function fetchPageBlob(issueId: number, page: number): Promise<string> {
+  const apiKey = localStorage.getItem('pressarr_api_key')
+  const headers: Record<string, string> = {}
+  if (apiKey) headers['X-Api-Key'] = apiKey
+
+  const resp = await fetch(`/api/v1/issue/${issueId}/page/${page}`, { headers })
+  if (!resp.ok) throw new Error(`Failed to load page: ${resp.status}`)
+  const blob = await resp.blob()
+  return URL.createObjectURL(blob)
+}
 
 interface IssueViewerProps {
   issueId: number | null
@@ -20,6 +31,8 @@ export function IssueViewer({ issueId, open, onOpenChange }: IssueViewerProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
+  const [imgSrc, setImgSrc] = useState<string | null>(null)
+  const [imgLoading, setImgLoading] = useState(false)
 
   const { data: pageInfo, isLoading, error } = useQuery({
     queryKey: ['issue-pages', issueId],
@@ -34,6 +47,34 @@ export function IssueViewer({ issueId, open, onOpenChange }: IssueViewerProps) {
       setZoom(1)
     }
   }, [open, issueId])
+
+  // Fetch page image as blob (sends API key header)
+  useEffect(() => {
+    if (!open || issueId === null || !pageInfo) return
+    let cancelled = false
+    setImgLoading(true)
+    fetchPageBlob(issueId, page).then((url) => {
+      if (!cancelled) {
+        setImgSrc((prev) => { if (prev) URL.revokeObjectURL(prev); return url })
+        setImgLoading(false)
+      } else {
+        URL.revokeObjectURL(url)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setImgSrc(null)
+        setImgLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [open, issueId, page, pageInfo])
+
+  // Cleanup blob URLs on close
+  useEffect(() => {
+    if (!open) {
+      setImgSrc((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
+    }
+  }, [open])
 
   // Keyboard navigation
   useEffect(() => {
@@ -67,7 +108,7 @@ export function IssueViewer({ issueId, open, onOpenChange }: IssueViewerProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] max-h-[95vh] w-auto h-[95vh] p-0 bg-zinc-950 border-zinc-800 flex flex-col overflow-hidden">
+      <DialogContent showCloseButton={false} className="max-w-[95vw] max-h-[95vh] w-auto h-[95vh] p-0 bg-zinc-950 border-zinc-800 flex flex-col overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 shrink-0">
           <div className="flex items-center gap-2">
@@ -111,7 +152,7 @@ export function IssueViewer({ issueId, open, onOpenChange }: IssueViewerProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-auto flex items-start justify-center bg-zinc-900/50">
-          {isLoading && (
+          {(isLoading || imgLoading) && (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="size-8 animate-spin text-[#7C3AED]" />
             </div>
@@ -121,10 +162,10 @@ export function IssueViewer({ issueId, open, onOpenChange }: IssueViewerProps) {
               <p className="text-red-400 text-sm">{t('viewer.error')}</p>
             </div>
           )}
-          {pageInfo && issueId !== null && (
+          {imgSrc && !imgLoading && (
             <img
               key={`${issueId}-${page}`}
-              src={getIssuePageUrl(issueId, page)}
+              src={imgSrc}
               alt={`Page ${page + 1}`}
               className="max-w-none"
               style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
