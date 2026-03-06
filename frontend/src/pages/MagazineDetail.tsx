@@ -1914,6 +1914,25 @@ export default function MagazineDetail() {
               />
               <label className="text-sm text-zinc-300">{t('issues.editSpecial')}</label>
             </div>
+            {/* Queue/grab info for snatched issues */}
+            {editingIssue && !editingIssue.file && editingIssue.status === 'snatched' && (() => {
+              const qi = queueByIssueId.get(editingIssue.id)
+              return qi ? (
+                <div className="col-span-2">
+                  <label className="text-xs text-zinc-400">{t('issues.grabSource')}</label>
+                  <p className="text-sm text-zinc-300 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 break-all">
+                    {qi.title}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {qi.downloadClient} — {qi.status} ({qi.progress}%)
+                  </p>
+                </div>
+              ) : (
+                <div className="col-span-2">
+                  <p className="text-xs text-amber-400">{t('issues.noActiveDownload')}</p>
+                </div>
+              )
+            })()}
             {editingIssue?.file && (
               <>
                 {editingIssue.file.originalFilename && (

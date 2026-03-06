@@ -202,6 +202,8 @@
     "importDownload": "Importer le téléchargement",
     "importSuccess": "Import déclenché avec succès.",
     "importError": "Échec de l'import du téléchargement.",
+    "grabSource": "Release récupérée",
+    "noActiveDownload": "Aucun téléchargement actif trouvé pour ce numéro.",
     "editIssue": "Modifier le numéro",
     "editIssueTitle": "Modifier le numéro",
     "editNumber": "Numéro",

@@ -202,6 +202,8 @@
     "importDownload": "Import download",
     "importSuccess": "Import triggered successfully.",
     "importError": "Failed to import download.",
+    "grabSource": "Grabbed release",
+    "noActiveDownload": "No active download found for this issue.",
     "editIssue": "Edit issue",
     "editIssueTitle": "Edit Issue",
     "editNumber": "Number",
