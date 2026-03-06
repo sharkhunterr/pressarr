@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.17](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.16...v0.1.17) (2026-03-06)
+
+
+### Features
+
+* add inline search bar, library grid/list toggle, and advanced sorting ([9125452](https://github.com/sharkhunterr/pressarr/-/commit/9125452dd07adf41cf21777ddc8ab440d8565845))
+* add logs page with mobile-responsive design ([e1783ac](https://github.com/sharkhunterr/pressarr/-/commit/e1783ac74e24ac7d58075e42769669615c477f73))
+* library badges, history improvements, calendar mobile fix, naming {day} ([b5c0393](https://github.com/sharkhunterr/pressarr/-/commit/b5c03933f7c145a19667d3510abae640140884d5))
+
+
+### Bug Fixes
+
+* handle "torrent already in session" in Deluge client ([b1818e4](https://github.com/sharkhunterr/pressarr/-/commit/b1818e4ec7cb7d1e481a624f1a333b2887818cc2))
+* queue persistence across backend reloads and reduce warning spam ([5973f23](https://github.com/sharkhunterr/pressarr/-/commit/5973f23f61b0251716ac1203bee896ba67ab8870))
+
 ### [0.1.16](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.15...v0.1.16) (2026-03-04)
 
 
