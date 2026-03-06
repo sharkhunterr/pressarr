@@ -205,11 +205,11 @@ _RE_VOLUME = re.compile(
     re.IGNORECASE,
 )
 
-# Full date pattern: 2025-03-27 or 2025/03/27
-_RE_YEAR_MONTH_DAY = re.compile(r"\b((?:19|20)\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b")
+# Full date pattern: 2025-03-27, 2025/03/27, or 2025.03.27
+_RE_YEAR_MONTH_DAY = re.compile(r"\b((?:19|20)\d{2})[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12]\d|3[01])\b")
 
-# Year-month pattern: 2025-03 or 2025/03
-_RE_YEAR_MONTH = re.compile(r"\b((?:19|20)\d{2})[-/](0[1-9]|1[0-2])\b")
+# Year-month pattern: 2025-03, 2025/03, or 2025.03
+_RE_YEAR_MONTH = re.compile(r"\b((?:19|20)\d{2})[-/.](0[1-9]|1[0-2])\b")
 
 # Day-month-year with month name: "27 Février 2025", "27 Feb 2025"
 # Built dynamically after month name lookup is ready (see below)
@@ -259,11 +259,33 @@ def parse_magazine_filename(filename: str) -> ParseResult:
         # 2. Normalize separators
         working = _normalize_separators(working)
 
-        # 3. Extract release group (parentheses/brackets at end)
-        rg_match = _RE_RELEASE_GROUP.search(working)
-        if rg_match:
-            result.release_group = rg_match.group(1).strip()
-            working = working[:rg_match.start()].strip()
+        # 3. Extract release group: text after a format tag at the end
+        #    e.g. "CBZ-PTP", "[PDF]-G11DF3" → format + group
+        #    or parentheses/brackets at the end
+        _format_group = re.search(
+            r"[\[\(]?(PDF|CBZ|CBR|EPUB)[\]\)]?[-\s]+([\w]+)$", working, re.IGNORECASE,
+        )
+        if _format_group:
+            if result.format == "unknown":
+                result.format = _format_group.group(1).lower()
+            result.release_group = _format_group.group(2).strip()
+            working = working[:_format_group.start()].strip()
+        else:
+            rg_match = _RE_RELEASE_GROUP.search(working)
+            if rg_match:
+                candidate = rg_match.group(1).strip()
+                # Check if this is actually a quality keyword, not a release group
+                if candidate.lower() in _QUALITY_MAP:
+                    result.quality = _QUALITY_MAP[candidate.lower()]
+                else:
+                    result.release_group = candidate
+                working = working[:rg_match.start()].strip()
+
+        # 3b. Remove standalone format tags (e.g. "[PDF]", "(CBZ)")
+        working = re.sub(
+            r"\b(PDF|CBZ|CBR|EPUB)\b", "", working, flags=re.IGNORECASE,
+        )
+        working = re.sub(r"\s+", " ", working).strip()
 
         # 4. Extract quality keywords
         working, q_match = _consume(working, _RE_QUALITY)
