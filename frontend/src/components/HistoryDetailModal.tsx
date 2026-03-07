@@ -139,10 +139,11 @@ export function HistoryDetailModal({ open, onOpenChange, entry }: HistoryDetailM
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function renderEventDetails(
   eventType: string,
   data: Record<string, unknown>,
-  t: (key: string, fallback?: string) => string,
+  t: any,
 ) {
   switch (eventType) {
     case 'grab':
@@ -166,7 +167,7 @@ function renderEventDetails(
             <DetailRow label={t('historyDetail.searchType')} value={formatSearchType(data.search_type as string, t)} />
             <DetailRow label={t('historyDetail.query')} value={data.query as string} />
             <DetailRow label={t('historyDetail.resultCount')} value={data.result_count as number} />
-            {data.indexers && (
+            {Array.isArray(data.indexers) && (
               <DetailRow label={t('historyDetail.indexers')} value={(data.indexers as string[]).join(', ')} />
             )}
             {data.wanted_count !== undefined && (
@@ -348,7 +349,8 @@ function renderEventDetails(
   }
 }
 
-function formatSearchType(type: string | undefined, t: (key: string, fallback?: string) => string): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function formatSearchType(type: string | undefined, t: any): string {
   if (!type) return ''
   switch (type) {
     case 'manual':
@@ -365,10 +367,11 @@ function formatSearchType(type: string | undefined, t: (key: string, fallback?: 
 }
 
 /** Parse details text from older events (before structured data was added). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function renderFallbackDetails(
   eventType: string,
   details: string,
-  t: (key: string, fallback?: string) => string,
+  t: any,
 ) {
   switch (eventType) {
     case 'grab': {
