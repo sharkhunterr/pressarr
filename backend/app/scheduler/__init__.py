@@ -29,9 +29,21 @@ def _register_tasks() -> None:
     from app.scheduler.tasks import (
         check_downloads,
         cleanup_orphaned_snatched,
+        pack_rss_sync,
         purge_history,
         refresh_forecasts,
         rss_sync,
+    )
+
+    # Pack RSS sync runs BEFORE magazine RSS sync to avoid duplicates
+    # (packs may contain magazines also monitored individually)
+    scheduler.add_job(
+        pack_rss_sync,
+        "interval",
+        minutes=30,
+        id="pack_rss_sync",
+        name="Pack RSS sync",
+        replace_existing=True,
     )
 
     scheduler.add_job(

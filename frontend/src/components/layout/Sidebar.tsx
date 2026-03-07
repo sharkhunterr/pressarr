@@ -22,11 +22,13 @@ import {
   Monitor,
   Wrench,
   ScrollText,
+  Package,
 } from 'lucide-react'
 
 const MAIN_NAV = [
   { path: '/', labelKey: 'nav.library', icon: BookOpen },
   { path: '/add', labelKey: 'nav.addMagazine', icon: PlusCircle },
+  { path: '/packs', labelKey: 'nav.packs', icon: Package },
   { path: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
   { path: '/queue', labelKey: 'nav.queue', icon: Download },
   { path: '/history', labelKey: 'nav.history', icon: Clock },

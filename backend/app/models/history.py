@@ -22,6 +22,9 @@ class History(Base):
     issue_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("issue.id", ondelete="SET NULL"), nullable=True
     )
+    pack_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("pack.id", ondelete="SET NULL"), nullable=True
+    )
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     data: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -30,5 +33,6 @@ class History(Base):
         Index("ix_history_event_type", "event_type"),
         Index("ix_history_magazine_id", "magazine_id"),
         Index("ix_history_issue_id", "issue_id"),
+        Index("ix_history_pack_id", "pack_id"),
         Index("ix_history_event_date", "event_type", "date"),
     )

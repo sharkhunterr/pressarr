@@ -26,6 +26,7 @@ export const getHistory = (params: {
   eventType?: string
   magazineId?: number
   issueId?: number
+  packId?: number
 }) => {
   const search = new URLSearchParams()
   if (params.page !== undefined) search.set('page', String(params.page))
@@ -33,5 +34,6 @@ export const getHistory = (params: {
   if (params.eventType) search.set('event_type', params.eventType)
   if (params.magazineId !== undefined) search.set('magazine_id', String(params.magazineId))
   if (params.issueId !== undefined) search.set('issue_id', String(params.issueId))
+  if (params.packId !== undefined) search.set('pack_id', String(params.packId))
   return apiFetch<HistoryPage>(`/history?${search.toString()}`)
 }

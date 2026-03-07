@@ -136,6 +136,7 @@ def _migrate_add_columns(connection) -> None:
         ("download_client", "remote_path", "VARCHAR(500)"),
         ("download_client", "local_path", "VARCHAR(500)"),
         ("history", "data", "TEXT"),
+        ("history", "pack_id", "INTEGER REFERENCES pack(id) ON DELETE SET NULL"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -273,6 +274,7 @@ def create_app() -> FastAPI:
     from app.api.v1.issue import router as issue_router
     from app.api.v1.magazine import router as magazine_router
     from app.api.v1.notification import router as notification_router
+    from app.api.v1.pack import router as pack_router
     from app.api.v1.quality_profile import router as quality_router
     from app.api.v1.queue import router as queue_router
     from app.api.v1.root_folder import router as root_folder_router
@@ -292,6 +294,7 @@ def create_app() -> FastAPI:
     app.include_router(blocklist_router)
     app.include_router(ws_router)
     app.include_router(magazine_router)
+    app.include_router(pack_router)
     app.include_router(issue_router)
     app.include_router(search_router)
     app.include_router(calendar_router)

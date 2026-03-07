@@ -21,9 +21,10 @@ _GRAB_REGISTRY_PATH: Path | None = None
 
 @dataclass
 class _GrabInfo:
-    """Tracks which issue a torrent/usenet download belongs to."""
+    """Tracks which issue or pack a download belongs to."""
     issue_id: int
     magazine_id: int
+    pack_id: int | None = None
 
 
 # download_id → GrabInfo — populated at grab time, consumed at import time
@@ -250,6 +251,72 @@ async def grab_release(
     except Exception as e:
         logger.error("Failed to grab release: %s", e, exc_info=True)
         return GrabResponse(issue_id=issue_id, message=f"Grab failed: {e}")
+
+
+async def grab_pack_release(
+    db: AsyncSession,
+    pack_id: int,
+    download_url: str,
+    title: str,
+    protocol: str,
+    guid: str,
+) -> dict:
+    """Send a pack torrent to the download client.
+
+    Similar to grab_release() but for packs (no issue/magazine association).
+    The pack_id is stored in _GrabInfo so _process_completed_item() can
+    detect it and route to pack dispatch instead of single-file import.
+    """
+    client_record = await _select_client(db, protocol)
+    if not client_record:
+        return {"pack_id": pack_id, "message": f"No {protocol} download client configured"}
+
+    try:
+        client = _instantiate_client(client_record)
+        if protocol == "torrent":
+            download_id = await client.add_torrent(download_url, category="pressarr")
+        else:
+            download_id = await client.add_nzb(download_url, category="pressarr")
+
+        if download_id:
+            if download_id in _processed_downloads:
+                _processed_downloads.discard(download_id)
+            _import_fail_count.pop(download_id, None)
+
+            _grab_registry[download_id] = _GrabInfo(
+                issue_id=0,
+                magazine_id=0,
+                pack_id=pack_id,
+            )
+            _save_registry()
+            logger.info(
+                "Registered pack grab: download_id=%s → pack_id=%d",
+                download_id, pack_id,
+            )
+
+        await create_event(
+            db,
+            event_type="grab",
+            pack_id=pack_id,
+            details=f"Grabbed pack: {title}",
+            data={
+                "release_title": title,
+                "protocol": protocol,
+                "download_id": download_id,
+                "download_client": client_record.name,
+                "guid": guid,
+                "pack_id": pack_id,
+            },
+        )
+
+        return {
+            "pack_id": pack_id,
+            "download_id": download_id,
+            "message": f"Sent to {client_record.name}",
+        }
+    except Exception as e:
+        logger.error("Failed to grab pack release: %s", e, exc_info=True)
+        return {"pack_id": pack_id, "message": f"Grab failed: {e}"}
 
 
 async def _select_client(db: AsyncSession, protocol: str) -> DownloadClient | None:
@@ -501,6 +568,12 @@ async def monitor_downloads(db: AsyncSession) -> None:
 
 async def _process_completed_item(db: AsyncSession, item, cfg: dict) -> None:
     """Process a single completed download item (import + commit)."""
+    # Check if this download belongs to a pack
+    grab = _grab_registry.get(item.download_id) if item.download_id else None
+    if grab and grab.pack_id:
+        await _process_pack_download(db, item, grab, cfg)
+        return
+
     try:
         import_result = await _try_import_item(
             db, item,
@@ -527,6 +600,122 @@ async def _process_completed_item(db: AsyncSession, item, cfg: dict) -> None:
             await db.rollback()
         except Exception:
             pass
+
+
+async def _process_pack_download(
+    db: AsyncSession, item, grab: _GrabInfo, cfg: dict
+) -> None:
+    """Process a completed pack download — dispatch files to magazines."""
+    from app.dependencies import get_config
+    from app.services.pack_service import (
+        collect_pack_files,
+        dispatch_files,
+        get_pack,
+        preview_dispatch,
+    )
+
+    pack_id = grab.pack_id
+    logger.info("Monitor: processing pack download %s for pack_id=%d", item.download_id, pack_id)
+
+    save_path = _resolve_save_path(
+        item, remote_path=cfg["remote_path"], local_path=cfg["local_path"]
+    )
+    if not save_path:
+        logger.warning("Monitor: pack download path not found for %s", item.download_id)
+        return
+
+    files = collect_pack_files(save_path)
+    if not files:
+        logger.warning("Monitor: no supported files in pack download %s", save_path)
+        if item.download_id:
+            _processed_downloads.add(item.download_id)
+            _grab_registry.pop(item.download_id, None)
+            _save_registry()
+        return
+
+    pack = await get_pack(db, pack_id)
+    if not pack:
+        logger.warning("Monitor: pack %d not found, falling back to normal import", pack_id)
+        return
+
+    config = get_config()
+
+    if pack.auto_import:
+        # Auto dispatch: preview then import automatically
+        preview = await preview_dispatch(db, pack_id, files, pack.rules)
+        assignments = [
+            {
+                "filename": f["filename"],
+                "magazine_id": f["matched_magazine_id"],
+                "skip": f["excluded"] or not f["matched_magazine_id"],
+            }
+            for f in preview
+        ]
+        file_paths_by_name = {f.name: f for f in files}
+        results = await dispatch_files(db, assignments, file_paths_by_name, config)
+        imported = sum(1 for r in results if r.get("success"))
+        logger.info(
+            "Monitor: pack auto-dispatch completed — %d/%d files imported",
+            imported, len(results),
+        )
+        await db.commit()
+
+        # Create history event
+        await create_event(
+            db,
+            event_type="import",
+            pack_id=pack_id,
+            details=f"Pack auto-import: {imported}/{len(results)} files",
+            data={
+                "pack_name": pack.name,
+                "total_files": len(results),
+                "imported_files": imported,
+                "results": results[:20],
+            },
+        )
+        await db.commit()
+
+        try:
+            from app.api.v1.websocket import manager as ws_manager
+            await ws_manager.broadcast("library:updated", {})
+        except Exception:
+            pass
+    else:
+        # Manual dispatch: send preview to frontend via WebSocket
+        preview = await preview_dispatch(db, pack_id, files, pack.rules)
+        matched = sum(1 for f in preview if f["matched_magazine_id"])
+        excluded = sum(1 for f in preview if f["excluded"])
+        try:
+            from app.api.v1.websocket import manager as ws_manager
+            await ws_manager.broadcast(
+                "pack:dispatch_ready",
+                {
+                    "pack_id": pack_id,
+                    "pack_name": pack.name,
+                    "download_id": item.download_id,
+                    "torrent_name": item.name or "",
+                    "total_files": len(preview),
+                    "matched_files": matched,
+                    "excluded_files": excluded,
+                    "unmatched_files": len(preview) - matched - excluded,
+                    "files": preview,
+                },
+            )
+        except Exception:
+            logger.warning("WebSocket broadcast failed for pack dispatch", exc_info=True)
+        logger.info(
+            "Monitor: pack dispatch ready — %d files, %d matched, %d excluded",
+            len(preview), matched, excluded,
+        )
+        # Don't mark as processed yet — wait for user dispatch action
+        return
+
+    # Mark as processed after auto-import
+    if item.download_id:
+        _processed_downloads.add(item.download_id)
+        _grab_registry.pop(item.download_id, None)
+        _import_fail_count.pop(item.download_id, None)
+        _save_registry()
 
 
 async def _try_import_item(
@@ -728,6 +917,45 @@ async def trigger_import(
                 pass
 
     return {"success": False, "message": f"Download {download_id} not found in any client"}
+
+
+async def _resolve_download_path(db: AsyncSession, download_id: str) -> Path | None:
+    """Resolve the filesystem path for a download by its ID.
+
+    Queries all configured download clients to find the download and return
+    its resolved save path. Used by pack dispatch endpoints.
+    """
+    result = await db.execute(select(DownloadClient))
+    clients = result.scalars().all()
+    client_configs = [
+        {
+            "client_type": cr.client_type,
+            "host": cr.host,
+            "port": cr.port,
+            "use_ssl": cr.use_ssl,
+            "username": cr.username,
+            "password": cr.password,
+            "api_key": cr.api_key,
+            "remote_path": cr.remote_path,
+            "local_path": cr.local_path,
+        }
+        for cr in clients
+    ]
+
+    for cfg in client_configs:
+        try:
+            client = _instantiate_client_from_dict(cfg)
+            status = await client.get_status(download_id)
+            if status and status.save_path:
+                return _resolve_save_path(
+                    status,
+                    remote_path=cfg["remote_path"],
+                    local_path=cfg["local_path"],
+                )
+        except Exception:
+            logger.debug("_resolve_download_path: error for client", exc_info=True)
+
+    return None
 
 
 async def cleanup_orphaned_snatched(db: AsyncSession) -> int:

@@ -12,6 +12,9 @@ import Queue from './pages/Queue'
 import History from './pages/History'
 import Blocklist from './pages/Blocklist'
 import Logs from './pages/Logs'
+import Packs from './pages/Packs'
+import AddPack from './pages/AddPack'
+import PackDetail from './pages/PackDetail'
 import QualityProfiles from './pages/Settings/QualityProfiles'
 import Indexers from './pages/Settings/Indexers'
 import DownloadClients from './pages/Settings/DownloadClients'
@@ -113,6 +116,9 @@ function App() {
             <Route path="/" element={<Library />} />
             <Route path="/add" element={<AddMagazine />} />
             <Route path="/magazine/:id" element={<MagazineDetail />} />
+            <Route path="/packs" element={<Packs />} />
+            <Route path="/packs/add" element={<AddPack />} />
+            <Route path="/pack/:id" element={<PackDetail />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/queue" element={<Queue />} />
             <Route path="/history" element={<History />} />

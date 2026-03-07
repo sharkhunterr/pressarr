@@ -44,10 +44,11 @@ interface HistoryModalProps {
   onOpenChange: (open: boolean) => void
   magazineId?: number
   issueId?: number
+  packId?: number
   title?: string
 }
 
-export function HistoryModal({ open, onOpenChange, magazineId, issueId, title }: HistoryModalProps) {
+export function HistoryModal({ open, onOpenChange, magazineId, issueId, packId, title }: HistoryModalProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
   const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
@@ -59,8 +60,8 @@ export function HistoryModal({ open, onOpenChange, magazineId, issueId, title }:
   }, [open])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['history-modal', magazineId, issueId, page],
-    queryFn: () => getHistory({ page, pageSize, magazineId, issueId }),
+    queryKey: ['history-modal', magazineId, issueId, packId, page],
+    queryFn: () => getHistory({ page, pageSize, magazineId, issueId, packId }),
     enabled: open,
   })
 

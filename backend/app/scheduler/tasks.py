@@ -6,6 +6,108 @@ from app.database import async_session_factory
 logger = logging.getLogger(__name__)
 
 
+async def pack_rss_sync():
+    """Search indexers for pack torrents matching learned patterns.
+
+    Runs BEFORE magazine rss_sync to avoid duplicate downloads (packs may
+    contain magazines also monitored individually).
+    """
+    if not async_session_factory:
+        return
+    async with async_session_factory() as db:
+        try:
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            from app.indexers.prowlarr import ProwlarrClient
+            from app.models.indexer_config import IndexerConfig
+            from app.models.pack import Pack
+            from app.services.download_service import grab_pack_release
+            from app.services.history_service import create_event
+
+            # Get all monitored packs with auto_search enabled
+            result = await db.execute(
+                select(Pack)
+                .options(selectinload(Pack.patterns), selectinload(Pack.rules))
+                .where(Pack.monitored == True, Pack.auto_search == True)  # noqa: E712
+            )
+            packs = list(result.scalars().all())
+            if not packs:
+                return
+
+            # Get all enabled indexers
+            idx_result = await db.execute(
+                select(IndexerConfig).where(IndexerConfig.enabled == True)  # noqa: E712
+            )
+            indexers = idx_result.scalars().all()
+            if not indexers:
+                return
+
+            total_grabbed = 0
+
+            for pack in packs:
+                if not pack.patterns:
+                    continue  # No learned patterns yet
+
+                for indexer in indexers:
+                    try:
+                        client = ProwlarrClient(url=indexer.url, api_key=indexer.api_key)
+                        results = await client.search(pack.search_query, categories=[7010, 7020])
+
+                        for item in results:
+                            # Check blocklist
+                            from app.services.history_service import is_blocklisted
+                            if await is_blocklisted(db, item.title):
+                                continue
+
+                            # Fuzzy match against learned patterns
+                            from thefuzz import fuzz
+                            best_score = 0
+                            for pattern in pack.patterns:
+                                score = fuzz.ratio(
+                                    item.title.lower(), pattern.pattern.lower()
+                                )
+                                best_score = max(best_score, score)
+
+                            if best_score >= 70 and item.download_url:
+                                if pack.auto_grab:
+                                    await grab_pack_release(
+                                        db,
+                                        pack.id,
+                                        item.download_url,
+                                        item.title,
+                                        item.protocol or "torrent",
+                                        item.guid,
+                                    )
+                                    total_grabbed += 1
+                                    logger.info(
+                                        "Pack RSS: grabbed '%s' for pack '%s' (score=%d)",
+                                        item.title, pack.name, best_score,
+                                    )
+                                    break  # One grab per pack per cycle
+
+                    except Exception:
+                        logger.warning(
+                            "Pack RSS sync error for pack '%s' on indexer '%s'",
+                            pack.name, indexer.name, exc_info=True,
+                        )
+
+            if total_grabbed:
+                await create_event(
+                    db,
+                    event_type="searched",
+                    details=f"Pack RSS sync: {total_grabbed} packs grabbed",
+                    data={
+                        "search_type": "pack_rss",
+                        "grabbed_count": total_grabbed,
+                    },
+                )
+
+            await db.commit()
+        except Exception:
+            logger.error("Pack RSS sync failed", exc_info=True)
+
+
 async def rss_sync():
     """Query Prowlarr RSS for new releases, auto-grab matching wanted issues."""
     if not async_session_factory:

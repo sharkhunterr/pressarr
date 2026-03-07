@@ -18,6 +18,7 @@ async def create_event(
     event_type: str,
     magazine_id: int | None = None,
     issue_id: int | None = None,
+    pack_id: int | None = None,
     details: str | None = None,
     data: dict | None = None,
 ) -> History:
@@ -25,6 +26,7 @@ async def create_event(
         event_type=event_type,
         magazine_id=magazine_id,
         issue_id=issue_id,
+        pack_id=pack_id,
         details=details,
         data=json.dumps(data) if data else None,
     )
@@ -39,6 +41,7 @@ async def list_events(
     page_size: int = 20,
     event_type: str | None = None,
     magazine_id: int | None = None,
+    pack_id: int | None = None,
 ) -> tuple[list[History], int]:
     query = select(History)
     count_query = select(func.count(History.id))
@@ -49,6 +52,9 @@ async def list_events(
     if magazine_id:
         query = query.where(History.magazine_id == magazine_id)
         count_query = count_query.where(History.magazine_id == magazine_id)
+    if pack_id:
+        query = query.where(History.pack_id == pack_id)
+        count_query = count_query.where(History.pack_id == pack_id)
 
     total = (await db.execute(count_query)).scalar() or 0
     query = query.order_by(History.date.desc())
