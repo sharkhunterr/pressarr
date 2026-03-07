@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.26](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.25...v0.1.26) (2026-03-07)
+
+
+### Bug Fixes
+
+* auto-grab/import bugs, add issue status editing and history modals ([b99de9f](https://github.com/sharkhunterr/pressarr/-/commit/b99de9fc8d1dd7708c87fd0a6370a785957c844f))
+
 ### [0.1.25](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.24...v0.1.25) (2026-03-06)
 
 
