@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.28](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.27...v0.1.28) (2026-03-07)
+
+
+### Features
+
+* add library scan to discover and register existing files ([7d6de0a](https://github.com/sharkhunterr/pressarr/-/commit/7d6de0a91e2e6ec1d32fe43aead82fb222428843))
+
 ### [0.1.27](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.26...v0.1.27) (2026-03-07)
 
 
