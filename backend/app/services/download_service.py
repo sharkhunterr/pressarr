@@ -192,6 +192,17 @@ async def grab_release(
 
         # Register grab for later import tracking
         if download_id:
+            # Clear processed/fail state so monitor_downloads() will pick it up
+            # again (handles re-grabbing the same torrent that was already imported
+            # or gave up on).
+            if download_id in _processed_downloads:
+                _processed_downloads.discard(download_id)
+                logger.info(
+                    "Cleared processed state for re-grabbed download %s",
+                    download_id,
+                )
+            _import_fail_count.pop(download_id, None)
+
             _grab_registry[download_id] = _GrabInfo(
                 issue_id=issue.id,
                 magazine_id=issue.magazine_id,
