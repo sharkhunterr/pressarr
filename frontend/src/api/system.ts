@@ -130,3 +130,20 @@ export const testAnnasArchive = (mirror: string) =>
     method: 'POST',
     body: JSON.stringify({ mirror }),
   })
+
+// Commands
+export interface CommandResource {
+  id: number
+  name: string
+  status: 'queued' | 'started' | 'completed' | 'failed'
+  started: string | null
+  ended: string | null
+  message: string | null
+  trigger: string
+}
+
+export const executeCommand = (name: string, body?: Record<string, unknown>) =>
+  apiFetch<CommandResource>('/command', {
+    method: 'POST',
+    body: JSON.stringify({ name, body }),
+  })

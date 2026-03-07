@@ -21,6 +21,7 @@
   "common": {
     "save": "Save",
     "cancel": "Cancel",
+    "close": "Close",
     "delete": "Delete",
     "edit": "Edit",
     "add": "Add",
@@ -72,7 +73,17 @@
     "empty": "No magazines in your library yet.",
     "today": "Today",
     "tomorrow": "Tomorrow",
-    "inDays": "In {{count}}d"
+    "inDays": "In {{count}}d",
+    "scanLibrary": "Scan Library",
+    "scanning": "Scanning...",
+    "scanningDescription": "Scanning root folders for existing magazine files...",
+    "scanComplete": "Library scan completed.",
+    "scanError": "An error occurred during the scan.",
+    "scanNewMagazines": "New magazines",
+    "scanNewIssues": "New issues",
+    "scanNewFiles": "Files registered",
+    "scanSkipped": "Already registered",
+    "scanErrors": "Errors"
   },
   "addMagazine": {
     "title": "Add Magazine",

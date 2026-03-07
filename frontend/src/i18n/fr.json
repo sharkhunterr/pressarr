@@ -21,6 +21,7 @@
   "common": {
     "save": "Enregistrer",
     "cancel": "Annuler",
+    "close": "Fermer",
     "delete": "Supprimer",
     "edit": "Modifier",
     "add": "Ajouter",
@@ -72,7 +73,17 @@
     "empty": "Aucun magazine dans votre bibliothèque.",
     "today": "Aujourd'hui",
     "tomorrow": "Demain",
-    "inDays": "Dans {{count}}j"
+    "inDays": "Dans {{count}}j",
+    "scanLibrary": "Scanner la bibliothèque",
+    "scanning": "Scan en cours...",
+    "scanningDescription": "Analyse des dossiers racines pour les fichiers existants...",
+    "scanComplete": "Scan de la bibliothèque terminé.",
+    "scanError": "Une erreur est survenue pendant le scan.",
+    "scanNewMagazines": "Nouveaux magazines",
+    "scanNewIssues": "Nouveaux numéros",
+    "scanNewFiles": "Fichiers enregistrés",
+    "scanSkipped": "Déjà enregistrés",
+    "scanErrors": "Erreurs"
   },
   "addMagazine": {
     "title": "Ajouter un magazine",

@@ -1,13 +1,22 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
-import { Plus, Search, LayoutGrid, List } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus, Search, LayoutGrid, List, FolderSearch, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 
 import { getMagazines, getMagazineCoverUrl, type Magazine } from '@/api/magazines'
+import { executeCommand } from '@/api/system'
 import { MagazineCard } from '@/components/MagazineCard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -25,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useWebSocket } from '@/hooks/useWebSocket'
 
 type SortOption = 'title' | 'added' | 'nextIssue' | 'missing' | 'completion'
 type FilterOption = 'all' | 'monitored' | 'unmonitored' | 'complete' | 'incomplete'
@@ -46,6 +56,7 @@ export default function Library() {
   const [filter, setFilter] = useState<FilterOption>('all')
   const [search, setSearch] = useState('')
   const [view, setView] = useState<ViewMode>(getStoredView)
+  const [scanOpen, setScanOpen] = useState(false)
 
   const handleViewChange = (v: ViewMode) => {
     setView(v)
@@ -142,10 +153,16 @@ export default function Library() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-zinc-100">{t('library.title')}</h1>
-        <Button onClick={() => navigate('/add')}>
-          <Plus className="size-4" />
-          {t('library.addMagazine')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setScanOpen(true)}>
+            <FolderSearch className="size-4" />
+            {t('library.scanLibrary')}
+          </Button>
+          <Button onClick={() => navigate('/add')}>
+            <Plus className="size-4" />
+            {t('library.addMagazine')}
+          </Button>
+        </div>
       </div>
 
       {/* Controls */}
@@ -230,9 +247,154 @@ export default function Library() {
       ) : (
         <LibraryTable magazines={filtered} />
       )}
+
+      <ScanLibraryDialog open={scanOpen} onOpenChange={setScanOpen} />
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Scan Library Dialog
+// ---------------------------------------------------------------------------
+
+interface ScanProgress {
+  totalFiles: number
+  processed: number
+  newMagazines: number
+  newIssues: number
+  newFiles: number
+  skippedExisting: number
+  skippedUnparseable: number
+  errors: number
+  currentFile: string
+  currentRootFolder: string
+}
+
+function ScanLibraryDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const { on } = useWebSocket()
+  const [status, setStatus] = useState<'idle' | 'scanning' | 'completed' | 'error'>('idle')
+  const [progress, setProgress] = useState<ScanProgress | null>(null)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    const unsub1 = on('scan:progress', (data) => {
+      setProgress(data as ScanProgress)
+      setStatus('scanning')
+    })
+    const unsub2 = on('scan:completed', (data) => {
+      setProgress(data as ScanProgress)
+      setStatus('completed')
+      queryClient.invalidateQueries({ queryKey: ['magazines'] })
+    })
+    const unsub3 = on('scan:error', (data) => {
+      setErrorMessage((data as { message: string }).message)
+      setStatus('error')
+    })
+    return () => { unsub1(); unsub2(); unsub3() }
+  }, [on, queryClient])
+
+  const startScan = useCallback(async () => {
+    setStatus('scanning')
+    setProgress(null)
+    setErrorMessage('')
+    try {
+      await executeCommand('ScanLibrary')
+    } catch (e) {
+      setStatus('error')
+      setErrorMessage(String(e))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open && status === 'idle') {
+      startScan()
+    }
+  }, [open, status, startScan])
+
+  function handleClose() {
+    if (status !== 'scanning') {
+      setStatus('idle')
+      setProgress(null)
+      onOpenChange(false)
+    }
+  }
+
+  const pct = progress && progress.totalFiles > 0
+    ? Math.round((progress.processed / progress.totalFiles) * 100)
+    : 0
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800">
+        <DialogHeader>
+          <DialogTitle className="text-zinc-100">{t('library.scanLibrary')}</DialogTitle>
+          <DialogDescription className="text-zinc-400">
+            {status === 'scanning' && t('library.scanningDescription')}
+            {status === 'completed' && t('library.scanComplete')}
+            {status === 'error' && t('library.scanError')}
+          </DialogDescription>
+        </DialogHeader>
+
+        {status === 'scanning' && progress && (
+          <div className="space-y-3">
+            <div className="flex justify-between text-sm text-zinc-400">
+              <span>{progress.processed} / {progress.totalFiles}</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#7C3AED] transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="text-xs text-zinc-500 truncate">{progress.currentFile}</p>
+          </div>
+        )}
+
+        {progress && (
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="text-zinc-400">{t('library.scanNewMagazines')}</div>
+            <div className="text-zinc-100 font-medium">{progress.newMagazines}</div>
+            <div className="text-zinc-400">{t('library.scanNewIssues')}</div>
+            <div className="text-zinc-100 font-medium">{progress.newIssues}</div>
+            <div className="text-zinc-400">{t('library.scanNewFiles')}</div>
+            <div className="text-zinc-100 font-medium">{progress.newFiles}</div>
+            <div className="text-zinc-400">{t('library.scanSkipped')}</div>
+            <div className="text-zinc-500">{progress.skippedExisting}</div>
+            {progress.errors > 0 && (
+              <>
+                <div className="text-red-400">{t('library.scanErrors')}</div>
+                <div className="text-red-400 font-medium">{progress.errors}</div>
+              </>
+            )}
+          </div>
+        )}
+
+        {status === 'error' && errorMessage && (
+          <p className="text-red-400 text-sm">{errorMessage}</p>
+        )}
+
+        <div className="flex justify-center py-2">
+          {status === 'scanning' && <Loader2 className="size-6 text-[#7C3AED] animate-spin" />}
+          {status === 'completed' && <CheckCircle2 className="size-6 text-green-500" />}
+          {status === 'error' && <AlertCircle className="size-6 text-red-500" />}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} disabled={status === 'scanning'}>
+            {status === 'completed' ? t('common.close') : t('common.cancel')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Library Table (list view)
+// ---------------------------------------------------------------------------
 
 function LibraryTable({ magazines }: { magazines: Magazine[] }) {
   const { t } = useTranslation()
