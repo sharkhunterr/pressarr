@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.31](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.30...v0.1.31) (2026-03-07)
+
+
+### Features
+
+* add pack management for multi-magazine torrent bundles ([e5f3b4f](https://github.com/sharkhunterr/pressarr/-/commit/e5f3b4f62c13d9eb8727c35709595ea3788556dd))
+
 ### [0.1.30](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.29...v0.1.30) (2026-03-07)
 
 
