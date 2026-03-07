@@ -418,41 +418,71 @@ verify:
     - apk add --no-cache curl jq
   script:
     - echo "Vérification du déploiement..."
-    # Vérifier Docker Hub
+    # Vérifier Docker Hub (avec retries pour laisser le temps à la propagation)
     - |
       if [ "$DOCKER_HUB_ENABLED" = "true" ] && [ "$DEPLOY" = "true" ]; then
         echo "Vérification Docker Hub..."
         DOCKER_HUB_IMAGE="${DOCKER_HUB_USER}/${CI_PROJECT_NAME}"
         TAG="${CI_COMMIT_TAG:-latest}"
-        RESPONSE=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_HUB_IMAGE}/tags/${TAG}")
-        if echo "$RESPONSE" | jq -e '.name' > /dev/null 2>&1; then
-          echo "✅ Image Docker Hub ${DOCKER_HUB_IMAGE}:${TAG} trouvée"
-        else
-          echo "❌ Image Docker Hub ${DOCKER_HUB_IMAGE}:${TAG} non trouvée"
+        MAX_RETRIES=5
+        RETRY_DELAY=15
+        FOUND=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_HUB_IMAGE}/tags/${TAG}")
+          if echo "$RESPONSE" | jq -e '.name' > /dev/null 2>&1; then
+            echo "✅ Image Docker Hub ${DOCKER_HUB_IMAGE}:${TAG} trouvée"
+            FOUND=true
+            break
+          fi
+          echo "⏳ Image non trouvée, tentative $i/$MAX_RETRIES... (attente ${RETRY_DELAY}s)"
+          sleep $RETRY_DELAY
+        done
+        if [ "$FOUND" = "false" ]; then
+          echo "❌ Image Docker Hub ${DOCKER_HUB_IMAGE}:${TAG} non trouvée après ${MAX_RETRIES} tentatives"
+          echo "Réponse API: $RESPONSE"
           exit 1
         fi
       fi
-    # Vérifier GitHub
+    # Vérifier GitHub (avec retries)
     - |
       if [ "$GITHUB_DEPLOY_ENABLED" = "true" ] && [ "$DEPLOY" = "true" ]; then
         echo "Vérification GitHub tag..."
-        RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-          "https://api.github.com/repos/${GITHUB_REPO}/git/refs/tags/${CI_COMMIT_TAG}")
-        if echo "$RESPONSE" | jq -e '.ref' > /dev/null 2>&1; then
-          echo "✅ Tag ${CI_COMMIT_TAG} trouvé sur GitHub"
-        else
-          echo "❌ Tag ${CI_COMMIT_TAG} non trouvé sur GitHub"
+        MAX_RETRIES=5
+        RETRY_DELAY=10
+        FOUND=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPO}/git/refs/tags/${CI_COMMIT_TAG}")
+          if echo "$RESPONSE" | jq -e '.ref' > /dev/null 2>&1; then
+            echo "✅ Tag ${CI_COMMIT_TAG} trouvé sur GitHub"
+            FOUND=true
+            break
+          fi
+          echo "⏳ Tag non trouvé, tentative $i/$MAX_RETRIES... (attente ${RETRY_DELAY}s)"
+          sleep $RETRY_DELAY
+        done
+        if [ "$FOUND" = "false" ]; then
+          echo "❌ Tag ${CI_COMMIT_TAG} non trouvé sur GitHub après ${MAX_RETRIES} tentatives"
+          echo "Réponse API: $RESPONSE"
           exit 1
         fi
 
         echo "Vérification GitHub release..."
-        RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-          "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${CI_COMMIT_TAG}")
-        if echo "$RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-          RELEASE_URL=$(echo "$RESPONSE" | jq -r '.html_url')
-          echo "✅ Release ${CI_COMMIT_TAG} trouvée sur GitHub: ${RELEASE_URL}"
-        else
-          echo "⚠️ Release ${CI_COMMIT_TAG} non trouvée sur GitHub (peut nécessiter quelques secondes)"
+        FOUND=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${CI_COMMIT_TAG}")
+          if echo "$RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+            RELEASE_URL=$(echo "$RESPONSE" | jq -r '.html_url')
+            echo "✅ Release ${CI_COMMIT_TAG} trouvée sur GitHub: ${RELEASE_URL}"
+            FOUND=true
+            break
+          fi
+          echo "⏳ Release non trouvée, tentative $i/$MAX_RETRIES... (attente ${RETRY_DELAY}s)"
+          sleep $RETRY_DELAY
+        done
+        if [ "$FOUND" = "false" ]; then
+          echo "⚠️ Release ${CI_COMMIT_TAG} non trouvée sur GitHub après ${MAX_RETRIES} tentatives"
         fi
       fi
     - echo "✅ Vérification terminée avec succès"
