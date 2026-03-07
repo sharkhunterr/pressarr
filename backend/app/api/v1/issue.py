@@ -87,6 +87,10 @@ async def update_issue(
     data = body.model_dump(exclude_none=True)
     if not data:
         raise HTTPException(422, "No fields to update")
+    if "status" in data:
+        allowed = {"wanted", "missing", "available", "snatched"}
+        if data["status"] not in allowed:
+            raise HTTPException(422, f"Invalid status. Allowed: {', '.join(sorted(allowed))}")
     issue = await issue_service.update_issue(db, issue_id, data)
     if issue is None:
         raise HTTPException(404, "Issue not found")

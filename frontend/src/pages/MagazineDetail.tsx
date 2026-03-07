@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
+  Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -57,6 +58,7 @@ import { getProfiles } from '@/api/quality'
 import { getRootFolders } from '@/api/system'
 import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
+import { HistoryModal } from '@/components/HistoryModal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -166,6 +168,7 @@ export default function MagazineDetail() {
   const [editIssueMonth, setEditIssueMonth] = useState('')
   const [editIssueDay, setEditIssueDay] = useState('')
   const [editIssueSpecial, setEditIssueSpecial] = useState(false)
+  const [editIssueStatus, setEditIssueStatus] = useState('')
   const [editIssueQuality, setEditIssueQuality] = useState('')
   const [editIssueFormat, setEditIssueFormat] = useState('')
   const [editIssueReleaseGroup, setEditIssueReleaseGroup] = useState('')
@@ -182,6 +185,11 @@ export default function MagazineDetail() {
   // Viewer state
   const [viewerOpen, setViewerOpen] = useState(false)
   const [viewerIssueId, setViewerIssueId] = useState<number | null>(null)
+
+  // History modals
+  const [historyMagazineOpen, setHistoryMagazineOpen] = useState(false)
+  const [historyIssueOpen, setHistoryIssueOpen] = useState(false)
+  const [historyIssueId, setHistoryIssueId] = useState<number | null>(null)
 
   // Manual Research modal state
   const [manualSearchOpen, setManualSearchOpen] = useState(false)
@@ -314,6 +322,7 @@ export default function MagazineDetail() {
     setEditIssueMonth(issue.month != null ? String(issue.month) : '')
     setEditIssueDay(issue.day != null ? String(issue.day) : '')
     setEditIssueSpecial(issue.isSpecial)
+    setEditIssueStatus(issue.status)
     setEditIssueQuality(issue.file?.quality ?? '')
     setEditIssueFormat(issue.file?.format ?? '')
     setEditIssueReleaseGroup(issue.file?.releaseGroup ?? '')
@@ -337,6 +346,7 @@ export default function MagazineDetail() {
     if (mo !== editingIssue.month) data.month = mo
     if (dy !== editingIssue.day) data.day = dy
     if (editIssueSpecial !== editingIssue.isSpecial) data.isSpecial = editIssueSpecial
+    if (editIssueStatus !== editingIssue.status) data.status = editIssueStatus
 
     if (editingIssue.file) {
       if (editIssueQuality !== editingIssue.file.quality) data.quality = editIssueQuality || null
@@ -905,6 +915,14 @@ export default function MagazineDetail() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => setHistoryMagazineOpen(true)}
+                >
+                  <Clock className="size-3.5" />
+                  {t('history.title')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setDeleteFiles(false)
                     setDeleteOpen(true)
@@ -939,6 +957,14 @@ export default function MagazineDetail() {
               >
                 <Search className="size-3.5" />
                 {t('magazineDetail.manualResearch')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setHistoryMagazineOpen(true)}
+              >
+                <Clock className="size-3.5" />
+                {t('history.title')}
               </Button>
               <Button
                 variant="outline"
@@ -1099,6 +1125,7 @@ export default function MagazineDetail() {
                         onRefresh={handleRefreshIssue}
                         onImport={handleImportIssue}
                         onView={(id) => { setViewerIssueId(id); setViewerOpen(true) }}
+                        onHistory={(id) => { setHistoryIssueId(id); setHistoryIssueOpen(true) }}
                         refreshingId={refreshingIssueId}
                         importingId={importingIssueId}
                       />
@@ -1920,6 +1947,20 @@ export default function MagazineDetail() {
               />
               <label className="text-sm text-zinc-300">{t('issues.editSpecial')}</label>
             </div>
+            <div className="col-span-2">
+              <label className="text-xs text-zinc-400">{t('issues.editStatus')}</label>
+              <Select value={editIssueStatus} onValueChange={setEditIssueStatus}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="wanted">{t('status.wanted')}</SelectItem>
+                  <SelectItem value="missing">{t('status.missing')}</SelectItem>
+                  <SelectItem value="snatched">{t('status.snatched')}</SelectItem>
+                  <SelectItem value="available">{t('status.available')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {/* Queue/grab info for snatched issues */}
             {editingIssue && !editingIssue.file && editingIssue.status === 'snatched' && (() => {
               const qi = queueByIssueId.get(editingIssue.id)
@@ -2120,6 +2161,21 @@ export default function MagazineDetail() {
         issueId={viewerIssueId}
         open={viewerOpen}
         onOpenChange={setViewerOpen}
+      />
+
+      {/* History modals */}
+      <HistoryModal
+        open={historyMagazineOpen}
+        onOpenChange={setHistoryMagazineOpen}
+        magazineId={magazine?.id}
+        title={`${t('history.title')} — ${magazine?.title ?? ''}`}
+      />
+      <HistoryModal
+        open={historyIssueOpen}
+        onOpenChange={setHistoryIssueOpen}
+        magazineId={magazine?.id}
+        issueId={historyIssueId ?? undefined}
+        title={`${t('history.title')} — ${magazine?.title ?? ''} #${issues.find(i => i.id === historyIssueId)?.number ?? historyIssueId ?? ''}`}
       />
     </div>
   )

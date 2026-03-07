@@ -20,6 +20,7 @@ async def list_history(
     page_size: int = Query(20, ge=1, le=100),
     event_type: str | None = None,
     magazine_id: int | None = None,
+    issue_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     # Build query with LEFT JOINs to get magazine title, issue number, and publication date
@@ -41,6 +42,9 @@ async def list_history(
     if magazine_id:
         query = query.where(History.magazine_id == magazine_id)
         count_query = count_query.where(History.magazine_id == magazine_id)
+    if issue_id:
+        query = query.where(History.issue_id == issue_id)
+        count_query = count_query.where(History.issue_id == issue_id)
 
     total = (await db.execute(count_query)).scalar() or 0
     query = query.order_by(History.date.desc())

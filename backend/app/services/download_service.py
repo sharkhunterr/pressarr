@@ -38,6 +38,9 @@ _registry_loaded: bool = False
 # Track consecutive import failures per download_id (avoids warning spam)
 _import_fail_count: dict[str, int] = {}
 
+# Maximum consecutive import failures before giving up on a download
+MAX_IMPORT_FAILURES = 10
+
 
 def _get_registry_path() -> Path:
     """Get the path for the persistent grab registry file."""
@@ -52,6 +55,11 @@ def _get_registry_path() -> Path:
 def _get_processed_path() -> Path:
     """Get the path for the persistent processed-downloads file."""
     return _get_registry_path().with_name("processed_downloads.json")
+
+
+def _get_fail_count_path() -> Path:
+    """Get the path for the persistent import fail count file."""
+    return _get_registry_path().with_name("import_fail_counts.json")
 
 
 def _save_registry() -> None:
@@ -69,6 +77,12 @@ def _save_registry() -> None:
         proc_path.write_text(json.dumps(list(_processed_downloads)))
     except Exception:
         logger.warning("Could not save processed downloads", exc_info=True)
+    try:
+        fail_path = _get_fail_count_path()
+        fail_path.parent.mkdir(parents=True, exist_ok=True)
+        fail_path.write_text(json.dumps(_import_fail_count))
+    except Exception:
+        logger.warning("Could not save import fail counts", exc_info=True)
 
 
 def _load_registry() -> None:
@@ -92,6 +106,14 @@ def _load_registry() -> None:
             logger.info("Loaded %d processed download IDs", len(ids))
     except Exception:
         logger.warning("Could not load processed downloads", exc_info=True)
+    try:
+        fail_path = _get_fail_count_path()
+        if fail_path.exists():
+            counts = json.loads(fail_path.read_text())
+            _import_fail_count.update(counts)
+            logger.info("Loaded %d import fail counts", len(counts))
+    except Exception:
+        logger.warning("Could not load import fail counts", exc_info=True)
     _registry_loaded = True
 
 
@@ -468,6 +490,15 @@ async def _process_completed_item(db: AsyncSession, item, cfg: dict) -> None:
         # Commit after each successful import to isolate DB state
         if import_result.get("success"):
             await db.commit()
+            # Broadcast WebSocket update so frontend refreshes
+            try:
+                from app.api.v1.websocket import manager as ws_manager
+                await ws_manager.broadcast(
+                    "library:updated",
+                    {"magazineId": import_result.get("magazine_id")},
+                )
+            except Exception:
+                logger.debug("WebSocket broadcast failed", exc_info=True)
     except Exception:
         logger.warning(
             "Monitor: import failed for %s", item.download_id, exc_info=True
@@ -511,6 +542,17 @@ async def _try_import_item(
         # then switch to DEBUG to avoid spamming the log every 30 seconds.
         fail_count = _import_fail_count.get(item.download_id, 0) + 1
         _import_fail_count[item.download_id] = fail_count
+        _save_registry()
+        if fail_count >= MAX_IMPORT_FAILURES:
+            logger.warning(
+                "Monitor: giving up on download %s after %d failed path resolutions. "
+                "Check volume mounts or Remote Path Mapping.",
+                item.download_id, fail_count,
+            )
+            _processed_downloads.add(item.download_id)
+            _import_fail_count.pop(item.download_id, None)
+            _save_registry()
+            return {"success": False, "message": f"Gave up after {fail_count} path resolution failures"}
         log_fn = logger.warning if fail_count <= 3 else logger.debug
         log_fn(
             "Monitor: path %s (+ name=%s) does not exist in container! "
@@ -578,6 +620,20 @@ async def _try_import_item(
         if result_info.get("success"):
             imported_any = True
 
+    # Track business-logic failures (e.g. "not a quality upgrade")
+    if not imported_any and item.download_id:
+        fail_count = _import_fail_count.get(item.download_id, 0) + 1
+        _import_fail_count[item.download_id] = fail_count
+        _save_registry()
+        if fail_count >= MAX_IMPORT_FAILURES:
+            logger.warning(
+                "Monitor: giving up on download %s after %d failed import attempts: %s",
+                item.download_id, fail_count, last_result.get("message", "unknown"),
+            )
+            _processed_downloads.add(item.download_id)
+            _import_fail_count.pop(item.download_id, None)
+            _save_registry()
+
     # Mark as processed and clean up registry
     # (download stays in client for seeding / user management)
     if imported_any and item.download_id:
@@ -585,6 +641,10 @@ async def _try_import_item(
         _grab_registry.pop(item.download_id, None)
         _import_fail_count.pop(item.download_id, None)
         _save_registry()
+
+    # Always include magazine_id in result for WebSocket broadcast
+    if magazine_id:
+        last_result["magazine_id"] = magazine_id
 
     return last_result
 
@@ -648,3 +708,84 @@ async def trigger_import(
                 pass
 
     return {"success": False, "message": f"Download {download_id} not found in any client"}
+
+
+async def cleanup_orphaned_snatched(db: AsyncSession) -> int:
+    """Reset issues stuck in 'snatched' for >48h with no active download.
+
+    Returns the number of issues reset to 'wanted'.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.history import History
+
+    ensure_registry_loaded()
+    cutoff = datetime.now(UTC) - timedelta(hours=48)
+
+    # Find all snatched + monitored issues
+    result = await db.execute(
+        select(Issue).where(
+            Issue.status == "snatched",
+            Issue.monitored == True,  # noqa: E712
+        )
+    )
+    snatched_issues = list(result.scalars().all())
+    if not snatched_issues:
+        return 0
+
+    # Collect all active download_ids from clients
+    client_result = await db.execute(select(DownloadClient))
+    clients = client_result.scalars().all()
+    active_download_ids: set[str] = set()
+
+    for cr in clients:
+        try:
+            client = _instantiate_client(cr)
+            items = await client.get_all(category=cr.category)
+            for item in items:
+                if item.download_id:
+                    active_download_ids.add(item.download_id)
+        except Exception:
+            logger.debug("cleanup: failed to poll %s", cr.name, exc_info=True)
+
+    reset_count = 0
+    for issue in snatched_issues:
+        download_ids = find_download_ids_for_issue(issue.id)
+        has_active = any(did in active_download_ids for did in download_ids)
+        has_registry = len(download_ids) > 0
+
+        if not has_active and not has_registry:
+            # No record at all — orphaned
+            issue.status = "wanted"
+            reset_count += 1
+            logger.info(
+                "Reset orphaned snatched issue id=%d (no registry entry) to wanted",
+                issue.id,
+            )
+        elif has_registry and not has_active:
+            # Registry entry exists but download gone from client — check age
+            grab_event = (await db.execute(
+                select(History).where(
+                    History.issue_id == issue.id,
+                    History.event_type == "grab",
+                ).order_by(History.date.desc()).limit(1)
+            )).scalars().first()
+            grab_date = grab_event.date if grab_event else None
+            if grab_date and hasattr(grab_date, "tzinfo") and grab_date.tzinfo is None:
+                from datetime import timezone
+                grab_date = grab_date.replace(tzinfo=timezone.utc)
+            if not grab_event or (grab_date and grab_date < cutoff):
+                issue.status = "wanted"
+                for did in download_ids:
+                    _grab_registry.pop(did, None)
+                _save_registry()
+                reset_count += 1
+                logger.info(
+                    "Reset orphaned snatched issue id=%d (grab >48h, download gone) to wanted",
+                    issue.id,
+                )
+
+    if reset_count:
+        await db.flush()
+
+    return reset_count

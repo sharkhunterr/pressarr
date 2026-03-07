@@ -47,6 +47,7 @@ class IssueUpdateRequest(CamelModel):
     day: int | None = None
     monitored: bool | None = None
     is_special: bool | None = None
+    status: str | None = None
     # File fields (applied when issue has a file)
     quality: str | None = None
     format: str | None = None

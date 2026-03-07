@@ -83,8 +83,15 @@ async def update_issue(
         if field in data and data[field] is not None:
             setattr(issue, field, data[field])
 
-    # Sync status when monitored changes
-    if "monitored" in data and data["monitored"] is not None and issue.status in ("wanted", "missing"):
+    # Explicit status change (with monitored sync)
+    if "status" in data and data["status"] is not None:
+        allowed = {"wanted", "missing", "available", "snatched"}
+        new_status = data["status"]
+        if new_status in allowed:
+            issue.status = new_status
+            issue.monitored = new_status != "missing"
+    elif "monitored" in data and data["monitored"] is not None and issue.status in ("wanted", "missing"):
+        # Sync status when only monitored changes
         issue.status = "wanted" if data["monitored"] else "missing"
 
     # File-level fields

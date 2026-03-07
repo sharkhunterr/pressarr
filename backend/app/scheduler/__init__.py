@@ -28,6 +28,7 @@ def _register_tasks() -> None:
     """Register all periodic background tasks."""
     from app.scheduler.tasks import (
         check_downloads,
+        cleanup_orphaned_snatched,
         purge_history,
         refresh_forecasts,
         rss_sync,
@@ -66,6 +67,15 @@ def _register_tasks() -> None:
         hours=24,
         id="refresh_forecasts",
         name="Forecast refresh",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        cleanup_orphaned_snatched,
+        "interval",
+        hours=6,
+        id="cleanup_orphaned_snatched",
+        name="Orphaned snatched cleanup",
         replace_existing=True,
     )
 

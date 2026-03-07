@@ -62,6 +62,7 @@ export interface IssueUpdate {
   day?: number | null
   monitored?: boolean
   isSpecial?: boolean
+  status?: string
   quality?: string | null
   format?: string | null
   releaseGroup?: string | null

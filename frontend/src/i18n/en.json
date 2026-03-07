@@ -214,6 +214,7 @@
     "editMonth": "Month",
     "editDay": "Day",
     "editSpecial": "Special issue",
+    "editStatus": "Status",
     "editQuality": "Quality",
     "editFormat": "Format",
     "editReleaseGroup": "Release group",
@@ -224,6 +225,7 @@
     "source": "Source",
     "publishDate": "Date",
     "page": "Page {{page}} of {{totalPages}}",
+    "viewHistory": "View history",
     "sortDateDesc": "Newest first",
     "sortDateAsc": "Oldest first",
     "sortDefault": "Default order"

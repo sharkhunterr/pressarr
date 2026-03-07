@@ -80,6 +80,12 @@ async def rss_sync():
                             wanted_by_date=wanted_by_date,
                         )
                         if match and match.issue and item.download_url:
+                            # Check blocklist before grabbing
+                            from app.services.history_service import is_blocklisted
+                            if await is_blocklisted(db, item.title):
+                                logger.debug("RSS: skipping blocklisted '%s'", item.title)
+                                continue
+
                             from app.services.download_service import grab_release
 
                             await grab_release(
@@ -91,6 +97,15 @@ async def rss_sync():
                                 item.guid,
                             )
                             rss_grabbed += 1
+                            # Remove from lookup dicts to prevent duplicate grabs
+                            if match.issue.number is not None:
+                                wanted_by_number.pop(
+                                    (match.magazine.id, match.issue.number), None
+                                )
+                            if match.issue.year is not None and match.issue.month is not None:
+                                wanted_by_date.pop(
+                                    (match.magazine.id, match.issue.year, match.issue.month), None
+                                )
                             invalidate_pattern_cache(match.magazine.id)
 
                             logger.info(
@@ -155,6 +170,24 @@ async def purge_history():
             await db.commit()
         except Exception:
             logger.error("History purge failed", exc_info=True)
+
+
+async def cleanup_orphaned_snatched():
+    """Reset issues stuck in 'snatched' with no active download."""
+    if not async_session_factory:
+        return
+    async with async_session_factory() as db:
+        try:
+            from app.services.download_service import (
+                cleanup_orphaned_snatched as do_cleanup,
+            )
+
+            count = await do_cleanup(db)
+            if count:
+                logger.info("Reset %d orphaned snatched issues to wanted", count)
+            await db.commit()
+        except Exception:
+            logger.error("Orphaned snatched cleanup failed", exc_info=True)
 
 
 async def refresh_forecasts():

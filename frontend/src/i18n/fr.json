@@ -214,6 +214,7 @@
     "editMonth": "Mois",
     "editDay": "Jour",
     "editSpecial": "Numéro spécial",
+    "editStatus": "Statut",
     "editQuality": "Qualité",
     "editFormat": "Format",
     "editReleaseGroup": "Groupe de release",
@@ -224,6 +225,7 @@
     "source": "Source",
     "publishDate": "Date",
     "page": "Page {{page}} sur {{totalPages}}",
+    "viewHistory": "Voir l'historique",
     "sortDateDesc": "Plus récent",
     "sortDateAsc": "Plus ancien",
     "sortDefault": "Ordre par défaut"

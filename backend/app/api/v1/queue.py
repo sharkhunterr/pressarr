@@ -248,6 +248,8 @@ async def trigger_manual_import(
         issue_id=item.issue_id,
         magazine_id=item.magazine_id,
     )
+    if result.get("success"):
+        await db.commit()
     return result
 
 

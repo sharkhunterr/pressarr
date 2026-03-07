@@ -28,5 +28,6 @@ class History(Base):
         Index("ix_history_date", "date"),
         Index("ix_history_event_type", "event_type"),
         Index("ix_history_magazine_id", "magazine_id"),
+        Index("ix_history_issue_id", "issue_id"),
         Index("ix_history_event_date", "event_type", "date"),
     )
