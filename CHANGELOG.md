@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.27](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.26...v0.1.27) (2026-03-07)
+
+
+### Bug Fixes
+
+* add retry logic to CI verify stage for API propagation delays ([d64d204](https://github.com/sharkhunterr/pressarr/-/commit/d64d204cffea30ccedb37ead3ffb626ff567e2b5))
+* clear processed state when re-grabbing the same torrent ([c16c73f](https://github.com/sharkhunterr/pressarr/-/commit/c16c73f3f9eee314ebfc878a0ad53368d37f6703))
+
 ### [0.1.26](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.25...v0.1.26) (2026-03-07)
 
 
