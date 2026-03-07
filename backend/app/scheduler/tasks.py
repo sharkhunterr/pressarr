@@ -62,6 +62,8 @@ async def rss_sync():
 
             rss_total_items = 0
             rss_grabbed = 0
+            rss_grabbed_items: list[dict] = []
+            rss_indexer_names: list[str] = []
 
             for indexer in indexers:
                 try:
@@ -70,6 +72,7 @@ async def rss_sync():
                     )
                     rss_items = await client.rss_feed(categories=[7010, 7020])
                     rss_total_items += len(rss_items)
+                    rss_indexer_names.append(indexer.name)
 
                     for item in rss_items:
                         match = await smart_match_rss_item(
@@ -97,6 +100,14 @@ async def rss_sync():
                                 item.guid,
                             )
                             rss_grabbed += 1
+                            rss_grabbed_items.append({
+                                "release_title": item.title,
+                                "magazine_title": match.magazine.title,
+                                "issue_number": match.issue.number,
+                                "score": round(match.score, 1),
+                                "matched_via": match.matched_via,
+                                "indexer": indexer.name,
+                            })
                             # Remove from lookup dicts to prevent duplicate grabs
                             if match.issue.number is not None:
                                 wanted_by_number.pop(
@@ -131,6 +142,13 @@ async def rss_sync():
                     db,
                     event_type="searched",
                     details=f"RSS sync: {rss_total_items} items scanned, {rss_grabbed} grabbed",
+                    data={
+                        "search_type": "rss",
+                        "items_scanned": rss_total_items,
+                        "grabbed_count": rss_grabbed,
+                        "indexers": rss_indexer_names,
+                        "grabbed_items": rss_grabbed_items[:20],
+                    },
                 )
 
             await db.commit()

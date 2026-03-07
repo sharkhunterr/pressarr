@@ -226,6 +226,15 @@ async def grab_release(
             magazine_id=issue.magazine_id,
             issue_id=issue.id,
             details=f"Grabbed: {title}",
+            data={
+                "release_title": title,
+                "protocol": protocol,
+                "download_id": download_id,
+                "download_client": client_record.name,
+                "guid": guid,
+                "magazine_title": issue.magazine.title if issue.magazine else None,
+                "issue_number": issue.number,
+            },
         )
 
         # Invalidate smart matcher pattern cache so new grabs inform future matches

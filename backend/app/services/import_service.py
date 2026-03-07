@@ -327,7 +327,15 @@ async def process_downloaded_file(
                 )
                 unmatched_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(file_path), str(unmatched_dir / file_path.name))
-                await create_event(db, "unmatched", details=f"Unmatched file: {file_path.name}")
+                await create_event(
+                    db, "unmatched",
+                    details=f"Unmatched file: {file_path.name}",
+                    data={
+                        "filename": file_path.name,
+                        "parsed_title": parsed.title,
+                        "source_path": str(file_path),
+                    },
+                )
                 return {"success": False, "issue_id": None, "message": f"No matching magazine for '{parsed.title}'"}
 
             matched_title, match_score = match
@@ -456,6 +464,11 @@ async def process_downloaded_file(
             magazine_id=magazine.id,
             issue_id=issue.id,
             details=f"Import failed: {e}",
+            data={
+                "error": str(e),
+                "source_path": str(file_path),
+                "magazine_title": magazine.title,
+            },
         )
         return {"success": False, "issue_id": issue.id, "message": str(e)}
 
@@ -523,6 +536,17 @@ async def process_downloaded_file(
         magazine_id=magazine.id,
         issue_id=issue.id,
         details=f"Imported: {dest.name} ({parsed.quality})",
+        data={
+            "source_path": str(file_path),
+            "dest_path": str(dest),
+            "filename": dest.name,
+            "quality": parsed.quality,
+            "format": parsed.format,
+            "magazine_title": magazine.title,
+            "issue_number": issue.number,
+            "release_group": parsed.release_group,
+            "import_mode": import_mode,
+        },
     )
 
     # 12. Dispatch notifications
@@ -650,6 +674,11 @@ async def import_file_for_issue(
             magazine_id=magazine.id,
             issue_id=issue.id,
             details=f"Import failed: {e}",
+            data={
+                "error": str(e),
+                "source_path": str(file_path),
+                "magazine_title": magazine.title,
+            },
         )
         return {
             "success": False,
@@ -717,6 +746,15 @@ async def import_file_for_issue(
         magazine_id=magazine.id,
         issue_id=issue.id,
         details=f"Imported: {dest.name}",
+        data={
+            "source_path": str(file_path),
+            "dest_path": str(dest),
+            "filename": dest.name,
+            "format": file_format,
+            "magazine_title": magazine.title,
+            "issue_number": issue.number,
+            "import_mode": import_mode,
+        },
     )
 
     # 11. Dispatch notifications

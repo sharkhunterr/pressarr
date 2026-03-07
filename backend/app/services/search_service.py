@@ -20,6 +20,24 @@ logger = logging.getLogger(__name__)
 _QUALITY_INDEX: dict[str, int] = {q: i for i, q in enumerate(QUALITY_ORDER)}
 
 
+def _serialize_top_results(results: list[SearchResultResource], limit: int = 10) -> list[dict]:
+    """Serialize the top N search results for history storage."""
+    return [
+        {
+            "title": r.title,
+            "indexer": r.indexer,
+            "size": r.size,
+            "seeders": r.seeders,
+            "quality": r.quality,
+            "language": r.language,
+            "protocol": r.protocol,
+            "score": round(r.score, 1),
+            "age": r.age,
+        }
+        for r in results[:limit]
+    ]
+
+
 async def search_issue(
     db: AsyncSession, issue_id: int, config
 ) -> list[SearchResultResource]:
@@ -97,12 +115,22 @@ async def search_issue(
 
     all_results.sort(key=lambda r: r.score, reverse=True)
 
+    indexer_names = list({r.indexer for r in all_results})
     await create_event(
         db,
         event_type="searched",
         magazine_id=magazine.id,
         issue_id=issue.id,
         details=f"Manual search: {query} ({len(all_results)} results)",
+        data={
+            "search_type": "manual",
+            "query": query,
+            "result_count": len(all_results),
+            "magazine_title": magazine.title,
+            "issue_number": issue.number,
+            "indexers": indexer_names,
+            "top_results": _serialize_top_results(all_results),
+        },
     )
 
     return all_results
@@ -158,11 +186,19 @@ async def search_free(
         except Exception:
             logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
 
+    indexer_names = list({r.indexer for r in all_results})
     await create_event(
         db,
         event_type="searched",
         magazine_id=magazine_id,
         details=f"Free search: '{query}' ({len(all_results)} results)",
+        data={
+            "search_type": "free",
+            "query": query,
+            "result_count": len(all_results),
+            "indexers": indexer_names,
+            "top_results": _serialize_top_results(all_results),
+        },
     )
 
     return all_results
@@ -187,11 +223,30 @@ async def search_magazine_missing(
             results_by_issue[issue.id] = results
 
     total_results = sum(len(r) for r in results_by_issue.values())
+    # Collect top result per issue for the history detail
+    issues_with_results = []
+    for iss in wanted_issues:
+        iss_results = results_by_issue.get(iss.id, [])
+        entry: dict = {"issue_id": iss.id, "issue_number": iss.number, "result_count": len(iss_results)}
+        if iss_results:
+            best = iss_results[0]
+            entry["best_result"] = best.title
+            entry["best_score"] = round(best.score, 1)
+        issues_with_results.append(entry)
+
     await create_event(
         db,
         event_type="searched",
         magazine_id=magazine_id,
         details=f"Missing issues search: {len(wanted_issues)} issues, {total_results} results",
+        data={
+            "search_type": "missing",
+            "wanted_count": len(wanted_issues),
+            "result_count": total_results,
+            "issues_searched": len(wanted_issues),
+            "issues_with_results": len(results_by_issue),
+            "issues_detail": issues_with_results[:20],
+        },
     )
 
     return results_by_issue

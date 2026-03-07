@@ -1,5 +1,7 @@
 """History event endpoints."""
 
+import json
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +57,12 @@ async def list_history(
     records = []
     for row in rows:
         event = row[0]
+        parsed_data = None
+        if event.data:
+            try:
+                parsed_data = json.loads(event.data)
+            except (json.JSONDecodeError, TypeError):
+                pass
         records.append(HistoryResource(
             id=event.id,
             event_type=event.event_type,
@@ -65,6 +73,7 @@ async def list_history(
             issue_number=row.issue_number,
             issue_date=row.issue_date,
             details=event.details,
+            data=parsed_data,
         ))
 
     return PaginatedResource(

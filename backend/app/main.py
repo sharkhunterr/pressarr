@@ -135,6 +135,7 @@ def _migrate_add_columns(connection) -> None:
     migrations = [
         ("download_client", "remote_path", "VARCHAR(500)"),
         ("download_client", "local_path", "VARCHAR(500)"),
+        ("history", "data", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:

@@ -1,5 +1,6 @@
 """History event tracking and blocklist management."""
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -18,12 +19,14 @@ async def create_event(
     magazine_id: int | None = None,
     issue_id: int | None = None,
     details: str | None = None,
+    data: dict | None = None,
 ) -> History:
     event = History(
         event_type=event_type,
         magazine_id=magazine_id,
         issue_id=issue_id,
         details=details,
+        data=json.dumps(data) if data else None,
     )
     db.add(event)
     await db.flush()

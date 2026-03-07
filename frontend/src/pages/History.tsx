@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
+import type { HistoryEntry } from '@/api/history'
 import { getHistory } from '@/api/history'
 import { getMagazines } from '@/api/magazines'
+import { HistoryDetailModal } from '@/components/HistoryDetailModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -51,6 +53,7 @@ export default function History() {
   const [pageSize] = useState(25)
   const [eventType, setEventType] = useState<string>('all')
   const [magazineFilter, setMagazineFilter] = useState<string>('all')
+  const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
 
   const { data: magazines = [] } = useQuery({
     queryKey: ['magazines'],
@@ -137,7 +140,11 @@ export default function History() {
             </TableHeader>
             <TableBody>
               {items.map((entry) => (
-                <TableRow key={entry.id} className="border-zinc-800 hover:bg-zinc-900/50">
+                <TableRow
+                  key={entry.id}
+                  className="border-zinc-800 hover:bg-zinc-900/50 cursor-pointer"
+                  onClick={() => setSelectedEntry(entry)}
+                >
                   <TableCell className="text-zinc-400 text-sm">
                     {new Date(entry.date).toLocaleString()}
                   </TableCell>
@@ -189,6 +196,12 @@ export default function History() {
           </div>
         </>
       )}
+
+      <HistoryDetailModal
+        open={selectedEntry !== null}
+        onOpenChange={(open) => { if (!open) setSelectedEntry(null) }}
+        entry={selectedEntry}
+      />
     </div>
   )
 }

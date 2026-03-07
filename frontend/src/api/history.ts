@@ -9,6 +9,7 @@ export interface HistoryEntry {
   issueNumber: number | null
   issueDate: string | null
   details: string | null
+  data: Record<string, unknown> | null
   date: string
 }
 

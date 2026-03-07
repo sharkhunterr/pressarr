@@ -23,6 +23,7 @@ class History(Base):
         Integer, ForeignKey("issue.id", ondelete="SET NULL"), nullable=True
     )
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_history_date", "date"),

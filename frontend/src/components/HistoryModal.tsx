@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 
+import type { HistoryEntry } from '@/api/history'
 import { getHistory } from '@/api/history'
+import { HistoryDetailModal } from '@/components/HistoryDetailModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,6 +50,7 @@ interface HistoryModalProps {
 export function HistoryModal({ open, onOpenChange, magazineId, issueId, title }: HistoryModalProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
+  const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
   const pageSize = 15
 
   // Reset page when modal opens
@@ -94,7 +97,11 @@ export function HistoryModal({ open, onOpenChange, magazineId, issueId, title }:
               </TableHeader>
               <TableBody>
                 {items.map((entry) => (
-                  <TableRow key={entry.id} className="border-zinc-800 hover:bg-zinc-900/50">
+                  <TableRow
+                    key={entry.id}
+                    className="border-zinc-800 hover:bg-zinc-900/50 cursor-pointer"
+                    onClick={() => setSelectedEntry(entry)}
+                  >
                     <TableCell className="text-zinc-400 text-sm whitespace-nowrap">
                       {new Date(entry.date).toLocaleString()}
                     </TableCell>
@@ -144,6 +151,12 @@ export function HistoryModal({ open, onOpenChange, magazineId, issueId, title }:
           </div>
         )}
       </DialogContent>
+
+      <HistoryDetailModal
+        open={selectedEntry !== null}
+        onOpenChange={(o) => { if (!o) setSelectedEntry(null) }}
+        entry={selectedEntry}
+      />
     </Dialog>
   )
 }

@@ -15,6 +15,7 @@ class HistoryResource(CamelModel):
     issue_number: int | None = None
     issue_date: date | None = None
     details: str | None = None
+    data: dict | None = None
 
 
 class BlocklistResource(CamelModel):

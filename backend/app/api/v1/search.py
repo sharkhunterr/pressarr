@@ -496,6 +496,7 @@ async def _create_history_event(
     issue_id: int | None = None,
     magazine_id: int | None = None,
     details: str = "",
+    data: dict | None = None,
 ) -> None:
     """Create a history event in a fresh DB session (for background tasks)."""
     import app.database as db_module
@@ -509,6 +510,7 @@ async def _create_history_event(
                 magazine_id=magazine_id,
                 issue_id=issue_id,
                 details=details,
+                data=data,
             )
             await db.commit()
             logger.info("[history event] Created %s (issue=%s, mag=%s)", event_type, issue_id, magazine_id)
@@ -533,17 +535,25 @@ async def _create_grab_event(
             from app.services.history_service import create_event
 
             # If we have an issue_id, set its status to "snatched"
+            magazine_title = None
+            issue_number = None
             if issue_id:
                 from sqlalchemy import select as sa_select
+                from sqlalchemy.orm import selectinload
 
                 from app.models.issue import Issue
 
                 result = await db.execute(
-                    sa_select(Issue).where(Issue.id == issue_id)
+                    sa_select(Issue)
+                    .options(selectinload(Issue.magazine))
+                    .where(Issue.id == issue_id)
                 )
                 issue = result.scalars().first()
                 if issue:
                     issue.status = "snatched"
+                    issue_number = issue.number
+                    if issue.magazine:
+                        magazine_title = issue.magazine.title
                     if not magazine_id:
                         magazine_id = issue.magazine_id
 
@@ -553,6 +563,12 @@ async def _create_grab_event(
                 magazine_id=magazine_id,
                 issue_id=issue_id,
                 details=f"Grabbed from {source}: {title}",
+                data={
+                    "release_title": title,
+                    "source": source,
+                    "magazine_title": magazine_title,
+                    "issue_number": issue_number,
+                },
             )
             await db.commit()
             logger.info("[grab event] Created for %s (issue=%s, mag=%s)", source, issue_id, magazine_id)
@@ -623,6 +639,13 @@ async def _ia_download_task(
             issue_id=issue_id,
             magazine_id=magazine_id,
             details=f"Downloaded from Internet Archive: {filename}",
+            data={
+                "source": "Internet Archive",
+                "identifier": identifier,
+                "filename": filename,
+                "download_id": download_id,
+                "download_path": str(local_path),
+            },
         )
 
         tracker.update_status(
@@ -647,6 +670,12 @@ async def _ia_download_task(
                 issue_id=issue_id,
                 magazine_id=magazine_id,
                 details=f"Import failed: {error_msg}",
+                data={
+                    "error": error_msg,
+                    "source": "Internet Archive",
+                    "filename": filename,
+                    "download_path": str(local_path),
+                },
             )
 
         await manager.broadcast("queue:added", {})
@@ -665,6 +694,12 @@ async def _ia_download_task(
             issue_id=issue_id,
             magazine_id=magazine_id,
             details=f"Download failed: {e}",
+            data={
+                "error": str(e),
+                "source": "Internet Archive",
+                "filename": filename,
+                "download_id": download_id,
+            },
         )
         await manager.broadcast("queue:added", {})
     finally:
@@ -901,6 +936,12 @@ async def _aa_download_task(
             issue_id=issue_id,
             magazine_id=magazine_id,
             details=f"Downloaded from Anna's Archive: {md5}",
+            data={
+                "source": "Anna's Archive",
+                "md5": md5,
+                "download_id": download_id,
+                "download_path": str(local_path),
+            },
         )
 
         tracker.update_status(
@@ -925,6 +966,12 @@ async def _aa_download_task(
                 issue_id=issue_id,
                 magazine_id=magazine_id,
                 details=f"Import failed: {error_msg}",
+                data={
+                    "error": error_msg,
+                    "source": "Anna's Archive",
+                    "md5": md5,
+                    "download_path": str(local_path),
+                },
             )
 
         await manager.broadcast("queue:added", {})
@@ -943,6 +990,12 @@ async def _aa_download_task(
             issue_id=issue_id,
             magazine_id=magazine_id,
             details=f"Download failed: {e}",
+            data={
+                "error": str(e),
+                "source": "Anna's Archive",
+                "md5": md5,
+                "download_id": download_id,
+            },
         )
         await manager.broadcast("queue:added", {})
     finally:
