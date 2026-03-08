@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.32](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.31...v0.1.32) (2026-03-08)
+
+
+### Bug Fixes
+
+* unify monitored/unmonitored badge styles across all pages ([024399a](https://github.com/sharkhunterr/pressarr/-/commit/024399a4cc4d37783c4e6584d2ad4a82b2703967))
+
 ### [0.1.31](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.30...v0.1.31) (2026-03-07)
 
 
