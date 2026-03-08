@@ -37,8 +37,8 @@ export function PackCard({ pack }: PackCardProps) {
           ) : <div />}
 
           <Badge
-            variant={pack.monitored ? 'default' : 'outline'}
-            className={pack.monitored ? 'bg-[#7C3AED]' : ''}
+            variant={pack.monitored ? 'default' : 'secondary'}
+            className={pack.monitored ? 'bg-[#7C3AED] text-white' : ''}
           >
             {pack.monitored ? t('packs.monitored') : t('packs.unmonitored')}
           </Badge>

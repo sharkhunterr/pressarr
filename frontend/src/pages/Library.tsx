@@ -445,7 +445,7 @@ function LibraryTable({ magazines }: { magazines: Magazine[] }) {
 
               {/* Status */}
               <TableCell>
-                <Badge variant={m.monitored ? 'default' : 'outline'} className={m.monitored ? 'bg-[#7C3AED]' : ''}>
+                <Badge variant={m.monitored ? 'default' : 'secondary'} className={m.monitored ? 'bg-[#7C3AED] text-white' : ''}>
                   {m.monitored ? t('library.monitored') : t('library.unmonitored')}
                 </Badge>
               </TableCell>

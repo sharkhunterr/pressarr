@@ -66,8 +66,8 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
 
           {/* Monitored badge (right) */}
           <Badge
-            variant={magazine.monitored ? 'default' : 'outline'}
-            className={magazine.monitored ? 'bg-[#7C3AED]' : ''}
+            variant={magazine.monitored ? 'default' : 'secondary'}
+            className={magazine.monitored ? 'bg-[#7C3AED] text-white' : ''}
           >
             {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
           </Badge>

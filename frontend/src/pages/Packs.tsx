@@ -223,7 +223,7 @@ function PacksTable({ packs }: { packs: Pack[] }) {
             <TableCell className="text-zinc-100 text-sm font-medium">{p.name}</TableCell>
             <TableCell className="text-zinc-400 text-sm truncate max-w-[200px]">{p.searchQuery}</TableCell>
             <TableCell>
-              <Badge variant={p.monitored ? 'default' : 'outline'} className={p.monitored ? 'bg-[#7C3AED]' : ''}>
+              <Badge variant={p.monitored ? 'default' : 'secondary'} className={p.monitored ? 'bg-[#7C3AED] text-white' : ''}>
                 {p.monitored ? t('packs.monitored') : t('packs.unmonitored')}
               </Badge>
             </TableCell>

@@ -867,7 +867,7 @@ export default function MagazineDetail() {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-bold text-zinc-100">{magazine.title}</h1>
-                  <Badge variant={magazine.monitored ? 'default' : 'secondary'} className={magazine.monitored ? 'bg-green-600 hover:bg-green-600' : ''}>
+                  <Badge variant={magazine.monitored ? 'default' : 'secondary'} className={magazine.monitored ? 'bg-[#7C3AED] hover:bg-[#7C3AED] text-white' : ''}>
                     {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
                   </Badge>
                 </div>
