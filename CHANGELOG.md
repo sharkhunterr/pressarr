@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.35](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.34...v0.1.35) (2026-03-10)
+
+
+### Bug Fixes
+
+* update reconcile_forecast test to match frequency-aware window ([9e4f46d](https://github.com/sharkhunterr/pressarr/-/commit/9e4f46d1da335bd839dc8c92fe6a9598c172d442))
+
 ### [0.1.34](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.33...v0.1.34) (2026-03-10)
 
 
