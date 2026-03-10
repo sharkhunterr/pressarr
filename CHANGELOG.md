@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.33](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.32...v0.1.33) (2026-03-10)
+
+
+### Features
+
+* add patterns & rules per magazine for smarter RSS matching ([77535f8](https://github.com/sharkhunterr/pressarr/-/commit/77535f89ea38cb5e27c7c335ab5c9f6a08325a9c))
+
+
+### Bug Fixes
+
+* frequency-aware issue matching to prevent monthly magazine duplicates ([b5c595f](https://github.com/sharkhunterr/pressarr/-/commit/b5c595fff93625adc6547dfbf37d719812912eb5))
+
 ### [0.1.32](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.31...v0.1.32) (2026-03-08)
 
 
