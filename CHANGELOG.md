@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.36](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.35...v0.1.36) (2026-03-10)
+
+
+### Bug Fixes
+
+* handle issue number conflict and improve manual search layout ([7491f74](https://github.com/sharkhunterr/pressarr/-/commit/7491f7443caf8964e1665c9cb445f4dc7e5be6c8))
+
 ### [0.1.35](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.34...v0.1.35) (2026-03-10)
 
 
