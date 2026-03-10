@@ -351,32 +351,60 @@ async def process_downloaded_file(
             )
             issue = issue_result.scalars().first()
 
-        # Day-precise matching (for daily publications)
-        if not issue and parsed.year and parsed.month and parsed.day:
-            issue_result = await db.execute(
-                select(Issue)
-                .options(selectinload(Issue.file))
-                .where(
-                    Issue.magazine_id == magazine.id,
-                    Issue.year == parsed.year,
-                    Issue.month == parsed.month,
-                    Issue.day == parsed.day,
-                )
-            )
-            issue = issue_result.scalars().first()
+        # Frequency-aware date matching:
+        # - daily/weekly/biweekly → exact day match
+        # - monthly and above → month+year only (ignore day)
+        # - quarterly → same quarter+year
+        freq = getattr(magazine, "frequency", "monthly")
+        day_precise = freq in ("daily", "weekly", "biweekly")
 
-        # Month-level matching (only when no day parsed)
-        if not issue and parsed.year and parsed.month and not parsed.day:
-            issue_result = await db.execute(
-                select(Issue)
-                .options(selectinload(Issue.file))
-                .where(
-                    Issue.magazine_id == magazine.id,
-                    Issue.year == parsed.year,
-                    Issue.month == parsed.month,
+        if not issue and parsed.year and parsed.month:
+            if day_precise and parsed.day:
+                # Day-precise matching (for daily/weekly publications)
+                issue_result = await db.execute(
+                    select(Issue)
+                    .options(selectinload(Issue.file))
+                    .where(
+                        Issue.magazine_id == magazine.id,
+                        Issue.year == parsed.year,
+                        Issue.month == parsed.month,
+                        Issue.day == parsed.day,
+                    )
                 )
-            )
-            issue = issue_result.scalars().first()
+                issue = issue_result.scalars().first()
+
+            if not issue and freq in ("quarterly", "semiannual", "annual"):
+                # Quarter/semester/year-level matching
+                from app.services.calendar_service import FREQUENCY_DELTAS
+
+                period_months = FREQUENCY_DELTAS.get(freq, 1)
+                if isinstance(period_months, int) and period_months > 1:
+                    # Find issues in the same period window
+                    period_start_month = ((parsed.month - 1) // period_months) * period_months + 1
+                    months_in_period = list(range(period_start_month, period_start_month + period_months))
+                    issue_result = await db.execute(
+                        select(Issue)
+                        .options(selectinload(Issue.file))
+                        .where(
+                            Issue.magazine_id == magazine.id,
+                            Issue.year == parsed.year,
+                            Issue.month.in_(months_in_period),
+                        )
+                    )
+                    issue = issue_result.scalars().first()
+
+            if not issue:
+                # Month-level matching (for monthly/bimonthly or fallback)
+                issue_result = await db.execute(
+                    select(Issue)
+                    .options(selectinload(Issue.file))
+                    .where(
+                        Issue.magazine_id == magazine.id,
+                        Issue.year == parsed.year,
+                        Issue.month == parsed.month,
+                    )
+                )
+                issue = issue_result.scalars().first()
 
         # Save eagerly-loaded file reference before potentially creating a new issue
         # (avoids lazy-load MissingGreenlet errors in background tasks)

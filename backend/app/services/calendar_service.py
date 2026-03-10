@@ -214,11 +214,30 @@ async def generate_forecasts(
 async def reconcile_forecast(
     db: AsyncSession,
     issue: Issue,
-    window_days: int = 7,
+    window_days: int | None = None,
 ) -> bool:
-    """Replace a matching forecast when a real issue is imported."""
+    """Replace a matching forecast when a real issue is imported.
+
+    The window is frequency-aware: daily/weekly use 7 days,
+    monthly+ uses the full month to avoid mismatches when the
+    parsed day differs from the forecast day.
+    """
     if not issue.publication_date:
         return False
+
+    # Determine window based on magazine frequency
+    if window_days is None:
+        mag_result = await db.execute(
+            select(Magazine).where(Magazine.id == issue.magazine_id)
+        )
+        mag = mag_result.scalars().first()
+        freq = mag.frequency if mag else "monthly"
+        if freq in ("daily", "weekly", "biweekly"):
+            window_days = 7
+        elif freq in ("quarterly", "semiannual", "annual"):
+            window_days = 95  # ~3 months
+        else:
+            window_days = 32  # monthly/bimonthly
 
     window_start = issue.publication_date - timedelta(days=window_days)
     window_end = issue.publication_date + timedelta(days=window_days)
