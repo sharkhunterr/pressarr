@@ -264,6 +264,7 @@
     "sourceFilename": "Nom du fichier source",
     "issueUpdated": "Numéro mis à jour avec succès.",
     "issueUpdateError": "Échec de la mise à jour du numéro.",
+    "issueNumberConflict": "Un numéro avec ce numéro existe déjà.",
     "source": "Source",
     "publishDate": "Date",
     "page": "Page {{page}} sur {{totalPages}}",

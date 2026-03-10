@@ -317,7 +317,10 @@ export default function MagazineDetail() {
       setEditingIssue(null)
       toast.success(t('issues.issueUpdated'))
     },
-    onError: () => toast.error(t('issues.issueUpdateError')),
+    onError: (err: unknown) => {
+      const status = (err as { status?: number })?.status
+      toast.error(status === 409 ? t('issues.issueNumberConflict') : t('issues.issueUpdateError'))
+    },
   })
 
   const handleEditIssue = (issue: Issue) => {
@@ -1507,9 +1510,9 @@ export default function MagazineDetail() {
                               result.isBlocklisted ? 'opacity-40' : ''
                             }`}
                           >
-                            <div className="flex-1 min-w-0 mr-4">
-                              <p className="text-sm text-zinc-100 truncate">{result.title}</p>
-                              <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+                            <div className="min-w-0">
+                              <p className="text-sm text-zinc-100 break-words">{result.title}</p>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-zinc-500">
                                 {result.source ? (
                                   <span>{result.source}</span>
                                 ) : (
@@ -1549,7 +1552,20 @@ export default function MagazineDetail() {
                                 )}
                               </div>
                             </div>
-                            <div className="flex gap-1.5 shrink-0">
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={result.isBlocklisted || grabbing === result.guid}
+                                onClick={() => handleGrab(result, true)}
+                              >
+                                {grabbing === result.guid ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="size-3.5" />
+                                )}
+                                {t('issues.grab')}
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1568,24 +1584,11 @@ export default function MagazineDetail() {
                                 }}
                               >
                                 {magazine?.patterns?.some((p) => p.pattern === result.title) ? (
-                                  <Check className="size-3.5" />
+                                  <Check className="size-3.5 text-green-400" />
                                 ) : (
                                   <Plus className="size-3.5" />
                                 )}
                                 {t('magazineDetail.saveAsPattern')}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={result.isBlocklisted || grabbing === result.guid}
-                                onClick={() => handleGrab(result, true)}
-                              >
-                                {grabbing === result.guid ? (
-                                  <Loader2 className="size-3.5 animate-spin" />
-                                ) : (
-                                  <Download className="size-3.5" />
-                                )}
-                                {t('issues.grab')}
                               </Button>
                             </div>
                           </div>

@@ -91,7 +91,12 @@ async def update_issue(
         allowed = {"wanted", "missing", "available", "snatched"}
         if data["status"] not in allowed:
             raise HTTPException(422, f"Invalid status. Allowed: {', '.join(sorted(allowed))}")
-    issue = await issue_service.update_issue(db, issue_id, data)
+    try:
+        issue = await issue_service.update_issue(db, issue_id, data)
+    except Exception as exc:
+        if "UNIQUE constraint" in str(exc):
+            raise HTTPException(409, "An issue with that number already exists for this magazine")
+        raise
     if issue is None:
         raise HTTPException(404, "Issue not found")
     return issue
