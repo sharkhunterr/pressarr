@@ -138,9 +138,16 @@ async def rss_sync():
             )
             indexers = result.scalars().all()
 
-            # Get all monitored magazines
+            # Get all monitored magazines (with patterns & rules for smart matcher)
+            from sqlalchemy.orm import selectinload
+
             mag_result = await db.execute(
-                select(Magazine).where(Magazine.monitored == True)  # noqa: E712
+                select(Magazine)
+                .where(Magazine.monitored == True)  # noqa: E712
+                .options(
+                    selectinload(Magazine.patterns),
+                    selectinload(Magazine.rules),
+                )
             )
             magazines = list(mag_result.scalars().all())
 
@@ -200,7 +207,19 @@ async def rss_sync():
                                 item.title,
                                 item.protocol or "torrent",
                                 item.guid,
+                                match_score=match.score,
+                                match_details=match.details,
                             )
+                            # Auto-learn torrent name as pattern
+                            from app.services.magazine_service import (
+                                learn_magazine_pattern_from_grab,
+                            )
+
+                            await learn_magazine_pattern_from_grab(
+                                db, match.magazine.id,
+                                item.title, indexer.name,
+                            )
+
                             rss_grabbed += 1
                             rss_grabbed_items.append({
                                 "release_title": item.title,

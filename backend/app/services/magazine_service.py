@@ -13,6 +13,8 @@ from sqlalchemy.orm import selectinload
 
 from app.models.issue import Issue
 from app.models.magazine import Magazine
+from app.models.magazine_pattern import MagazinePattern
+from app.models.magazine_rule import MagazineRule
 from app.schemas.magazine import MetadataSearchResult, SourceInfo
 
 logger = logging.getLogger(__name__)
@@ -61,7 +63,11 @@ async def list_magazines(
     monitored: bool | None = None,
 ) -> list[Magazine]:
     """List all magazines with optional filtering and sorting."""
-    stmt = select(Magazine).options(selectinload(Magazine.issues))
+    stmt = select(Magazine).options(
+        selectinload(Magazine.issues),
+        selectinload(Magazine.patterns),
+        selectinload(Magazine.rules),
+    )
 
     if monitored is not None:
         stmt = stmt.where(Magazine.monitored == monitored)
@@ -81,7 +87,11 @@ async def get_magazine(db: AsyncSession, magazine_id: int) -> Magazine | None:
     stmt = (
         select(Magazine)
         .where(Magazine.id == magazine_id)
-        .options(selectinload(Magazine.issues))
+        .options(
+            selectinload(Magazine.issues),
+            selectinload(Magazine.patterns),
+            selectinload(Magazine.rules),
+        )
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
@@ -352,3 +362,117 @@ async def refresh_metadata(db: AsyncSession, magazine_id: int) -> str | None:
     await db.flush()
 
     return f"Metadata refreshed for '{magazine.title}'"
+
+
+# ---------------------------------------------------------------------------
+# Pattern management
+# ---------------------------------------------------------------------------
+
+
+async def add_magazine_pattern(
+    db: AsyncSession, magazine_id: int, data: dict
+) -> MagazinePattern:
+    pattern = MagazinePattern(
+        magazine_id=magazine_id,
+        pattern=data["pattern"],
+        source=data.get("source"),
+        uploader=data.get("uploader"),
+    )
+    db.add(pattern)
+    await db.flush()
+    return pattern
+
+
+async def delete_magazine_pattern(db: AsyncSession, pattern_id: int) -> bool:
+    result = await db.execute(
+        select(MagazinePattern).where(MagazinePattern.id == pattern_id)
+    )
+    pattern = result.scalar_one_or_none()
+    if pattern is None:
+        return False
+    await db.delete(pattern)
+    await db.flush()
+    return True
+
+
+async def learn_magazine_pattern_from_grab(
+    db: AsyncSession, magazine_id: int, torrent_title: str, indexer_name: str
+) -> MagazinePattern:
+    """Learn a pattern when a magazine torrent is grabbed.
+
+    If an identical pattern exists, update last_seen_at instead of duplicating.
+    """
+    from datetime import datetime
+
+    existing = await db.execute(
+        select(MagazinePattern).where(
+            MagazinePattern.magazine_id == magazine_id,
+            MagazinePattern.pattern == torrent_title,
+        )
+    )
+    existing_pattern = existing.scalar_one_or_none()
+    if existing_pattern:
+        existing_pattern.last_seen_at = datetime.now(UTC)
+        await db.flush()
+        return existing_pattern
+
+    return await add_magazine_pattern(
+        db,
+        magazine_id,
+        {"pattern": torrent_title, "source": indexer_name},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule management
+# ---------------------------------------------------------------------------
+
+
+async def add_magazine_rule(
+    db: AsyncSession, magazine_id: int, data: dict
+) -> MagazineRule:
+    rule = MagazineRule(
+        magazine_id=magazine_id,
+        rule_type=data["rule_type"],
+        pattern=data["pattern"],
+    )
+    db.add(rule)
+    await db.flush()
+    return rule
+
+
+async def delete_magazine_rule(db: AsyncSession, rule_id: int) -> bool:
+    result = await db.execute(
+        select(MagazineRule).where(MagazineRule.id == rule_id)
+    )
+    rule = result.scalar_one_or_none()
+    if rule is None:
+        return False
+    await db.delete(rule)
+    await db.flush()
+    return True
+
+
+def apply_magazine_rules(
+    rss_title: str, rules: list[MagazineRule]
+) -> tuple[bool, str | None]:
+    """Apply include/exclude rules to an RSS item title.
+
+    Returns (excluded, reason).
+    - If any exclude rule matches -> excluded.
+    - If include rules exist, must match at least one, otherwise excluded.
+    """
+    include_rules = [r for r in rules if r.rule_type == "include"]
+    exclude_rules = [r for r in rules if r.rule_type == "exclude"]
+
+    for rule in exclude_rules:
+        if re.search(rule.pattern, rss_title, re.IGNORECASE):
+            return True, f"Excluded by rule: {rule.pattern}"
+
+    if include_rules:
+        for rule in include_rules:
+            if re.search(rule.pattern, rss_title, re.IGNORECASE):
+                return False, None
+        return True, "No include rule matched"
+
+    return False, None

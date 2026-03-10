@@ -15,6 +15,34 @@ class MagazineStatistics(CamelModel):
     next_issue_date: date | None = None
 
 
+class MagazinePatternResource(CamelModel):
+    id: int
+    magazine_id: int
+    pattern: str
+    source: str | None = None
+    uploader: str | None = None
+    last_seen_at: datetime
+    created_at: datetime
+
+
+class MagazinePatternCreateResource(CamelModel):
+    pattern: str
+    source: str | None = None
+    uploader: str | None = None
+
+
+class MagazineRuleResource(CamelModel):
+    id: int
+    magazine_id: int
+    rule_type: str
+    pattern: str
+
+
+class MagazineRuleCreateResource(CamelModel):
+    rule_type: str
+    pattern: str
+
+
 class MagazineResource(CamelModel):
     id: int
     title: str
@@ -37,6 +65,8 @@ class MagazineResource(CamelModel):
     last_searched_at: datetime | None = None
     last_metadata_refresh: datetime | None = None
     excluded_days: list[int] | None = None
+    patterns: list[MagazinePatternResource] = []
+    rules: list[MagazineRuleResource] = []
     statistics: MagazineStatistics = MagazineStatistics()
 
     @field_validator("excluded_days", mode="before")

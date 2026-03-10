@@ -164,6 +164,8 @@ async def grab_release(
     title: str,
     protocol: str,
     guid: str,
+    match_score: float | None = None,
+    match_details: str | None = None,
 ) -> GrabResponse:
     # Get issue
     result = await db.execute(
@@ -235,6 +237,8 @@ async def grab_release(
                 "guid": guid,
                 "magazine_title": issue.magazine.title if issue.magazine else None,
                 "issue_number": issue.number,
+                **({"match_score": round(match_score, 1)} if match_score is not None else {}),
+                **({"match_details": match_details} if match_details else {}),
             },
         )
 

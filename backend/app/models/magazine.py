@@ -54,6 +54,12 @@ class Magazine(Base):
     issues: Mapped[list["Issue"]] = relationship(
         back_populates="magazine", cascade="all, delete-orphan"
     )
+    patterns: Mapped[list["MagazinePattern"]] = relationship(
+        back_populates="magazine", cascade="all, delete-orphan"
+    )
+    rules: Mapped[list["MagazineRule"]] = relationship(
+        back_populates="magazine", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("ix_magazine_root_folder_id", "root_folder_id"),

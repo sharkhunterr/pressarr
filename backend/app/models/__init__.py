@@ -7,6 +7,8 @@ from app.models.indexer_config import IndexerConfig
 from app.models.issue import Issue
 from app.models.issue_file import IssueFile
 from app.models.magazine import Magazine
+from app.models.magazine_pattern import MagazinePattern
+from app.models.magazine_rule import MagazineRule
 from app.models.metadata_cache import MetadataCache
 from app.models.notification import Notification
 from app.models.pack import Pack
@@ -22,4 +24,5 @@ __all__ = [
     "History", "Blocklist",
     "RootFolder", "IndexerConfig", "MetadataCache",
     "Pack", "PackPattern", "PackRule",
+    "MagazinePattern", "MagazineRule",
 ]

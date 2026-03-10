@@ -9,11 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_config, get_db
 from app.schemas.magazine import (
     MagazineCreateResource,
+    MagazinePatternCreateResource,
+    MagazinePatternResource,
     MagazineResource,
+    MagazineRuleCreateResource,
+    MagazineRuleResource,
     MagazineStatistics,
     MagazineUpdateResource,
     MetadataSearchResult,
 )
+from app.services.smart_matcher import invalidate_pattern_cache
 from app.services import magazine_service
 from app.services.command_service import execute_command, register_command
 
@@ -220,3 +225,81 @@ async def refresh_magazine(
         body={"magazine_id": magazine_id},
     )
     return command
+
+
+# ---------------------------------------------------------------------------
+# Pattern management
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{magazine_id}/pattern",
+    response_model=MagazinePatternResource,
+    status_code=201,
+)
+async def add_pattern(
+    magazine_id: int,
+    body: MagazinePatternCreateResource,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a naming pattern for a magazine."""
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+    pattern = await magazine_service.add_magazine_pattern(
+        db, magazine_id, body.model_dump()
+    )
+    await db.commit()
+    invalidate_pattern_cache(magazine_id)
+    return MagazinePatternResource.model_validate(pattern)
+
+
+@router.delete("/{magazine_id}/pattern/{pattern_id}", status_code=204)
+async def delete_pattern(
+    magazine_id: int,
+    pattern_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a naming pattern."""
+    if not await magazine_service.delete_magazine_pattern(db, pattern_id):
+        raise HTTPException(404, "Pattern not found")
+    await db.commit()
+    invalidate_pattern_cache(magazine_id)
+
+
+# ---------------------------------------------------------------------------
+# Rule management
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{magazine_id}/rule",
+    response_model=MagazineRuleResource,
+    status_code=201,
+)
+async def add_rule(
+    magazine_id: int,
+    body: MagazineRuleCreateResource,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add an include/exclude rule for a magazine."""
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+    rule = await magazine_service.add_magazine_rule(
+        db, magazine_id, body.model_dump()
+    )
+    await db.commit()
+    return MagazineRuleResource.model_validate(rule)
+
+
+@router.delete("/{magazine_id}/rule/{rule_id}", status_code=204)
+async def delete_rule(
+    magazine_id: int,
+    rule_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an include/exclude rule."""
+    if not await magazine_service.delete_magazine_rule(db, rule_id):
+        raise HTTPException(404, "Rule not found")
+    await db.commit()

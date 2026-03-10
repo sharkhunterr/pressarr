@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.history import History
 from app.models.issue import Issue
 from app.models.magazine import Magazine
+from app.models.magazine_pattern import MagazinePattern
+from app.models.magazine_rule import MagazineRule
 from app.parser.magazine_parser import (
     ParseResult,
     fuzzy_match_title,
@@ -28,15 +30,15 @@ logger = logging.getLogger(__name__)
 class MatchWeights:
     """Configurable scoring weights for RSS matching."""
 
-    title_match: float = 40.0       # Max points for title similarity
-    search_terms_match: float = 40.0  # Alternative to title (takes the best)
+    title_match: float = 50.0       # Max points for title similarity
+    search_terms_match: float = 50.0  # Alternative to title (takes the best)
     number_match: float = 25.0      # Points for matching a wanted issue by number
     date_match: float = 20.0        # Points for matching by year+month
     pattern_bonus: float = 25.0     # Bonus for matching a learned naming pattern
     language_match: float = 5.0     # Bonus for matching expected language
     quality_bonus: float = 5.0      # Bonus for a recognized quality tag
-    title_threshold: float = 80.0   # Minimum fuzzy match % for title (prevents false positives)
-    min_threshold: float = 55.0     # Minimum score to accept a match
+    title_threshold: float = 85.0   # Minimum fuzzy match % for title (prevents false positives)
+    min_threshold: float = 70.0     # Minimum score to accept a match
 
 
 @dataclass
@@ -228,6 +230,30 @@ async def load_patterns_for_magazine(
                 example_title=release_title,
             ))
 
+    # Also load user-defined patterns from MagazinePattern table
+    user_result = await db.execute(
+        select(MagazinePattern).where(
+            MagazinePattern.magazine_id == magazine_id
+        )
+    )
+    for up in user_result.scalars().all():
+        parsed = parse_magazine_filename(up.pattern)
+        template = extract_naming_pattern(up.pattern, parsed)
+        if template and template not in seen_templates:
+            seen_templates.add(template)
+            title_variant = parsed.title or ""
+            if not title_variant:
+                idx = template.find("{")
+                if idx > 0:
+                    title_variant = template[:idx].rstrip(". -_")
+            patterns.append(NamingPattern(
+                magazine_id=magazine_id,
+                template=template,
+                title_variant=title_variant,
+                language=parsed.language if parsed.language != "unknown" else None,
+                example_title=up.pattern,
+            ))
+
     _pattern_cache[magazine_id] = patterns
     return patterns
 
@@ -296,6 +322,25 @@ async def smart_match_rss_item(
     best: MatchResult | None = None
 
     for magazine in magazines:
+        # --- 0. Apply include/exclude rules (hard filter) ---
+        rules: list[MagazineRule] = []
+        if hasattr(magazine, "rules") and magazine.rules is not None:
+            rules = magazine.rules
+        else:
+            rules_result = await db.execute(
+                select(MagazineRule).where(
+                    MagazineRule.magazine_id == magazine.id
+                )
+            )
+            rules = list(rules_result.scalars().all())
+
+        if rules:
+            from app.services.magazine_service import apply_magazine_rules
+
+            excluded, _reason = apply_magazine_rules(rss_title, rules)
+            if excluded:
+                continue
+
         score = 0.0
         matched_via = ""
         details_parts: list[str] = []

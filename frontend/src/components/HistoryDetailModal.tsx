@@ -152,6 +152,19 @@ function renderEventDetails(
           <DetailRow label={t('historyDetail.releaseTitle')} value={data.release_title as string} />
           <DetailRow label={t('historyDetail.magazine')} value={data.magazine_title as string} />
           <DetailRow label={t('historyDetail.issue')} value={data.issue_number != null ? `#${data.issue_number}` : undefined} />
+          {data.match_score != null && (
+            <div className="flex items-start gap-3 py-1.5">
+              <span className="text-zinc-500 text-sm min-w-[140px] shrink-0">{t('historyDetail.matchScore')}</span>
+              <span className={`text-sm font-mono font-medium ${
+                (data.match_score as number) >= 90 ? 'text-green-400' :
+                (data.match_score as number) >= 75 ? 'text-yellow-400' :
+                'text-red-400'
+              }`}>
+                {data.match_score as number}
+              </span>
+            </div>
+          )}
+          <DetailRow label={t('historyDetail.matchDetails')} value={data.match_details as string} />
           <DetailRow label={t('historyDetail.protocol')} value={data.protocol as string} />
           <DetailRow label={t('historyDetail.downloadClient')} value={data.download_client as string} />
           <DetailRow label={t('historyDetail.source')} value={data.source as string} />

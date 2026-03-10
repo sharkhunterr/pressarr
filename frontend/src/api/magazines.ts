@@ -1,5 +1,22 @@
 import { apiFetch } from './client'
 
+export interface MagazinePattern {
+  id: number
+  magazineId: number
+  pattern: string
+  source: string | null
+  uploader: string | null
+  lastSeenAt: string
+  createdAt: string
+}
+
+export interface MagazineRule {
+  id: number
+  magazineId: number
+  ruleType: 'include' | 'exclude'
+  pattern: string
+}
+
 export interface Magazine {
   id: number
   title: string
@@ -22,6 +39,8 @@ export interface Magazine {
   lastSearchedAt: string | null
   lastMetadataRefresh: string | null
   excludedDays: number[] | null
+  patterns: MagazinePattern[]
+  rules: MagazineRule[]
   statistics: {
     issueCount: number
     availableCount: number
@@ -85,3 +104,23 @@ export const uploadMagazineCover = (id: number, data: FormData) =>
 
 export const getMagazineCoverUrl = (id: number, cacheBuster?: string) =>
   `/api/v1/magazine/${id}/cover${cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : ''}`
+
+// Pattern management
+export const addMagazinePattern = (magazineId: number, data: { pattern: string; source?: string; uploader?: string }) =>
+  apiFetch<MagazinePattern>(`/magazine/${magazineId}/pattern`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+export const deleteMagazinePattern = (magazineId: number, patternId: number) =>
+  apiFetch<void>(`/magazine/${magazineId}/pattern/${patternId}`, { method: 'DELETE' })
+
+// Rule management
+export const addMagazineRule = (magazineId: number, data: { ruleType: string; pattern: string }) =>
+  apiFetch<MagazineRule>(`/magazine/${magazineId}/rule`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+export const deleteMagazineRule = (magazineId: number, ruleId: number) =>
+  apiFetch<void>(`/magazine/${magazineId}/rule/${ruleId}`, { method: 'DELETE' })

@@ -19,6 +19,9 @@ import {
   ChevronRight,
   Upload,
   Clock,
+  Plus,
+  X,
+  Check,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -29,6 +32,10 @@ import {
   uploadMagazineCover,
   deleteMagazine,
   refreshMetadata,
+  addMagazinePattern,
+  deleteMagazinePattern,
+  addMagazineRule,
+  deleteMagazineRule,
   type Magazine,
 } from '@/api/magazines'
 import {
@@ -1009,6 +1016,25 @@ export default function MagazineDetail() {
         </div>
       )}
 
+      {/* Main Tabs: Issues / Patterns / Rules */}
+      <Tabs defaultValue="issues">
+        <TabsList className="bg-zinc-900 border-zinc-800 mb-4">
+          <TabsTrigger value="issues">{t('magazineDetail.tabIssues')}</TabsTrigger>
+          <TabsTrigger value="patterns">
+            {t('magazineDetail.tabPatterns')}
+            {magazine && magazine.patterns?.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs px-1.5">{magazine.patterns.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="rules">
+            {t('magazineDetail.tabRules')}
+            {magazine && magazine.rules?.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs px-1.5">{magazine.rules.length}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="issues">
       {/* Status Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
         {(['all', 'available', 'wanted', 'upcoming'] as StatusFilter[]).map((filter) => (
@@ -1342,6 +1368,16 @@ export default function MagazineDetail() {
           })()}
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        <TabsContent value="patterns">
+          {magazine && <MagazinePatternsTab magazine={magazine} magazineId={magazineId} />}
+        </TabsContent>
+
+        <TabsContent value="rules">
+          {magazine && <MagazineRulesTab magazine={magazine} magazineId={magazineId} />}
+        </TabsContent>
+      </Tabs>
 
       {/* Manual Research Modal */}
       <Dialog open={manualSearchOpen} onOpenChange={setManualSearchOpen}>
@@ -1513,19 +1549,45 @@ export default function MagazineDetail() {
                                 )}
                               </div>
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={result.isBlocklisted || grabbing === result.guid}
-                              onClick={() => handleGrab(result, true)}
-                            >
-                              {grabbing === result.guid ? (
-                                <Loader2 className="size-3.5 animate-spin" />
-                              ) : (
-                                <Download className="size-3.5" />
-                              )}
-                              {t('issues.grab')}
-                            </Button>
+                            <div className="flex gap-1.5 shrink-0">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={magazine?.patterns?.some((p) => p.pattern === result.title)}
+                                onClick={async () => {
+                                  try {
+                                    await addMagazinePattern(magazineId, {
+                                      pattern: result.title,
+                                      source: result.source || result.indexer || undefined,
+                                    })
+                                    toast.success(t('magazineDetail.patternSaved'))
+                                    queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+                                  } catch {
+                                    toast.error(t('magazineDetail.patternAddError'))
+                                  }
+                                }}
+                              >
+                                {magazine?.patterns?.some((p) => p.pattern === result.title) ? (
+                                  <Check className="size-3.5" />
+                                ) : (
+                                  <Plus className="size-3.5" />
+                                )}
+                                {t('magazineDetail.saveAsPattern')}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={result.isBlocklisted || grabbing === result.guid}
+                                onClick={() => handleGrab(result, true)}
+                              >
+                                {grabbing === result.guid ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="size-3.5" />
+                                )}
+                                {t('issues.grab')}
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2177,6 +2239,452 @@ export default function MagazineDetail() {
         issueId={historyIssueId ?? undefined}
         title={`${t('history.title')} — ${magazine?.title ?? ''} #${issues.find(i => i.id === historyIssueId)?.number ?? historyIssueId ?? ''}`}
       />
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Patterns Tab
+// ---------------------------------------------------------------------------
+
+function MagazinePatternsTab({ magazine, magazineId }: { magazine: Magazine; magazineId: number }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+
+  // Search state
+  const [query, setQuery] = useState(magazine.title || '')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [searchingPatterns, setSearchingPatterns] = useState(false)
+  const [savingPattern, setSavingPattern] = useState<string | null>(null)
+  const [searchSource, setSearchSource] = useState('indexers')
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [dateSort, setDateSort] = useState<'' | 'asc' | 'desc'>('')
+  const [page, setPage] = useState(1)
+
+  async function handleSearch() {
+    if (!query.trim()) return
+    setSearchingPatterns(true)
+    setResults([])
+    setPage(1)
+    setSourceFilter('')
+    setDateSort('')
+    try {
+      let data: SearchResult[]
+      switch (searchSource) {
+        case 'internetarchive':
+          data = await searchInternetArchive(query.trim())
+          break
+        case 'annasarchive':
+          data = await searchAnnasArchive(query.trim())
+          break
+        default:
+          data = await searchIndexers(query.trim())
+      }
+      setResults(data)
+    } catch {
+      toast.error(t('issues.searchError'))
+    } finally {
+      setSearchingPatterns(false)
+    }
+  }
+
+  async function handleSavePattern(result: SearchResult) {
+    setSavingPattern(result.guid)
+    try {
+      await addMagazinePattern(magazineId, {
+        pattern: result.title,
+        source: result.indexer || result.source || undefined,
+      })
+      toast.success(t('magazineDetail.patternAdded'))
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.patternAddError'))
+    } finally {
+      setSavingPattern(null)
+    }
+  }
+
+  function isAlreadyPattern(result: SearchResult) {
+    return magazine.patterns?.some((p) => p.pattern === result.title) ?? false
+  }
+
+  async function handleDelete(patternId: number) {
+    try {
+      await deleteMagazinePattern(magazineId, patternId)
+      toast.success(t('magazineDetail.patternDeleted'))
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.patternDeleteError'))
+    }
+  }
+
+  const sources = [...new Set(results.map((r) => r.source || r.indexer).filter(Boolean))]
+  const bySource = sourceFilter
+    ? results.filter((r) => (r.source || r.indexer) === sourceFilter)
+    : results
+  const filtered = dateSort ? sortByDate(bySource, dateSort) : bySource
+  const totalPages = Math.ceil(filtered.length / RESULTS_PER_PAGE)
+  const nextDateSort = dateSort === '' ? 'desc' : dateSort === 'desc' ? 'asc' : ''
+  const dateSortLabel = dateSort === 'desc' ? t('issues.sortDateDesc') : dateSort === 'asc' ? t('issues.sortDateAsc') : t('issues.sortDefault')
+
+  return (
+    <div className="pt-4 space-y-6">
+      {/* Saved patterns table */}
+      <div>
+        <p className="text-sm text-zinc-400 mb-3">
+          {t('magazineDetail.patterns', { count: magazine.patterns?.length ?? 0 })}
+        </p>
+        {magazine.patterns && magazine.patterns.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-transparent">
+                <TableHead className="text-zinc-400">Pattern</TableHead>
+                <TableHead className="text-zinc-400 w-32">{t('magazineDetail.source')}</TableHead>
+                <TableHead className="text-zinc-400 w-32">{t('magazineDetail.uploader')}</TableHead>
+                <TableHead className="text-zinc-400 w-36">{t('history.date')}</TableHead>
+                <TableHead className="text-zinc-400 w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {magazine.patterns.map((p) => (
+                <TableRow key={p.id} className="border-zinc-800">
+                  <TableCell className="text-zinc-100 text-sm">
+                    <span className="line-clamp-2">{p.pattern}</span>
+                  </TableCell>
+                  <TableCell className="text-zinc-400 text-sm">{p.source || '-'}</TableCell>
+                  <TableCell className="text-zinc-400 text-sm">{p.uploader || '-'}</TableCell>
+                  <TableCell className="text-zinc-500 text-sm">
+                    {new Date(p.lastSeenAt).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(p.id)}
+                      className="p-1 text-zinc-500 hover:text-red-400"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="text-sm text-zinc-500 text-center py-4">{t('magazineDetail.noPatterns')}</p>
+        )}
+      </div>
+
+      {/* Search interface to find & save patterns */}
+      <div className="border-t border-zinc-800 pt-4 space-y-4">
+        <p className="text-sm font-medium text-zinc-300">{t('magazineDetail.addPattern')}</p>
+
+        {/* Source tabs */}
+        <div className="flex flex-wrap gap-2">
+          {['indexers', 'internetarchive', 'annasarchive'].map((src) => (
+            <button
+              key={src}
+              type="button"
+              onClick={() => { setSearchSource(src); setResults([]); setPage(1); setSourceFilter(''); setDateSort('') }}
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors whitespace-nowrap ${
+                searchSource === src
+                  ? 'bg-[#7C3AED] text-white'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-zinc-100'
+              }`}
+            >
+              {src === 'indexers' ? t('magazineDetail.tabIndexers') :
+               src === 'internetarchive' ? t('magazineDetail.tabInternetArchive') :
+               t('magazineDetail.tabAnnasArchive')}
+            </button>
+          ))}
+        </div>
+
+        {/* Search input */}
+        <div className="flex gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
+            placeholder={t('magazineDetail.searchPlaceholder')}
+            className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
+          />
+          <Button onClick={handleSearch} disabled={searchingPatterns || !query.trim()}>
+            {searchingPatterns ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+            {t('common.search')}
+          </Button>
+        </div>
+
+        {/* Source filter badges + date sort */}
+        {results.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {sources.length > 1 && (
+              <Badge
+                variant={sourceFilter === '' ? 'default' : 'outline'}
+                className="cursor-pointer text-xs"
+                onClick={() => { setSourceFilter(''); setPage(1) }}
+              >
+                {t('issues.all')} ({results.length})
+              </Badge>
+            )}
+            {sources.map((src) => {
+              const count = results.filter((r) => (r.source || r.indexer) === src).length
+              return (
+                <Badge
+                  key={src}
+                  variant={sourceFilter === src ? 'default' : 'outline'}
+                  className="cursor-pointer text-xs"
+                  onClick={() => { setSourceFilter(src); setPage(1) }}
+                >
+                  {src} ({count})
+                </Badge>
+              )
+            })}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 px-2 text-xs text-zinc-400"
+              onClick={() => { setDateSort(nextDateSort as '' | 'asc' | 'desc'); setPage(1) }}
+            >
+              <ArrowDownUp className="size-3 mr-1" />
+              {dateSortLabel}
+            </Button>
+          </div>
+        )}
+
+        {/* Results */}
+        {searchingPatterns ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="size-6 animate-spin text-zinc-400" />
+            <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
+          </div>
+        ) : filtered.length === 0 && results.length === 0 ? (
+          <p className="text-sm text-zinc-500">{t('magazineDetail.patternSearchHint')}</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-zinc-500 text-center py-8">{t('common.noResults')}</p>
+        ) : (
+          <div className="divide-y divide-zinc-800">
+            {filtered
+              .slice((page - 1) * RESULTS_PER_PAGE, page * RESULTS_PER_PAGE)
+              .map((result) => {
+                const alreadySaved = isAlreadyPattern(result)
+                return (
+                  <div
+                    key={result.guid}
+                    className={`py-3 px-2 hover:bg-zinc-900/50 rounded ${
+                      result.isBlocklisted ? 'opacity-40' : ''
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-zinc-100 break-words">{result.title}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-zinc-500">
+                        {result.source ? (
+                          <span>{result.source}</span>
+                        ) : (
+                          <span>{result.indexer}</span>
+                        )}
+                        {result.size > 0 && (
+                          <>
+                            <span>|</span>
+                            <span>{formatBytes(result.size)}</span>
+                          </>
+                        )}
+                        {result.quality && result.quality !== 'unknown' && (
+                          <>
+                            <span>|</span>
+                            <span>{result.quality}</span>
+                          </>
+                        )}
+                        {result.language && result.language !== 'unknown' && (
+                          <>
+                            <span>|</span>
+                            <span>{result.language}</span>
+                          </>
+                        )}
+                        {result.seeders !== null && result.seeders > 0 && (
+                          <>
+                            <span>|</span>
+                            <span>
+                              {result.seeders} {result.protocol === 'ia' ? 'downloads' : t('issues.seeders')}
+                            </span>
+                          </>
+                        )}
+                        {result.publishDate && (
+                          <>
+                            <span>|</span>
+                            <span>{formatPublishDate(result.publishDate)}</span>
+                          </>
+                        )}
+                        {!result.publishDate && result.age > 0 && (
+                          <>
+                            <span>|</span>
+                            <span>{result.age}d</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={alreadySaved || savingPattern === result.guid}
+                        onClick={() => handleSavePattern(result)}
+                        title={t('magazineDetail.saveAsPattern')}
+                      >
+                        {savingPattern === result.guid ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : alreadySaved ? (
+                          <Check className="size-3.5 text-green-400" />
+                        ) : (
+                          <Plus className="size-3.5" />
+                        )}
+                        {t('magazineDetail.saveAsPattern')}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 pt-3 border-t border-zinc-800">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="text-xs text-zinc-400">
+              {t('issues.page', { page, totalPages })}
+            </span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Rules Tab
+// ---------------------------------------------------------------------------
+
+function MagazineRulesTab({ magazine, magazineId }: { magazine: Magazine; magazineId: number }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [addOpen, setAddOpen] = useState(false)
+  const [ruleType, setRuleType] = useState<string>('exclude')
+  const [rulePattern, setRulePattern] = useState('')
+
+  async function handleAdd() {
+    if (!rulePattern.trim()) return
+    try {
+      await addMagazineRule(magazineId, {
+        ruleType,
+        pattern: rulePattern.trim(),
+      })
+      toast.success(t('magazineDetail.ruleAdded'))
+      setAddOpen(false)
+      setRulePattern('')
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.ruleAddError'))
+    }
+  }
+
+  async function handleDelete(ruleId: number) {
+    try {
+      await deleteMagazineRule(magazineId, ruleId)
+      toast.success(t('magazineDetail.ruleDeleted'))
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.ruleDeleteError'))
+    }
+  }
+
+  return (
+    <div className="pt-4 space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-zinc-400">
+          {magazine.rules?.length ?? 0} {t('magazineDetail.tabRules').toLowerCase()}
+        </p>
+        <Button size="sm" onClick={() => setAddOpen(true)}>
+          <Plus className="size-3.5" />
+          {t('magazineDetail.addRule')}
+        </Button>
+      </div>
+
+      {magazine.rules && magazine.rules.length > 0 ? (
+        <Table>
+          <TableHeader>
+            <TableRow className="border-zinc-800 hover:bg-transparent">
+              <TableHead className="text-zinc-400 w-24">{t('magazineDetail.ruleType')}</TableHead>
+              <TableHead className="text-zinc-400">{t('magazineDetail.rulePattern')}</TableHead>
+              <TableHead className="text-zinc-400 w-12" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {magazine.rules.map((r) => (
+              <TableRow key={r.id} className="border-zinc-800">
+                <TableCell>
+                  <Badge variant={r.ruleType === 'include' ? 'default' : 'destructive'} className={r.ruleType === 'include' ? 'bg-green-700' : ''}>
+                    {t(`magazineDetail.${r.ruleType}`)}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-zinc-100 text-sm font-mono">{r.pattern}</TableCell>
+                <TableCell>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(r.id)}
+                    className="p-1 text-zinc-500 hover:text-red-400"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <p className="text-sm text-zinc-500 text-center py-8">{t('magazineDetail.noRules')}</p>
+      )}
+
+      {/* Add Rule Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800">
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">{t('magazineDetail.addRule')}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">{t('magazineDetail.ruleType')}</label>
+              <Select value={ruleType} onValueChange={setRuleType}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="include">{t('magazineDetail.include')}</SelectItem>
+                  <SelectItem value="exclude">{t('magazineDetail.exclude')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">{t('magazineDetail.rulePattern')}</label>
+              <Input
+                value={rulePattern}
+                onChange={(e) => setRulePattern(e.target.value)}
+                placeholder={t('magazineDetail.rulePatternPlaceholder')}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>{t('common.cancel')}</Button>
+            <Button onClick={handleAdd} disabled={!rulePattern.trim()}>{t('common.add')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
