@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.34](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.33...v0.1.34) (2026-03-10)
+
+
+### Bug Fixes
+
+* re-fetch magazine after creation to avoid lazy-load errors ([890ce18](https://github.com/sharkhunterr/pressarr/-/commit/890ce185131e3b56eaa4d5a881c429c1edbff69c))
+
 ### [0.1.33](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.32...v0.1.33) (2026-03-10)
 
 
