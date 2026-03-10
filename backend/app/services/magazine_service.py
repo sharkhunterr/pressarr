@@ -136,7 +136,8 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
     )
     db.add(magazine)
     await db.flush()
-    return magazine
+    # Re-fetch with eager-loaded relationships to avoid lazy-load errors
+    return await get_magazine(db, magazine.id)  # type: ignore[return-value]
 
 
 async def update_magazine(
