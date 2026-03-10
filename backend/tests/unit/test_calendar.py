@@ -408,10 +408,10 @@ class TestReconcileForecast:
 
         today = date.today()
 
-        # Forecast 20 days ahead — outside the 7-day window
+        # Forecast 40 days ahead — outside the 32-day monthly window
         forecast = Issue(
             magazine_id=mag.id,
-            publication_date=today + timedelta(days=20),
+            publication_date=today + timedelta(days=40),
             year=today.year,
             month=today.month,
             status="upcoming",
