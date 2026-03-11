@@ -1,6 +1,6 @@
 {
   "name": "pressarr",
-  "version": "0.1.40",
+  "version": "0.1.41",
   "description": "Pressarr - Automated magazine collection manager for the *arr ecosystem",
   "scripts": {
     "predev": "npm run kill",
