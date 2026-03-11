@@ -297,6 +297,13 @@ async def scan_magazine_folder(
             if existing.scalars().first():
                 continue
 
+            # Check if file path is already tracked by another issue
+            path_existing = await db.execute(
+                select(IssueFile).where(IssueFile.path == str(file_path))
+            )
+            if path_existing.scalars().first():
+                continue
+
             issue_file = IssueFile(
                 issue_id=issue.id,
                 path=str(file_path),

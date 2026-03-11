@@ -137,6 +137,7 @@ def _migrate_add_columns(connection) -> None:
         ("download_client", "local_path", "VARCHAR(500)"),
         ("history", "data", "TEXT"),
         ("history", "pack_id", "INTEGER REFERENCES pack(id) ON DELETE SET NULL"),
+        ("indexer_config", "indexer_overrides", "TEXT NOT NULL DEFAULT '{}'"),
     ]
     for table, column, col_type in migrations:
         try:
