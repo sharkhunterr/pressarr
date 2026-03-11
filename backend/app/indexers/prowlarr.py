@@ -17,11 +17,16 @@ class ProwlarrClient(IndexerBase):
         self._client = httpx.AsyncClient(timeout=60.0)
 
     async def search(
-        self, query: str, categories: list[int] | None = None
+        self,
+        query: str,
+        categories: list[int] | None = None,
+        indexer_ids: list[int] | None = None,
     ) -> list[RawSearchResult]:
         """Search via Prowlarr /api/v1/search with X-Api-Key header."""
         cats = categories or DEFAULT_CATEGORIES
         params: dict = {"query": query, "type": "search", "categories": cats}
+        if indexer_ids:
+            params["indexerIds"] = indexer_ids
         headers = {"X-Api-Key": self.api_key}
         resp = await self._client.get(
             f"{self.url}/api/v1/search", params=params, headers=headers
@@ -30,11 +35,15 @@ class ProwlarrClient(IndexerBase):
         return [self._parse_result(r) for r in resp.json()]
 
     async def rss_feed(
-        self, categories: list[int] | None = None
+        self,
+        categories: list[int] | None = None,
+        indexer_ids: list[int] | None = None,
     ) -> list[RawSearchResult]:
         """Get RSS feed from Prowlarr."""
         cats = categories or DEFAULT_CATEGORIES
-        params = {"categories": cats, "type": "search", "limit": 100}
+        params: dict = {"categories": cats, "type": "search", "limit": 100}
+        if indexer_ids:
+            params["indexerIds"] = indexer_ids
         headers = {"X-Api-Key": self.api_key}
         resp = await self._client.get(
             f"{self.url}/api/v1/search", params=params, headers=headers

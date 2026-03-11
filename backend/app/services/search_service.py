@@ -1,4 +1,5 @@
 """Search and scoring service."""
+import json
 import logging
 import math
 
@@ -18,6 +19,35 @@ logger = logging.getLogger(__name__)
 
 # Build a dict mapping quality name -> index for scoring purposes.
 _QUALITY_INDEX: dict[str, int] = {q: i for i, q in enumerate(QUALITY_ORDER)}
+
+
+def parse_indexer_overrides(raw: str) -> dict:
+    """Parse indexer_overrides JSON text into a dict."""
+    try:
+        return json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def get_enabled_indexer_ids(overrides: dict) -> list[int] | None:
+    """Return list of enabled Prowlarr indexer IDs from overrides.
+
+    Returns None if no overrides exist (use all indexers).
+    If overrides exist, returns only IDs where enabled=True (or not set).
+    If any indexer is explicitly disabled, we must filter.
+    """
+    if not overrides:
+        return None
+    has_disabled = any(
+        not entry.get("enabled", True) for entry in overrides.values()
+    )
+    if not has_disabled:
+        return None
+    return [
+        int(k)
+        for k, v in overrides.items()
+        if v.get("enabled", True)
+    ]
 
 
 def _serialize_top_results(results: list[SearchResultResource], limit: int = 10) -> list[dict]:
@@ -73,7 +103,9 @@ async def search_issue(
                 api_key=indexer.api_key,
             )
             cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
-            raw_results = await client.search(query, categories=cats)
+            overrides = parse_indexer_overrides(indexer.indexer_overrides)
+            enabled_ids = get_enabled_indexer_ids(overrides)
+            raw_results = await client.search(query, categories=cats, indexer_ids=enabled_ids)
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
@@ -157,7 +189,9 @@ async def search_free(
                 api_key=indexer.api_key,
             )
             cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
-            raw_results = await client.search(query, categories=cats)
+            overrides = parse_indexer_overrides(indexer.indexer_overrides)
+            enabled_ids = get_enabled_indexer_ids(overrides)
+            raw_results = await client.search(query, categories=cats, indexer_ids=enabled_ids)
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"

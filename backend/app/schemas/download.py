@@ -3,6 +3,13 @@
 from app.schemas import CamelModel
 
 
+class IndexerOverrideEntry(CamelModel):
+    """Per-Prowlarr-indexer override settings."""
+
+    enabled: bool = True
+    categories: str | None = None
+
+
 class IndexerConfigResource(CamelModel):
     """Response schema for an indexer config (api_key excluded per NFR-009)."""
 
@@ -12,6 +19,7 @@ class IndexerConfigResource(CamelModel):
     # NOTE: api_key is NEVER exposed in GET responses (NFR-009)
     categories: str
     enabled: bool
+    indexer_overrides: dict[str, IndexerOverrideEntry] = {}
 
 
 class IndexerConfigCreateResource(CamelModel):
@@ -22,6 +30,7 @@ class IndexerConfigCreateResource(CamelModel):
     api_key: str
     categories: str = "7000,7010,7020"
     enabled: bool = True
+    indexer_overrides: dict[str, IndexerOverrideEntry] = {}
 
 
 class IndexerConfigUpdateResource(CamelModel):
@@ -32,6 +41,7 @@ class IndexerConfigUpdateResource(CamelModel):
     api_key: str | None = None
     categories: str | None = None
     enabled: bool | None = None
+    indexer_overrides: dict[str, IndexerOverrideEntry] | None = None
 
 
 class DownloadClientResource(CamelModel):

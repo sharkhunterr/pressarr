@@ -489,9 +489,13 @@
     "testMissingFields": "L'URL et la clé API sont requis pour le test.",
     "testSuccess": "Connexion à l'indexeur réussie !",
     "testFailed": "Échec de la connexion à l'indexeur.",
-    "detectedIndexers": "Indexeurs détectés",
-    "noBookCategories": "Pas de catégories livres",
-    "categoriesHint": "Cliquez sur les catégories pour les activer/désactiver. Seules les catégories livres (7xxx) sont affichées."
+    "tabGeneral": "Général",
+    "tabIndexers": "Indexeurs",
+    "apiKeyKeep": "Laisser vide pour conserver l'existante",
+    "apiKeyKeepHint": "Laisser vide pour conserver la clé API existante.",
+    "testToDetect": "Cliquez sur Tester pour détecter les indexeurs Prowlarr.",
+    "indexersHint": "Activez ou désactivez les indexeurs individuellement. Les indexeurs désactivés ne seront pas utilisés.",
+    "noBookCategories": "Pas de catégories livres"
   },
   "downloadClients": {
     "title": "Clients de téléchargement",

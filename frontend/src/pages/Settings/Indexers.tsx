@@ -10,7 +10,9 @@ import {
   updateIndexer,
   deleteIndexer,
   testIndexer,
+  testIndexerById,
   type IndexerConfig,
+  type IndexerOverrideEntry,
   type ProwlarrIndexerInfo,
 } from '@/api/downloads'
 import { Button } from '@/components/ui/button'
@@ -18,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -32,19 +35,21 @@ interface IndexerFormState {
   apiKey: string
   categories: string
   enabled: boolean
+  overrides: Record<string, IndexerOverrideEntry>
 }
 
 function emptyForm(): IndexerFormState {
-  return { name: '', url: '', apiKey: '', categories: '', enabled: true }
+  return { name: '', url: '', apiKey: '', categories: '', enabled: true, overrides: {} }
 }
 
 function indexerToForm(i: IndexerConfig): IndexerFormState {
   return {
     name: i.name,
     url: i.url,
-    apiKey: i.apiKey ?? '',
+    apiKey: '',
     categories: i.categories,
     enabled: i.enabled,
+    overrides: i.indexerOverrides ?? {},
   }
 }
 
@@ -59,7 +64,6 @@ export default function Indexers() {
   const [form, setForm] = useState<IndexerFormState>(emptyForm())
   const [testing, setTesting] = useState(false)
   const [detectedIndexers, setDetectedIndexers] = useState<ProwlarrIndexerInfo[]>([])
-  const [selectedCategories, setSelectedCategories] = useState<Set<number>>(new Set())
 
   const { data: indexers = [], isLoading } = useQuery({
     queryKey: ['indexers'],
@@ -107,7 +111,6 @@ export default function Indexers() {
     setEditingId(null)
     setForm(emptyForm())
     setDetectedIndexers([])
-    setSelectedCategories(new Set())
     setDialogOpen(true)
   }
 
@@ -115,13 +118,6 @@ export default function Indexers() {
     setEditingId(indexer.id)
     setForm(indexerToForm(indexer))
     setDetectedIndexers([])
-    const existing = new Set(
-      indexer.categories
-        .split(',')
-        .map((c) => parseInt(c.trim(), 10))
-        .filter((n) => !isNaN(n)),
-    )
-    setSelectedCategories(existing)
     setDialogOpen(true)
   }
 
@@ -131,60 +127,69 @@ export default function Indexers() {
   }
 
   function handleSave() {
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: form.name,
       url: form.url,
-      apiKey: form.apiKey,
       categories: form.categories,
       enabled: form.enabled,
+      indexerOverrides: form.overrides,
+    }
+    // Only send apiKey if user entered one (otherwise keep existing)
+    if (form.apiKey.trim()) {
+      payload.apiKey = form.apiKey
     }
     if (editingId !== null) {
-      updateMutation.mutate({ id: editingId, data: payload })
+      updateMutation.mutate({ id: editingId, data: payload as Partial<IndexerConfig> & { apiKey?: string } })
     } else {
-      createMutation.mutate(payload)
+      payload.apiKey = form.apiKey
+      createMutation.mutate(payload as Partial<IndexerConfig> & { apiKey: string })
     }
   }
 
-  function toggleCategory(catId: number) {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(catId)) {
-        next.delete(catId)
-      } else {
-        next.add(catId)
+  function toggleOverrideEnabled(prowlarrId: number) {
+    setForm((f) => {
+      const key = String(prowlarrId)
+      const current = f.overrides[key] ?? { enabled: true }
+      return {
+        ...f,
+        overrides: {
+          ...f.overrides,
+          [key]: { ...current, enabled: !current.enabled },
+        },
       }
-      const sorted = [...next].sort((a, b) => a - b)
-      setForm((f) => ({ ...f, categories: sorted.join(',') }))
-      return next
     })
   }
 
+  function isIndexerEnabled(prowlarrId: number): boolean {
+    const entry = form.overrides[String(prowlarrId)]
+    return entry?.enabled ?? true
+  }
+
   async function handleTest() {
-    if (!form.url || !form.apiKey) {
-      toast.error(t('indexers.testMissingFields'))
-      return
-    }
     setTesting(true)
     try {
-      const result = await testIndexer({ url: form.url, apiKey: form.apiKey })
+      let result
+      if (editingId !== null && !form.apiKey.trim()) {
+        // Use stored API key via test-by-id
+        result = await testIndexerById(editingId)
+      } else if (form.url && form.apiKey) {
+        result = await testIndexer({ url: form.url, apiKey: form.apiKey })
+      } else {
+        toast.error(t('indexers.testMissingFields'))
+        setTesting(false)
+        return
+      }
+
       if (result.isValid) {
         toast.success(t('indexers.testSuccess'))
         if (result.indexers && result.indexers.length > 0) {
           setDetectedIndexers(result.indexers)
-          // Collect all unique categories from all indexers
-          const allCats = new Set<number>()
-          result.indexers.forEach((idx) => idx.categories.forEach((c) => allCats.add(c)))
-          // If user has no categories set yet, pre-select book-related ones (7xxx)
+          // If no categories set yet, pre-select book-related ones
           if (!form.categories.trim()) {
+            const allCats = new Set<number>()
+            result.indexers.forEach((idx) => idx.categories.forEach((c) => allCats.add(c)))
             const bookCats = [...allCats].filter((c) => c >= 7000 && c < 8000).sort((a, b) => a - b)
-            setSelectedCategories(new Set(bookCats))
             setForm((f) => ({ ...f, categories: bookCats.join(',') }))
-          } else {
-            // Keep existing selection
-            const existing = new Set(
-              form.categories.split(',').map((c) => parseInt(c.trim(), 10)).filter((n) => !isNaN(n)),
-            )
-            setSelectedCategories(existing)
           }
         }
       } else {
@@ -265,106 +270,139 @@ export default function Indexers() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('indexers.name')}
-              </label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder={t('indexers.namePlaceholder')}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
-            </div>
+          <Tabs defaultValue="general">
+            <TabsList className="w-full">
+              <TabsTrigger value="general">{t('indexers.tabGeneral')}</TabsTrigger>
+              <TabsTrigger value="indexers">{t('indexers.tabIndexers')}</TabsTrigger>
+            </TabsList>
 
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('indexers.url')}
-              </label>
-              <Input
-                value={form.url}
-                onChange={(e) => setForm({ ...form, url: e.target.value })}
-                placeholder="https://api.nzbindex.com"
-                className="bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('indexers.apiKey')}
-              </label>
-              <Input
-                value={form.apiKey}
-                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                type="password"
-                placeholder={t('indexers.apiKeyPlaceholder')}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('indexers.categories')}
-              </label>
-              <Input
-                value={form.categories}
-                onChange={(e) => {
-                  setForm({ ...form, categories: e.target.value })
-                  const parsed = new Set(
-                    e.target.value.split(',').map((c) => parseInt(c.trim(), 10)).filter((n) => !isNaN(n)),
-                  )
-                  setSelectedCategories(parsed)
-                }}
-                placeholder={t('indexers.categoriesPlaceholder')}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
-            </div>
-
-            {/* Detected indexers with categories after test */}
-            {detectedIndexers.length > 0 && (
-              <div className="grid gap-2">
-                <label className="text-sm font-medium text-zinc-300">
-                  {t('indexers.detectedIndexers')}
-                </label>
-                <div className="max-h-48 overflow-y-auto space-y-2 rounded border border-zinc-800 p-2 bg-zinc-900/50">
-                  {detectedIndexers.map((idx) => (
-                    <div key={idx.id} className="space-y-1">
-                      <p className="text-xs font-medium text-zinc-300">{idx.name}</p>
-                      <div className="flex flex-wrap gap-1">
-                        {idx.categories
-                          .filter((c) => c >= 7000 && c < 8000)
-                          .map((cat) => (
-                            <Badge
-                              key={cat}
-                              variant={selectedCategories.has(cat) ? 'default' : 'outline'}
-                              className="cursor-pointer text-xs"
-                              onClick={() => toggleCategory(cat)}
-                            >
-                              {cat}
-                            </Badge>
-                          ))}
-                        {idx.categories.filter((c) => c >= 7000 && c < 8000).length === 0 && (
-                          <span className="text-xs text-zinc-500">{t('indexers.noBookCategories')}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+            <TabsContent value="general">
+              <div className="grid gap-4 py-2">
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('indexers.name')}
+                  </label>
+                  <Input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder={t('indexers.namePlaceholder')}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
                 </div>
-                <p className="text-xs text-zinc-500">{t('indexers.categoriesHint')}</p>
-              </div>
-            )}
 
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-zinc-300">
-                {t('indexers.enabled')}
-              </label>
-              <Switch
-                checked={form.enabled}
-                onCheckedChange={(checked) => setForm({ ...form, enabled: checked === true })}
-              />
-            </div>
-          </div>
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('indexers.url')}
+                  </label>
+                  <Input
+                    value={form.url}
+                    onChange={(e) => setForm({ ...form, url: e.target.value })}
+                    placeholder="http://prowlarr:9696"
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('indexers.apiKey')}
+                  </label>
+                  <Input
+                    value={form.apiKey}
+                    onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                    type="password"
+                    placeholder={editingId !== null ? t('indexers.apiKeyKeep') : t('indexers.apiKeyPlaceholder')}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                  {editingId !== null && (
+                    <p className="text-xs text-zinc-500">{t('indexers.apiKeyKeepHint')}</p>
+                  )}
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('indexers.categories')}
+                  </label>
+                  <Input
+                    value={form.categories}
+                    onChange={(e) => setForm({ ...form, categories: e.target.value })}
+                    placeholder={t('indexers.categoriesPlaceholder')}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-zinc-300">
+                    {t('indexers.enabled')}
+                  </label>
+                  <Switch
+                    checked={form.enabled}
+                    onCheckedChange={(checked) => setForm({ ...form, enabled: checked === true })}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="indexers">
+              <div className="py-2 space-y-3">
+                {detectedIndexers.length === 0 ? (
+                  <div className="text-center py-6 space-y-3">
+                    <p className="text-sm text-zinc-400">{t('indexers.testToDetect')}</p>
+                    <Button
+                      variant="outline"
+                      onClick={handleTest}
+                      disabled={testing}
+                    >
+                      {testing ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <FlaskConical className="size-4" />
+                      )}
+                      {t('common.test')}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-zinc-500">{t('indexers.indexersHint')}</p>
+                    <div className="max-h-64 overflow-y-auto space-y-1">
+                      {detectedIndexers.map((idx) => {
+                        const enabled = isIndexerEnabled(idx.id)
+                        const bookCats = idx.categories.filter((c) => c >= 7000 && c < 8000)
+                        return (
+                          <div
+                            key={idx.id}
+                            className={`flex items-center justify-between rounded px-3 py-2 border ${
+                              enabled
+                                ? 'border-zinc-800 bg-zinc-900/50'
+                                : 'border-zinc-800/50 bg-zinc-900/20 opacity-60'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-zinc-200 truncate">{idx.name}</p>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {bookCats.length > 0 ? (
+                                  bookCats.map((cat) => (
+                                    <Badge key={cat} variant="outline" className="text-xs">
+                                      {cat}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-zinc-500">{t('indexers.noBookCategories')}</span>
+                                )}
+                              </div>
+                            </div>
+                            <Switch
+                              checked={enabled}
+                              onCheckedChange={() => toggleOverrideEnabled(idx.id)}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter>
             <Button
@@ -388,7 +426,7 @@ export default function Indexers() {
               disabled={
                 !form.name.trim() ||
                 !form.url.trim() ||
-                !form.apiKey.trim() ||
+                (editingId === null && !form.apiKey.trim()) ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }

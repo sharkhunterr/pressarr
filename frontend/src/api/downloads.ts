@@ -1,5 +1,10 @@
 import { apiFetch } from './client'
 
+export interface IndexerOverrideEntry {
+  enabled: boolean
+  categories?: string | null
+}
+
 export interface IndexerConfig {
   id: number
   name: string
@@ -7,6 +12,7 @@ export interface IndexerConfig {
   apiKey?: string
   categories: string
   enabled: boolean
+  indexerOverrides: Record<string, IndexerOverrideEntry>
 }
 
 export interface DownloadClient {
@@ -56,6 +62,9 @@ export const deleteIndexer = (id: number) =>
 
 export const testIndexer = (data: { url: string; apiKey: string }) =>
   apiFetch<TestResult>('/indexer/test', { method: 'POST', body: JSON.stringify(data) })
+
+export const testIndexerById = (id: number) =>
+  apiFetch<TestResult>(`/indexer/${id}/test`, { method: 'POST' })
 
 // Download client CRUD + test
 export const getClients = () => apiFetch<DownloadClient[]>('/downloadclient')
