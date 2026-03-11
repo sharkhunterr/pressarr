@@ -51,6 +51,8 @@ async def _handle_refresh_magazine(magazine_id: int) -> str | None:
             parts.append(f"{stats['scanned']} files found")
         if stats.get("detected"):
             parts.append(f"{stats['detected']} issues auto-detected")
+        if stats.get("reassigned"):
+            parts.append(f"{stats['reassigned']} files reassigned")
         if stats.get("missing_cleared"):
             parts.append(f"{stats['missing_cleared']} missing files cleared")
         return "; ".join(parts) if parts else "Refresh complete"

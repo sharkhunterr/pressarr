@@ -263,7 +263,7 @@ async def scan_magazine_folder(
         try:
             parsed = parse_magazine_filename(file_path.name)
 
-            # Try to match by number
+            # Try to match by number first, then by date
             issue = None
             if parsed.number is not None:
                 result = await db.execute(
@@ -272,6 +272,18 @@ async def scan_magazine_folder(
                         Issue.number == parsed.number,
                     )
                 )
+                issue = result.scalars().first()
+
+            # Fallback: match by date (daily/monthly magazines)
+            if not issue and parsed.year is not None and parsed.month is not None:
+                conditions = [
+                    Issue.magazine_id == magazine.id,
+                    Issue.year == parsed.year,
+                    Issue.month == parsed.month,
+                ]
+                if parsed.day is not None:
+                    conditions.append(Issue.day == parsed.day)
+                result = await db.execute(select(Issue).where(*conditions))
                 issue = result.scalars().first()
 
             if not issue:

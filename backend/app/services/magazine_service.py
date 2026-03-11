@@ -371,7 +371,13 @@ async def refresh_magazine_full(db: AsyncSession, magazine_id: int) -> dict:
     from app.parser.magazine_parser import parse_magazine_filename
     from app.services.issue_service import scan_magazine_folder
 
-    stats: dict = {"metadata": None, "scanned": 0, "detected": 0, "missing_cleared": 0}
+    stats: dict = {
+        "metadata": None,
+        "scanned": 0,
+        "detected": 0,
+        "missing_cleared": 0,
+        "reassigned": 0,
+    }
 
     # Load magazine with root_folder and issues+files
     stmt = (
@@ -394,6 +400,37 @@ async def refresh_magazine_full(db: AsyncSession, magazine_id: int) -> dict:
 
     # 1. Refresh metadata
     stats["metadata"] = await refresh_metadata(db, magazine_id)
+
+    # 1.5. Detect file/issue mismatches (e.g. file renamed to a different date)
+    for issue in magazine.issues:
+        if not issue.file:
+            continue
+        parsed = parse_magazine_filename(Path(issue.file.path).name)
+        mismatched = False
+        # Check by number
+        if parsed.number is not None and issue.number is not None:
+            if parsed.number != issue.number:
+                mismatched = True
+        # Check by full date (daily papers like Le Monde)
+        elif parsed.day is not None and issue.day is not None:
+            if (
+                parsed.year != issue.year
+                or parsed.month != issue.month
+                or parsed.day != issue.day
+            ):
+                mismatched = True
+        # Check by year+month (monthly magazines)
+        elif parsed.month is not None and issue.month is not None:
+            if parsed.year != issue.year or parsed.month != issue.month:
+                mismatched = True
+
+        if mismatched:
+            await db.delete(issue.file)
+            issue.status = "wanted" if issue.monitored else "missing"
+            stats["reassigned"] += 1
+
+    if stats["reassigned"]:
+        await db.flush()
 
     # 2. Scan disk for new files
     scan_stats = await scan_magazine_folder(db, magazine, root_folder.path)
