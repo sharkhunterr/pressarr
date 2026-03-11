@@ -41,6 +41,7 @@ def _to_resource(indexer: IndexerConfig) -> IndexerConfigResource:
         id=indexer.id,
         name=indexer.name,
         url=indexer.url,
+        api_key=indexer.api_key,
         categories=indexer.categories,
         enabled=indexer.enabled,
         indexer_overrides=_parse_overrides(indexer.indexer_overrides),

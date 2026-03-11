@@ -11,12 +11,12 @@ class IndexerOverrideEntry(CamelModel):
 
 
 class IndexerConfigResource(CamelModel):
-    """Response schema for an indexer config (api_key excluded per NFR-009)."""
+    """Response schema for an indexer config."""
 
     id: int
     name: str
     url: str
-    # NOTE: api_key is NEVER exposed in GET responses (NFR-009)
+    api_key: str
     categories: str
     enabled: bool
     indexer_overrides: dict[str, IndexerOverrideEntry] = {}

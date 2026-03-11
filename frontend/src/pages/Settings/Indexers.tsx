@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Trash2, FlaskConical, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, FlaskConical, Loader2, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -10,7 +10,6 @@ import {
   updateIndexer,
   deleteIndexer,
   testIndexer,
-  testIndexerById,
   type IndexerConfig,
   type IndexerOverrideEntry,
   type ProwlarrIndexerInfo,
@@ -46,7 +45,7 @@ function indexerToForm(i: IndexerConfig): IndexerFormState {
   return {
     name: i.name,
     url: i.url,
-    apiKey: '',
+    apiKey: i.apiKey ?? '',
     categories: i.categories,
     enabled: i.enabled,
     overrides: i.indexerOverrides ?? {},
@@ -63,6 +62,7 @@ export default function Indexers() {
   const [deletingIndexer, setDeletingIndexer] = useState<IndexerConfig | null>(null)
   const [form, setForm] = useState<IndexerFormState>(emptyForm())
   const [testing, setTesting] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
   const [detectedIndexers, setDetectedIndexers] = useState<ProwlarrIndexerInfo[]>([])
 
   const { data: indexers = [], isLoading } = useQuery({
@@ -111,6 +111,7 @@ export default function Indexers() {
     setEditingId(null)
     setForm(emptyForm())
     setDetectedIndexers([])
+    setShowApiKey(false)
     setDialogOpen(true)
   }
 
@@ -118,6 +119,7 @@ export default function Indexers() {
     setEditingId(indexer.id)
     setForm(indexerToForm(indexer))
     setDetectedIndexers([])
+    setShowApiKey(false)
     setDialogOpen(true)
   }
 
@@ -127,22 +129,18 @@ export default function Indexers() {
   }
 
   function handleSave() {
-    const payload: Record<string, unknown> = {
+    const payload = {
       name: form.name,
       url: form.url,
+      apiKey: form.apiKey,
       categories: form.categories,
       enabled: form.enabled,
       indexerOverrides: form.overrides,
     }
-    // Only send apiKey if user entered one (otherwise keep existing)
-    if (form.apiKey.trim()) {
-      payload.apiKey = form.apiKey
-    }
     if (editingId !== null) {
-      updateMutation.mutate({ id: editingId, data: payload as Partial<IndexerConfig> & { apiKey?: string } })
+      updateMutation.mutate({ id: editingId, data: payload })
     } else {
-      payload.apiKey = form.apiKey
-      createMutation.mutate(payload as Partial<IndexerConfig> & { apiKey: string })
+      createMutation.mutate(payload)
     }
   }
 
@@ -166,19 +164,13 @@ export default function Indexers() {
   }
 
   async function handleTest() {
+    if (!form.url || !form.apiKey) {
+      toast.error(t('indexers.testMissingFields'))
+      return
+    }
     setTesting(true)
     try {
-      let result
-      if (editingId !== null && !form.apiKey.trim()) {
-        // Use stored API key via test-by-id
-        result = await testIndexerById(editingId)
-      } else if (form.url && form.apiKey) {
-        result = await testIndexer({ url: form.url, apiKey: form.apiKey })
-      } else {
-        toast.error(t('indexers.testMissingFields'))
-        setTesting(false)
-        return
-      }
+      const result = await testIndexer({ url: form.url, apiKey: form.apiKey })
 
       if (result.isValid) {
         toast.success(t('indexers.testSuccess'))
@@ -306,16 +298,22 @@ export default function Indexers() {
                   <label className="text-sm font-medium text-zinc-300">
                     {t('indexers.apiKey')}
                   </label>
-                  <Input
-                    value={form.apiKey}
-                    onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                    type="password"
-                    placeholder={editingId !== null ? t('indexers.apiKeyKeep') : t('indexers.apiKeyPlaceholder')}
-                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                  />
-                  {editingId !== null && (
-                    <p className="text-xs text-zinc-500">{t('indexers.apiKeyKeepHint')}</p>
-                  )}
+                  <div className="relative">
+                    <Input
+                      value={form.apiKey}
+                      onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                      type={showApiKey ? 'text' : 'password'}
+                      placeholder={t('indexers.apiKeyPlaceholder')}
+                      className="bg-zinc-900 border-zinc-700 text-zinc-100 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                    >
+                      {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid gap-1.5">
@@ -426,7 +424,7 @@ export default function Indexers() {
               disabled={
                 !form.name.trim() ||
                 !form.url.trim() ||
-                (editingId === null && !form.apiKey.trim()) ||
+                !form.apiKey.trim() ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }
