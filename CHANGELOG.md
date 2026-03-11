@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.38](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.37...v0.1.38) (2026-03-11)
+
+
+### Features
+
+* issue file rename on disk and enhanced magazine refresh ([7f590f7](https://github.com/sharkhunterr/pressarr/-/commit/7f590f7f1cb2c7b988b9cb798bfc83c25fa3908d))
+
 ### [0.1.37](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.36...v0.1.37) (2026-03-11)
 
 
