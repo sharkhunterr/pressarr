@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.39](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.38...v0.1.39) (2026-03-11)
+
+
+### Bug Fixes
+
+* detect file/issue mismatches and match by date in magazine refresh ([490130c](https://github.com/sharkhunterr/pressarr/-/commit/490130c20c3c9aa26313d4c53df1ec2aa14bcaf7))
+
 ### [0.1.38](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.37...v0.1.38) (2026-03-11)
 
 
