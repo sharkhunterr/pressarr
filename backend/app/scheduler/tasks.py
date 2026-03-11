@@ -51,13 +51,15 @@ async def pack_rss_sync():
 
                 for indexer in indexers:
                     try:
-                        from app.services.search_service import get_enabled_indexer_ids, parse_indexer_overrides
+                        from app.services.search_service import get_search_groups, parse_indexer_overrides
 
                         client = ProwlarrClient(url=indexer.url, api_key=indexer.api_key)
-                        cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+                        global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
                         overrides = parse_indexer_overrides(indexer.indexer_overrides)
-                        enabled_ids = get_enabled_indexer_ids(overrides)
-                        results = await client.search(pack.search_query, categories=cats, indexer_ids=enabled_ids)
+                        search_groups = get_search_groups(overrides, global_cats)
+                        results = []
+                        for cats, indexer_ids in search_groups:
+                            results.extend(await client.search(pack.search_query, categories=cats, indexer_ids=indexer_ids))
 
                         for item in results:
                             # Check blocklist
@@ -181,15 +183,17 @@ async def rss_sync():
 
             for indexer in indexers:
                 try:
-                    from app.services.search_service import get_enabled_indexer_ids, parse_indexer_overrides
+                    from app.services.search_service import get_search_groups, parse_indexer_overrides
 
                     client = ProwlarrClient(
                         url=indexer.url, api_key=indexer.api_key
                     )
-                    cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+                    global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
                     overrides = parse_indexer_overrides(indexer.indexer_overrides)
-                    enabled_ids = get_enabled_indexer_ids(overrides)
-                    rss_items = await client.rss_feed(categories=cats, indexer_ids=enabled_ids)
+                    search_groups = get_search_groups(overrides, global_cats)
+                    rss_items = []
+                    for cats, indexer_ids in search_groups:
+                        rss_items.extend(await client.rss_feed(categories=cats, indexer_ids=indexer_ids))
                     rss_total_items += len(rss_items)
                     rss_indexer_names.append(indexer.name)
 

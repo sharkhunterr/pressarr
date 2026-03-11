@@ -163,6 +163,56 @@ export default function Indexers() {
     return entry?.enabled ?? true
   }
 
+  function getSelectedCategories(prowlarrId: number, availableCats: number[]): Set<number> {
+    const entry = form.overrides[String(prowlarrId)]
+    if (entry?.categories) {
+      return new Set(entry.categories.split(',').map(Number).filter(Boolean))
+    }
+    // Default: global categories that this indexer supports
+    const globalCats = new Set(form.categories.split(',').map(Number).filter(Boolean))
+    return new Set(availableCats.filter((c) => globalCats.has(c)))
+  }
+
+  function toggleOverrideCategory(prowlarrId: number, category: number) {
+    setForm((f) => {
+      const key = String(prowlarrId)
+      const current = f.overrides[key] ?? { enabled: true }
+
+      const idx = detectedIndexers.find((i) => i.id === prowlarrId)
+      const availableCats = idx ? idx.categories.filter((c) => c >= 7000 && c < 8000) : []
+
+      // Get current selected categories
+      let selectedCats: Set<number>
+      if (current.categories) {
+        selectedCats = new Set(current.categories.split(',').map(Number).filter(Boolean))
+      } else {
+        // Initialize from global categories
+        const globalCats = new Set(f.categories.split(',').map(Number).filter(Boolean))
+        selectedCats = new Set(availableCats.filter((c) => globalCats.has(c)))
+      }
+
+      // Toggle
+      if (selectedCats.has(category)) {
+        selectedCats.delete(category)
+      } else {
+        selectedCats.add(category)
+      }
+
+      const newCatsStr =
+        selectedCats.size > 0
+          ? [...selectedCats].sort((a, b) => a - b).join(',')
+          : null
+
+      return {
+        ...f,
+        overrides: {
+          ...f.overrides,
+          [key]: { ...current, categories: newCatsStr },
+        },
+      }
+    })
+  }
+
   async function handleTest() {
     if (!form.url || !form.apiKey) {
       toast.error(t('indexers.testMissingFields'))
@@ -176,13 +226,24 @@ export default function Indexers() {
         toast.success(t('indexers.testSuccess'))
         if (result.indexers && result.indexers.length > 0) {
           setDetectedIndexers(result.indexers)
-          // If no categories set yet, pre-select book-related ones
-          if (!form.categories.trim()) {
-            const allCats = new Set<number>()
-            result.indexers.forEach((idx) => idx.categories.forEach((c) => allCats.add(c)))
-            const bookCats = [...allCats].filter((c) => c >= 7000 && c < 8000).sort((a, b) => a - b)
-            setForm((f) => ({ ...f, categories: bookCats.join(',') }))
-          }
+          setForm((f) => {
+            // Ensure all detected indexers have override entries
+            const newOverrides = { ...f.overrides }
+            for (const idx of result.indexers!) {
+              if (!newOverrides[String(idx.id)]) {
+                newOverrides[String(idx.id)] = { enabled: true }
+              }
+            }
+            // If no categories set yet, pre-select book-related ones
+            let categories = f.categories
+            if (!categories.trim()) {
+              const allCats = new Set<number>()
+              result.indexers!.forEach((idx) => idx.categories.forEach((c) => allCats.add(c)))
+              const bookCats = [...allCats].filter((c) => c >= 7000 && c < 8000).sort((a, b) => a - b)
+              categories = bookCats.join(',')
+            }
+            return { ...f, categories, overrides: newOverrides }
+          })
         }
       } else {
         toast.error(result.message || t('indexers.testFailed'))
@@ -361,37 +422,54 @@ export default function Indexers() {
                 ) : (
                   <>
                     <p className="text-xs text-zinc-500">{t('indexers.indexersHint')}</p>
-                    <div className="max-h-64 overflow-y-auto space-y-1">
+                    <div className="max-h-72 overflow-y-auto space-y-1">
                       {detectedIndexers.map((idx) => {
                         const enabled = isIndexerEnabled(idx.id)
                         const bookCats = idx.categories.filter((c) => c >= 7000 && c < 8000)
+                        const selectedCats = getSelectedCategories(idx.id, bookCats)
+                        const hasOverride = !!form.overrides[String(idx.id)]?.categories
                         return (
                           <div
                             key={idx.id}
-                            className={`flex items-center justify-between rounded px-3 py-2 border ${
+                            className={`rounded px-3 py-2 border ${
                               enabled
                                 ? 'border-zinc-800 bg-zinc-900/50'
                                 : 'border-zinc-800/50 bg-zinc-900/20 opacity-60'
                             }`}
                           >
-                            <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
                               <p className="text-sm font-medium text-zinc-200 truncate">{idx.name}</p>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {bookCats.length > 0 ? (
-                                  bookCats.map((cat) => (
-                                    <Badge key={cat} variant="outline" className="text-xs">
+                              <Switch
+                                checked={enabled}
+                                onCheckedChange={() => toggleOverrideEnabled(idx.id)}
+                              />
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {bookCats.length > 0 ? (
+                                bookCats.map((cat) => {
+                                  const selected = selectedCats.has(cat)
+                                  return (
+                                    <Badge
+                                      key={cat}
+                                      variant={selected ? 'default' : 'outline'}
+                                      className={`text-xs cursor-pointer select-none transition-opacity ${
+                                        !selected ? 'opacity-40' : ''
+                                      } ${!enabled ? 'pointer-events-none' : ''}`}
+                                      onClick={() => enabled && toggleOverrideCategory(idx.id, cat)}
+                                    >
                                       {cat}
                                     </Badge>
-                                  ))
-                                ) : (
-                                  <span className="text-xs text-zinc-500">{t('indexers.noBookCategories')}</span>
-                                )}
-                              </div>
+                                  )
+                                })
+                              ) : (
+                                <span className="text-xs text-zinc-500">{t('indexers.noBookCategories')}</span>
+                              )}
+                              {hasOverride && (
+                                <span className="text-[10px] text-zinc-600 ml-1 self-center">
+                                  {t('indexers.customCategories')}
+                                </span>
+                              )}
                             </div>
-                            <Switch
-                              checked={enabled}
-                              onCheckedChange={() => toggleOverrideEnabled(idx.id)}
-                            />
                           </div>
                         )
                       })}

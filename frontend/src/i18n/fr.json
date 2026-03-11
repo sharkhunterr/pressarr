@@ -494,8 +494,9 @@
     "apiKeyKeep": "Laisser vide pour conserver l'existante",
     "apiKeyKeepHint": "Laisser vide pour conserver la clé API existante.",
     "testToDetect": "Cliquez sur Tester pour détecter les indexeurs Prowlarr.",
-    "indexersHint": "Activez ou désactivez les indexeurs individuellement. Les indexeurs désactivés ne seront pas utilisés.",
-    "noBookCategories": "Pas de catégories livres"
+    "indexersHint": "Activez/désactivez les indexeurs et cliquez sur les badges de catégories pour choisir lesquelles utiliser par indexeur.",
+    "noBookCategories": "Pas de catégories livres",
+    "customCategories": "personnalisé"
   },
   "downloadClients": {
     "title": "Clients de téléchargement",

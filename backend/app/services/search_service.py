@@ -43,11 +43,67 @@ def get_enabled_indexer_ids(overrides: dict) -> list[int] | None:
     )
     if not has_disabled:
         return None
-    return [
+    enabled = [
         int(k)
         for k, v in overrides.items()
         if v.get("enabled", True)
     ]
+    return enabled if enabled else None
+
+
+def get_search_groups(
+    overrides: dict, global_cats: list[int],
+) -> list[tuple[list[int], list[int] | None]]:
+    """Group enabled indexers by their effective categories.
+
+    Returns list of (categories, indexer_ids) for Prowlarr API calls.
+    indexer_ids is None when no filtering is needed.
+    """
+    if not overrides:
+        return [(global_cats, None)]
+
+    has_disabled = any(
+        not entry.get("enabled", True) for entry in overrides.values()
+    )
+    has_cat_overrides = any(
+        entry.get("categories") for entry in overrides.values()
+        if entry.get("enabled", True)
+    )
+
+    # Simple case: no category overrides — just filter by enabled IDs
+    if not has_cat_overrides:
+        return [(global_cats, get_enabled_indexer_ids(overrides))]
+
+    # Group enabled indexers by their effective categories
+    global_key = tuple(sorted(global_cats))
+    groups: dict[tuple[int, ...], list[int]] = {}
+
+    for pid_str, entry in overrides.items():
+        if not entry.get("enabled", True):
+            continue
+        cats_str = entry.get("categories")
+        if cats_str:
+            cats = tuple(sorted(
+                int(c) for c in cats_str.split(",") if c.strip().isdigit()
+            ))
+        else:
+            cats = global_key
+        if cats:
+            groups.setdefault(cats, []).append(int(pid_str))
+
+    if not groups:
+        return [(global_cats, None)]
+
+    # If all enabled indexers use global cats and none are disabled,
+    # we can skip filtering
+    if (
+        not has_disabled
+        and len(groups) == 1
+        and global_key in groups
+    ):
+        return [(global_cats, None)]
+
+    return [(list(cats), ids) for cats, ids in groups.items()]
 
 
 def _serialize_top_results(results: list[SearchResultResource], limit: int = 10) -> list[dict]:
@@ -102,10 +158,12 @@ async def search_issue(
                 url=indexer.url,
                 api_key=indexer.api_key,
             )
-            cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+            global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
             overrides = parse_indexer_overrides(indexer.indexer_overrides)
-            enabled_ids = get_enabled_indexer_ids(overrides)
-            raw_results = await client.search(query, categories=cats, indexer_ids=enabled_ids)
+            search_groups = get_search_groups(overrides, global_cats)
+            raw_results = []
+            for cats, indexer_ids in search_groups:
+                raw_results.extend(await client.search(query, categories=cats, indexer_ids=indexer_ids))
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
@@ -188,10 +246,12 @@ async def search_free(
                 url=indexer.url,
                 api_key=indexer.api_key,
             )
-            cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+            global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
             overrides = parse_indexer_overrides(indexer.indexer_overrides)
-            enabled_ids = get_enabled_indexer_ids(overrides)
-            raw_results = await client.search(query, categories=cats, indexer_ids=enabled_ids)
+            search_groups = get_search_groups(overrides, global_cats)
+            raw_results = []
+            for cats, indexer_ids in search_groups:
+                raw_results.extend(await client.search(query, categories=cats, indexer_ids=indexer_ids))
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"

@@ -494,8 +494,9 @@
     "apiKeyKeep": "Leave blank to keep existing",
     "apiKeyKeepHint": "Leave blank to keep the existing API key.",
     "testToDetect": "Click Test to detect Prowlarr indexers.",
-    "indexersHint": "Enable or disable individual indexers. Disabled indexers will not be used for searches or RSS.",
-    "noBookCategories": "No book categories"
+    "indexersHint": "Toggle indexers on/off and click category badges to select which categories to use per indexer.",
+    "noBookCategories": "No book categories",
+    "customCategories": "custom"
   },
   "downloadClients": {
     "title": "Download Clients",

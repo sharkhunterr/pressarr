@@ -25,7 +25,7 @@ class ProwlarrClient(IndexerBase):
         """Search via Prowlarr /api/v1/search with X-Api-Key header."""
         cats = categories or DEFAULT_CATEGORIES
         params: dict = {"query": query, "type": "search", "categories": cats}
-        if indexer_ids:
+        if indexer_ids is not None:
             params["indexerIds"] = indexer_ids
         headers = {"X-Api-Key": self.api_key}
         resp = await self._client.get(
@@ -42,7 +42,7 @@ class ProwlarrClient(IndexerBase):
         """Get RSS feed from Prowlarr."""
         cats = categories or DEFAULT_CATEGORIES
         params: dict = {"categories": cats, "type": "search", "limit": 100}
-        if indexer_ids:
+        if indexer_ids is not None:
             params["indexerIds"] = indexer_ids
         headers = {"X-Api-Key": self.api_key}
         resp = await self._client.get(
