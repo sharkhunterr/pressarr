@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.40](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.39...v0.1.40) (2026-03-11)
+
+
+### Bug Fixes
+
+* add indexer_overrides migration and prevent duplicate file paths in scan ([8f5f34d](https://github.com/sharkhunterr/pressarr/-/commit/8f5f34d7ff313412a022a0f10bafb6b9ddbf0124))
+* issue viewer modal not fitting viewport on desktop ([6e5391a](https://github.com/sharkhunterr/pressarr/-/commit/6e5391ab38fbe05fa00d25015e5205148dd64428))
+
 ### [0.1.39](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.38...v0.1.39) (2026-03-11)
 
 
