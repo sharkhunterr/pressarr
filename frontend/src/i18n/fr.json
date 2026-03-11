@@ -262,6 +262,7 @@
     "editReleaseGroup": "Groupe de release",
     "editLanguage": "Langue",
     "sourceFilename": "Nom du fichier source",
+    "editFilename": "Nom du fichier (renommer sur disque)",
     "issueUpdated": "Numéro mis à jour avec succès.",
     "issueUpdateError": "Échec de la mise à jour du numéro.",
     "issueNumberConflict": "Un numéro avec ce numéro existe déjà.",

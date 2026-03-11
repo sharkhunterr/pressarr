@@ -365,6 +365,78 @@ async def refresh_metadata(db: AsyncSession, magazine_id: int) -> str | None:
     return f"Metadata refreshed for '{magazine.title}'"
 
 
+async def refresh_magazine_full(db: AsyncSession, magazine_id: int) -> dict:
+    """Full refresh: metadata + disk scan + auto-detect numbers/dates + mark missing."""
+    from app.models.root_folder import RootFolder
+    from app.parser.magazine_parser import parse_magazine_filename
+    from app.services.issue_service import scan_magazine_folder
+
+    stats: dict = {"metadata": None, "scanned": 0, "detected": 0, "missing_cleared": 0}
+
+    # Load magazine with root_folder and issues+files
+    stmt = (
+        select(Magazine)
+        .where(Magazine.id == magazine_id)
+        .options(
+            selectinload(Magazine.issues).selectinload(Issue.file),
+            selectinload(Magazine.patterns),
+            selectinload(Magazine.rules),
+        )
+    )
+    result = await db.execute(stmt)
+    magazine = result.scalar_one_or_none()
+    if magazine is None:
+        return stats
+
+    root_folder = await db.get(RootFolder, magazine.root_folder_id)
+    if root_folder is None:
+        return stats
+
+    # 1. Refresh metadata
+    stats["metadata"] = await refresh_metadata(db, magazine_id)
+
+    # 2. Scan disk for new files
+    scan_stats = await scan_magazine_folder(db, magazine, root_folder.path)
+    stats["scanned"] = scan_stats["matched"]
+
+    # Re-load issues after scan to include newly created ones
+    await db.refresh(magazine, attribute_names=["issues"])
+    for issue in magazine.issues:
+        if issue.file is None:
+            await db.refresh(issue, attribute_names=["file"])
+
+    # 3. Auto-detect numbers/dates from filenames
+    for issue in magazine.issues:
+        if not issue.file:
+            continue
+        updated = False
+        parsed = parse_magazine_filename(issue.file.original_filename)
+        if parsed.number is not None and issue.number is None:
+            issue.number = parsed.number
+            updated = True
+        if parsed.year is not None and issue.year is None:
+            issue.year = parsed.year
+            updated = True
+        if parsed.month is not None and issue.month is None:
+            issue.month = parsed.month
+            updated = True
+        if parsed.day is not None and issue.day is None:
+            issue.day = parsed.day
+            updated = True
+        if updated:
+            stats["detected"] += 1
+
+    # 4. Mark missing files
+    for issue in magazine.issues:
+        if issue.file and not Path(issue.file.path).exists():
+            await db.delete(issue.file)
+            issue.status = "wanted" if issue.monitored else "missing"
+            stats["missing_cleared"] += 1
+
+    await db.flush()
+    return stats
+
+
 # ---------------------------------------------------------------------------
 # Pattern management
 # ---------------------------------------------------------------------------

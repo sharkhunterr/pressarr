@@ -101,8 +101,42 @@ async def update_issue(
             if field in data and data[field] is not None:
                 setattr(issue.file, field, data[field])
 
+        # Rename file on disk if original_filename changed
+        new_filename = data.get("original_filename")
+        if new_filename and new_filename != Path(issue.file.path).name:
+            _rename_issue_file(issue.file, new_filename)
+
     await db.flush()
     return issue
+
+
+SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".cbr", ".cbz"}
+
+
+def _rename_issue_file(issue_file: "IssueFile", new_filename: str) -> None:
+    """Rename a physical file on disk and update IssueFile fields."""
+    # Validate filename
+    if "/" in new_filename or "\\" in new_filename or ".." in new_filename:
+        raise ValueError("Invalid filename")
+
+    ext = Path(new_filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise ValueError(f"Unsupported extension: {ext}")
+
+    old_path = Path(issue_file.path)
+    if not old_path.exists():
+        raise ValueError("Source file not found on disk")
+
+    new_path = old_path.parent / new_filename
+    if new_path.exists() and new_path != old_path:
+        raise ValueError("A file with that name already exists")
+
+    old_path.rename(new_path)
+
+    # Update DB fields
+    old_relative = Path(issue_file.relative_path)
+    issue_file.path = str(new_path)
+    issue_file.relative_path = str(old_relative.parent / new_filename)
 
 
 async def delete_issue_file(

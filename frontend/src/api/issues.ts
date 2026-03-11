@@ -67,6 +67,7 @@ export interface IssueUpdate {
   format?: string | null
   releaseGroup?: string | null
   language?: string | null
+  originalFilename?: string | null
 }
 
 export const updateIssue = (id: number, data: IssueUpdate) =>

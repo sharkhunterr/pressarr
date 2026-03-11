@@ -180,6 +180,7 @@ export default function MagazineDetail() {
   const [editIssueFormat, setEditIssueFormat] = useState('')
   const [editIssueReleaseGroup, setEditIssueReleaseGroup] = useState('')
   const [editIssueLanguage, setEditIssueLanguage] = useState('')
+  const [editIssueFilename, setEditIssueFilename] = useState('')
 
   // Collapse upcoming issues per year group
   const [expandedUpcoming, setExpandedUpcoming] = useState<Set<string>>(new Set())
@@ -337,6 +338,7 @@ export default function MagazineDetail() {
     setEditIssueFormat(issue.file?.format ?? '')
     setEditIssueReleaseGroup(issue.file?.releaseGroup ?? '')
     setEditIssueLanguage(issue.file?.language ?? '')
+    setEditIssueFilename(issue.file?.path.split('/').pop() ?? '')
     setEditIssueOpen(true)
   }
 
@@ -363,6 +365,8 @@ export default function MagazineDetail() {
       if (editIssueFormat !== editingIssue.file.format) data.format = editIssueFormat || null
       if ((editIssueReleaseGroup || null) !== editingIssue.file.releaseGroup) data.releaseGroup = editIssueReleaseGroup || null
       if ((editIssueLanguage || null) !== editingIssue.file.language) data.language = editIssueLanguage || null
+      const currentFilename = editingIssue.file.path.split('/').pop() ?? ''
+      if (editIssueFilename && editIssueFilename !== currentFilename) data.originalFilename = editIssueFilename
     }
 
     if (Object.keys(data).length === 0) {
@@ -2047,14 +2051,14 @@ export default function MagazineDetail() {
             })()}
             {editingIssue?.file && (
               <>
-                {editingIssue.file.originalFilename && (
-                  <div>
-                    <label className="text-xs text-zinc-400">{t('issues.sourceFilename')}</label>
-                    <p className="text-sm text-zinc-300 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 break-all">
-                      {editingIssue.file.originalFilename}
-                    </p>
-                  </div>
-                )}
+                <div className="col-span-2">
+                  <label className="text-xs text-zinc-400">{t('issues.editFilename')}</label>
+                  <Input
+                    value={editIssueFilename}
+                    onChange={(e) => setEditIssueFilename(e.target.value)}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
                 <div>
                   <label className="text-xs text-zinc-400">{t('issues.editQuality')}</label>
                   <Input

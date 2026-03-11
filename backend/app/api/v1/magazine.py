@@ -26,7 +26,10 @@ router = APIRouter(prefix="/api/v1/magazine", tags=["Magazines"])
 
 
 async def _handle_refresh_magazine(magazine_id: int) -> str | None:
-    """Command handler for RefreshMagazine."""
+    """Command handler for RefreshMagazine.
+
+    Full refresh: metadata + disk scan + auto-detect + mark missing.
+    """
     from app.database import async_session_factory
     from app.services.calendar_service import generate_forecasts
 
@@ -34,13 +37,23 @@ async def _handle_refresh_magazine(magazine_id: int) -> str | None:
         return "Database not initialized"
 
     async with async_session_factory() as session:
-        result = await magazine_service.refresh_metadata(session, magazine_id)
+        stats = await magazine_service.refresh_magazine_full(session, magazine_id)
         # Regenerate forecasts so they reflect current data
         magazine = await magazine_service.get_magazine(session, magazine_id)
         if magazine:
             await generate_forecasts(session, magazine)
         await session.commit()
-        return result
+
+        parts = []
+        if stats.get("metadata"):
+            parts.append(stats["metadata"])
+        if stats.get("scanned"):
+            parts.append(f"{stats['scanned']} files found")
+        if stats.get("detected"):
+            parts.append(f"{stats['detected']} issues auto-detected")
+        if stats.get("missing_cleared"):
+            parts.append(f"{stats['missing_cleared']} missing files cleared")
+        return "; ".join(parts) if parts else "Refresh complete"
 
 
 register_command("RefreshMagazine", _handle_refresh_magazine)

@@ -262,6 +262,7 @@
     "editReleaseGroup": "Release group",
     "editLanguage": "Language",
     "sourceFilename": "Source filename",
+    "editFilename": "Filename (rename on disk)",
     "issueUpdated": "Issue updated successfully.",
     "issueUpdateError": "Failed to update issue.",
     "issueNumberConflict": "An issue with that number already exists.",
