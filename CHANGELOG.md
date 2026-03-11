@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.37](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.36...v0.1.37) (2026-03-11)
+
+
+### Features
+
+* improve indexer categories with Prowlarr detection and picker ([21643ff](https://github.com/sharkhunterr/pressarr/-/commit/21643ff5dc8e26137aad5bb02b67f30523a5e19b))
+* per-indexer category editing in Prowlarr settings ([5926a21](https://github.com/sharkhunterr/pressarr/-/commit/5926a21eec013bd29692411bb9cd6fba396a3f1b))
+* per-indexer enable/disable and test with stored API key ([bc0f249](https://github.com/sharkhunterr/pressarr/-/commit/bc0f2492cf7db60bd1610af35cfe866f21064a2f))
+
+
+### Bug Fixes
+
+* show API key in indexer edit form with eye toggle ([088e585](https://github.com/sharkhunterr/pressarr/-/commit/088e585a9a50e36b716f98275d5a37774a1684cc))
+
 ### [0.1.36](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.35...v0.1.36) (2026-03-10)
 
 
