@@ -13,5 +13,5 @@ class IndexerConfig(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, default="Prowlarr")
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     api_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    categories: Mapped[str] = mapped_column(String(100), nullable=False, default="7010,7020")
+    categories: Mapped[str] = mapped_column(String(100), nullable=False, default="7000,7010,7020")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

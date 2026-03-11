@@ -11,6 +11,7 @@ import {
   deleteIndexer,
   testIndexer,
   type IndexerConfig,
+  type ProwlarrIndexerInfo,
 } from '@/api/downloads'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -57,6 +58,8 @@ export default function Indexers() {
   const [deletingIndexer, setDeletingIndexer] = useState<IndexerConfig | null>(null)
   const [form, setForm] = useState<IndexerFormState>(emptyForm())
   const [testing, setTesting] = useState(false)
+  const [detectedIndexers, setDetectedIndexers] = useState<ProwlarrIndexerInfo[]>([])
+  const [selectedCategories, setSelectedCategories] = useState<Set<number>>(new Set())
 
   const { data: indexers = [], isLoading } = useQuery({
     queryKey: ['indexers'],
@@ -103,12 +106,22 @@ export default function Indexers() {
   function openCreate() {
     setEditingId(null)
     setForm(emptyForm())
+    setDetectedIndexers([])
+    setSelectedCategories(new Set())
     setDialogOpen(true)
   }
 
   function openEdit(indexer: IndexerConfig) {
     setEditingId(indexer.id)
     setForm(indexerToForm(indexer))
+    setDetectedIndexers([])
+    const existing = new Set(
+      indexer.categories
+        .split(',')
+        .map((c) => parseInt(c.trim(), 10))
+        .filter((n) => !isNaN(n)),
+    )
+    setSelectedCategories(existing)
     setDialogOpen(true)
   }
 
@@ -132,6 +145,20 @@ export default function Indexers() {
     }
   }
 
+  function toggleCategory(catId: number) {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev)
+      if (next.has(catId)) {
+        next.delete(catId)
+      } else {
+        next.add(catId)
+      }
+      const sorted = [...next].sort((a, b) => a - b)
+      setForm((f) => ({ ...f, categories: sorted.join(',') }))
+      return next
+    })
+  }
+
   async function handleTest() {
     if (!form.url || !form.apiKey) {
       toast.error(t('indexers.testMissingFields'))
@@ -142,11 +169,31 @@ export default function Indexers() {
       const result = await testIndexer({ url: form.url, apiKey: form.apiKey })
       if (result.isValid) {
         toast.success(t('indexers.testSuccess'))
+        if (result.indexers && result.indexers.length > 0) {
+          setDetectedIndexers(result.indexers)
+          // Collect all unique categories from all indexers
+          const allCats = new Set<number>()
+          result.indexers.forEach((idx) => idx.categories.forEach((c) => allCats.add(c)))
+          // If user has no categories set yet, pre-select book-related ones (7xxx)
+          if (!form.categories.trim()) {
+            const bookCats = [...allCats].filter((c) => c >= 7000 && c < 8000).sort((a, b) => a - b)
+            setSelectedCategories(new Set(bookCats))
+            setForm((f) => ({ ...f, categories: bookCats.join(',') }))
+          } else {
+            // Keep existing selection
+            const existing = new Set(
+              form.categories.split(',').map((c) => parseInt(c.trim(), 10)).filter((n) => !isNaN(n)),
+            )
+            setSelectedCategories(existing)
+          }
+        }
       } else {
         toast.error(result.message || t('indexers.testFailed'))
+        setDetectedIndexers([])
       }
     } catch {
       toast.error(t('indexers.testFailed'))
+      setDetectedIndexers([])
     } finally {
       setTesting(false)
     }
@@ -262,11 +309,51 @@ export default function Indexers() {
               </label>
               <Input
                 value={form.categories}
-                onChange={(e) => setForm({ ...form, categories: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, categories: e.target.value })
+                  const parsed = new Set(
+                    e.target.value.split(',').map((c) => parseInt(c.trim(), 10)).filter((n) => !isNaN(n)),
+                  )
+                  setSelectedCategories(parsed)
+                }}
                 placeholder={t('indexers.categoriesPlaceholder')}
                 className="bg-zinc-900 border-zinc-700 text-zinc-100"
               />
             </div>
+
+            {/* Detected indexers with categories after test */}
+            {detectedIndexers.length > 0 && (
+              <div className="grid gap-2">
+                <label className="text-sm font-medium text-zinc-300">
+                  {t('indexers.detectedIndexers')}
+                </label>
+                <div className="max-h-48 overflow-y-auto space-y-2 rounded border border-zinc-800 p-2 bg-zinc-900/50">
+                  {detectedIndexers.map((idx) => (
+                    <div key={idx.id} className="space-y-1">
+                      <p className="text-xs font-medium text-zinc-300">{idx.name}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {idx.categories
+                          .filter((c) => c >= 7000 && c < 8000)
+                          .map((cat) => (
+                            <Badge
+                              key={cat}
+                              variant={selectedCategories.has(cat) ? 'default' : 'outline'}
+                              className="cursor-pointer text-xs"
+                              onClick={() => toggleCategory(cat)}
+                            >
+                              {cat}
+                            </Badge>
+                          ))}
+                        {idx.categories.filter((c) => c >= 7000 && c < 8000).length === 0 && (
+                          <span className="text-xs text-zinc-500">{t('indexers.noBookCategories')}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-zinc-500">{t('indexers.categoriesHint')}</p>
+              </div>
+            )}
 
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-zinc-300">

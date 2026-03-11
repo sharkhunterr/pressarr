@@ -85,7 +85,7 @@ async def test_indexer(
     """Test connection to a Prowlarr instance."""
     client = ProwlarrClient(url=body.url, api_key=body.api_key)
     try:
-        is_valid, message = await client.test_connection()
-        return TestResult(is_valid=is_valid, message=message)
+        is_valid, message, indexers = await client.test_connection()
+        return TestResult(is_valid=is_valid, message=message, indexers=indexers)
     finally:
         await client.close()

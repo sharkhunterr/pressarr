@@ -488,7 +488,10 @@
     "deleteError": "Failed to delete indexer.",
     "testMissingFields": "URL and API key are required to test.",
     "testSuccess": "Indexer connection successful!",
-    "testFailed": "Indexer connection failed."
+    "testFailed": "Indexer connection failed.",
+    "detectedIndexers": "Detected Indexers",
+    "noBookCategories": "No book categories",
+    "categoriesHint": "Click categories to toggle. Only book-related categories (7xxx) are shown."
   },
   "downloadClients": {
     "title": "Download Clients",

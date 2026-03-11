@@ -49,9 +49,9 @@ MOCK_SEARCH_RESULTS = [
 ]
 
 MOCK_INDEXER_LIST = [
-    {"id": 1, "name": "NZBgeek", "protocol": "usenet"},
-    {"id": 2, "name": "Torznab", "protocol": "torrent"},
-    {"id": 3, "name": "MyIndexer", "protocol": "torrent"},
+    {"id": 1, "name": "NZBgeek", "protocol": "usenet", "capabilities": {"categories": [{"id": 7000, "name": "Books", "subCategories": [{"id": 7010, "name": "Mags"}]}]}},
+    {"id": 2, "name": "Torznab", "protocol": "torrent", "capabilities": {"categories": [{"id": 7000, "name": "Books", "subCategories": [{"id": 7020, "name": "Comics"}]}]}},
+    {"id": 3, "name": "MyIndexer", "protocol": "torrent", "capabilities": {"categories": []}},
 ]
 
 
@@ -114,7 +114,7 @@ async def test_search_sends_correct_params(
 async def test_search_uses_default_categories(
     prowlarr_client: ProwlarrClient,
 ):
-    """Search with no explicit categories should use defaults [7010, 7020]."""
+    """Search with no explicit categories should use defaults [7000, 7010, 7020]."""
     captured_request = None
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -129,6 +129,7 @@ async def test_search_uses_default_categories(
 
     assert captured_request is not None
     url_str = str(captured_request.url)
+    assert "categories=7000" in url_str
     assert "categories=7010" in url_str
     assert "categories=7020" in url_str
 
@@ -194,10 +195,14 @@ async def test_test_connection_success(
     )
     prowlarr_client._client = httpx.AsyncClient(transport=transport)
 
-    is_valid, message = await prowlarr_client.test_connection()
+    is_valid, message, indexers = await prowlarr_client.test_connection()
 
     assert is_valid is True
     assert "3 indexers found" in message
+    assert len(indexers) == 3
+    assert indexers[0]["name"] == "NZBgeek"
+    assert 7000 in indexers[0]["categories"]
+    assert 7010 in indexers[0]["categories"]
 
 
 @pytest.mark.asyncio
@@ -210,10 +215,11 @@ async def test_test_connection_failure(
     )
     prowlarr_client._client = httpx.AsyncClient(transport=transport)
 
-    is_valid, message = await prowlarr_client.test_connection()
+    is_valid, message, indexers = await prowlarr_client.test_connection()
 
     assert is_valid is False
     assert message  # Should have some error message
+    assert indexers == []
 
 
 @pytest.mark.asyncio
@@ -228,10 +234,11 @@ async def test_test_connection_network_error(
     transport = httpx.MockTransport(handler)
     prowlarr_client._client = httpx.AsyncClient(transport=transport)
 
-    is_valid, message = await prowlarr_client.test_connection()
+    is_valid, message, indexers = await prowlarr_client.test_connection()
 
     assert is_valid is False
     assert "Connection refused" in message
+    assert indexers == []
 
 
 @pytest.mark.asyncio

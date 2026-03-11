@@ -488,7 +488,10 @@
     "deleteError": "Échec de la suppression de l'indexeur.",
     "testMissingFields": "L'URL et la clé API sont requis pour le test.",
     "testSuccess": "Connexion à l'indexeur réussie !",
-    "testFailed": "Échec de la connexion à l'indexeur."
+    "testFailed": "Échec de la connexion à l'indexeur.",
+    "detectedIndexers": "Indexeurs détectés",
+    "noBookCategories": "Pas de catégories livres",
+    "categoriesHint": "Cliquez sur les catégories pour les activer/désactiver. Seules les catégories livres (7xxx) sont affichées."
   },
   "downloadClients": {
     "title": "Clients de téléchargement",

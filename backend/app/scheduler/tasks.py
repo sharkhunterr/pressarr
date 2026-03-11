@@ -52,7 +52,8 @@ async def pack_rss_sync():
                 for indexer in indexers:
                     try:
                         client = ProwlarrClient(url=indexer.url, api_key=indexer.api_key)
-                        results = await client.search(pack.search_query, categories=[7010, 7020])
+                        cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+                        results = await client.search(pack.search_query, categories=cats)
 
                         for item in results:
                             # Check blocklist
@@ -179,7 +180,8 @@ async def rss_sync():
                     client = ProwlarrClient(
                         url=indexer.url, api_key=indexer.api_key
                     )
-                    rss_items = await client.rss_feed(categories=[7010, 7020])
+                    cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+                    rss_items = await client.rss_feed(categories=cats)
                     rss_total_items += len(rss_items)
                     rss_indexer_names.append(indexer.name)
 

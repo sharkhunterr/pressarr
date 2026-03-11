@@ -72,7 +72,8 @@ async def search_issue(
                 url=indexer.url,
                 api_key=indexer.api_key,
             )
-            raw_results = await client.search(query, categories=[7010, 7020])
+            cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+            raw_results = await client.search(query, categories=cats)
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
@@ -155,7 +156,8 @@ async def search_free(
                 url=indexer.url,
                 api_key=indexer.api_key,
             )
-            raw_results = await client.search(query)
+            cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or None
+            raw_results = await client.search(query, categories=cats)
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"

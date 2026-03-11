@@ -27,9 +27,16 @@ export interface DownloadClient {
   priority: number
 }
 
+export interface ProwlarrIndexerInfo {
+  id: number
+  name: string
+  categories: number[]
+}
+
 export interface TestResult {
   isValid: boolean
   message: string
+  indexers?: ProwlarrIndexerInfo[]
 }
 
 // Indexer CRUD + test

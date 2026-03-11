@@ -20,7 +20,7 @@ class IndexerConfigCreateResource(CamelModel):
     name: str
     url: str
     api_key: str
-    categories: str = "7010,7020"
+    categories: str = "7000,7010,7020"
     enabled: bool = True
 
 
@@ -108,8 +108,17 @@ class DownloadClientTestResource(CamelModel):
     api_key: str | None = None
 
 
+class ProwlarrIndexerInfo(CamelModel):
+    """Info about a single Prowlarr indexer returned after a test."""
+
+    id: int
+    name: str
+    categories: list[int] = []
+
+
 class TestResult(CamelModel):
     """Response schema for a connection test result."""
 
     is_valid: bool
     message: str
+    indexers: list[ProwlarrIndexerInfo] = []
