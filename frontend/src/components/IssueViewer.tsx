@@ -133,7 +133,7 @@ export function IssueViewer({ issueId, open, onOpenChange }: IssueViewerProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="fixed inset-2 sm:inset-4 !translate-x-0 !translate-y-0 !top-auto !left-auto !max-w-none w-auto h-auto p-0 bg-zinc-950 border-zinc-800 flex flex-col overflow-hidden">
+      <DialogContent showCloseButton={false} className="!inset-2 sm:!inset-4 !translate-x-0 !translate-y-0 !max-w-none !w-auto !h-auto !p-0 !gap-0 bg-zinc-950 border-zinc-800 flex flex-col overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-2 sm:px-4 py-1.5 sm:py-2 border-b border-zinc-800 shrink-0 gap-1">
           <div className="flex items-center gap-1 sm:gap-2">
