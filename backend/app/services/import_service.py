@@ -466,7 +466,15 @@ async def process_downloaded_file(
     library_path = Path(root_folder.path) if root_folder else Path("/magazines")
 
     # 6. Apply naming template and move file
+    # Prefer issue DB values over parsed filename values (the download
+    # filename often lacks the issue number that forecasts already know)
     naming_template = getattr(config, "naming_template", DEFAULT_TEMPLATE)
+
+    eff_number = issue.number if issue.number is not None else parsed.number
+    eff_volume = issue.volume if getattr(issue, "volume", None) is not None else parsed.volume
+    eff_year = issue.year if issue.year is not None else parsed.year
+    eff_month = issue.month if issue.month is not None else parsed.month
+    eff_day = issue.day if issue.day is not None else parsed.day
 
     import_mode = getattr(config, "import_mode", "copy")
     try:
@@ -475,11 +483,11 @@ async def process_downloaded_file(
             library_path=library_path,
             magazine_title=magazine.title,
             naming_template=naming_template,
-            number=parsed.number,
-            volume=parsed.volume,
-            year=parsed.year,
-            month=parsed.month,
-            day=parsed.day,
+            number=eff_number,
+            volume=eff_volume,
+            year=eff_year,
+            month=eff_month,
+            day=eff_day,
             quality=parsed.quality,
             file_format=parsed.format,
             group=parsed.release_group,

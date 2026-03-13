@@ -407,9 +407,27 @@ async def refresh_magazine_full(db: AsyncSession, magazine_id: int) -> dict:
         if not issue.file:
             continue
         parsed = parse_magazine_filename(Path(issue.file.path).name)
+
+        # Check if dates match — if they do, the file belongs here regardless
+        # of number differences (number in filename can be a "000" placeholder)
+        dates_match = (
+            parsed.year is not None
+            and parsed.year == issue.year
+            and parsed.month is not None
+            and parsed.month == issue.month
+            and (parsed.day is None or issue.day is None or parsed.day == issue.day)
+        )
+        if dates_match:
+            continue
+
         mismatched = False
-        # Check by number
-        if parsed.number is not None and issue.number is not None:
+        # Check by number (ignore 0 — placeholder from naming templates)
+        if (
+            parsed.number is not None
+            and parsed.number > 0
+            and issue.number is not None
+            and issue.number > 0
+        ):
             if parsed.number != issue.number:
                 mismatched = True
         # Check by full date (daily papers like Le Monde)
