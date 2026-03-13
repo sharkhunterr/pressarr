@@ -248,7 +248,7 @@ async def scan_magazine_folder(
     """
     from app.parser.magazine_parser import parse_magazine_filename
 
-    stats = {"matched": 0, "unmatched": 0, "errors": 0}
+    stats = {"matched": 0, "unmatched": 0, "created": 0, "errors": 0}
     magazine_dir = Path(root_path) / magazine.title
 
     if not magazine_dir.exists():
@@ -264,8 +264,9 @@ async def scan_magazine_folder(
             parsed = parse_magazine_filename(file_path.name)
 
             # Try to match by number first, then by date
+            # Skip number=0 (placeholder from naming templates like "000")
             issue = None
-            if parsed.number is not None:
+            if parsed.number is not None and parsed.number > 0:
                 result = await db.execute(
                     select(Issue).where(
                         Issue.magazine_id == magazine.id,
@@ -287,8 +288,37 @@ async def scan_magazine_folder(
                 issue = result.scalars().first()
 
             if not issue:
-                stats["unmatched"] += 1
-                continue
+                # Create a new issue if we have enough date info
+                if parsed.year is not None and parsed.month is not None:
+                    from datetime import date as date_type
+
+                    try:
+                        pub_date = date_type(
+                            parsed.year,
+                            parsed.month,
+                            parsed.day or 1,
+                        )
+                    except ValueError:
+                        stats["unmatched"] += 1
+                        continue
+
+                    issue = Issue(
+                        magazine_id=magazine.id,
+                        number=parsed.number if parsed.number else None,
+                        year=parsed.year,
+                        month=parsed.month,
+                        day=parsed.day,
+                        publication_date=pub_date,
+                        status="available",
+                        monitored=True,
+                        is_special=parsed.is_special,
+                    )
+                    db.add(issue)
+                    await db.flush()
+                    stats["created"] += 1
+                else:
+                    stats["unmatched"] += 1
+                    continue
 
             # Check if issue already has a file
             existing = await db.execute(
@@ -317,6 +347,8 @@ async def scan_magazine_folder(
             )
             db.add(issue_file)
             issue.status = "available"
+            if issue.is_forecast:
+                issue.is_forecast = False
             await db.flush()
             stats["matched"] += 1
 

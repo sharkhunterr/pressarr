@@ -374,6 +374,7 @@ async def refresh_magazine_full(db: AsyncSession, magazine_id: int) -> dict:
     stats: dict = {
         "metadata": None,
         "scanned": 0,
+        "created": 0,
         "detected": 0,
         "missing_cleared": 0,
         "reassigned": 0,
@@ -435,6 +436,7 @@ async def refresh_magazine_full(db: AsyncSession, magazine_id: int) -> dict:
     # 2. Scan disk for new files
     scan_stats = await scan_magazine_folder(db, magazine, root_folder.path)
     stats["scanned"] = scan_stats["matched"]
+    stats["created"] = scan_stats.get("created", 0)
 
     # Re-load issues after scan to include newly created ones
     await db.refresh(magazine, attribute_names=["issues"])

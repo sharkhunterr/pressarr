@@ -49,6 +49,8 @@ async def _handle_refresh_magazine(magazine_id: int) -> str | None:
             parts.append(stats["metadata"])
         if stats.get("scanned"):
             parts.append(f"{stats['scanned']} files found")
+        if stats.get("created"):
+            parts.append(f"{stats['created']} issues created")
         if stats.get("detected"):
             parts.append(f"{stats['detected']} issues auto-detected")
         if stats.get("reassigned"):
