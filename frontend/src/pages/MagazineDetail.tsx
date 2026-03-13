@@ -22,6 +22,7 @@ import {
   Plus,
   X,
   Check,
+  FileEdit,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -32,6 +33,9 @@ import {
   uploadMagazineCover,
   deleteMagazine,
   refreshMetadata,
+  previewRename,
+  executeRename,
+  type RenamePreview,
   addMagazinePattern,
   deleteMagazinePattern,
   addMagazineRule,
@@ -211,6 +215,11 @@ export default function MagazineDetail() {
   const [searchPage, setSearchPage] = useState(1)
   const [searchSourceFilter, setSearchSourceFilter] = useState('')
   const [searchDateSort, setSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
+
+  // Rename modal state
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renamePreviewData, setRenamePreviewData] = useState<RenamePreview[]>([])
+  const [renameLoading, setRenameLoading] = useState(false)
 
   const { data: magazine, isLoading: magazineLoading } = useQuery({
     queryKey: ['magazine', magazineId],
@@ -741,6 +750,33 @@ export default function MagazineDetail() {
     setManualSearchOpen(true)
   }
 
+  async function handlePreviewRename() {
+    setRenameLoading(true)
+    try {
+      const data = await previewRename(magazineId)
+      setRenamePreviewData(data)
+      setRenameOpen(true)
+    } catch {
+      toast.error(t('magazineDetail.renameError'))
+    } finally {
+      setRenameLoading(false)
+    }
+  }
+
+  async function handleExecuteRename() {
+    setRenameLoading(true)
+    try {
+      const result = await executeRename(magazineId)
+      toast.success(t('magazineDetail.renameSuccess', { count: result.renamed }))
+      setRenameOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['issues', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.renameError'))
+    } finally {
+      setRenameLoading(false)
+    }
+  }
+
   async function handleManualSearch(tab?: string) {
     const activeTab = tab || manualSearchTab
     if (!manualSearchQuery.trim()) return
@@ -921,6 +957,15 @@ export default function MagazineDetail() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handlePreviewRename}
+                  disabled={renameLoading}
+                >
+                  <FileEdit className={`size-3.5 ${renameLoading ? 'animate-pulse' : ''}`} />
+                  {t('magazineDetail.renameFiles')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleOpenManualSearch}
                 >
                   <Search className="size-3.5" />
@@ -963,6 +1008,15 @@ export default function MagazineDetail() {
               >
                 <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                 {t('magazineDetail.refresh')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviewRename}
+                disabled={renameLoading}
+              >
+                <FileEdit className={`size-3.5 ${renameLoading ? 'animate-pulse' : ''}`} />
+                {t('magazineDetail.renameFiles')}
               </Button>
               <Button
                 variant="outline"
@@ -2246,6 +2300,46 @@ export default function MagazineDetail() {
         issueId={historyIssueId ?? undefined}
         title={`${t('history.title')} — ${magazine?.title ?? ''} #${issues.find(i => i.id === historyIssueId)?.number ?? historyIssueId ?? ''}`}
       />
+
+      {/* Rename preview modal */}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-2xl bg-zinc-950 border-zinc-800 max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">{t('magazineDetail.renamePreview')}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-2">
+            {renamePreviewData.length === 0 ? (
+              <p className="text-zinc-500 text-sm text-center py-4">{t('magazineDetail.renameNoChanges')}</p>
+            ) : (
+              renamePreviewData.map((item, i) => {
+                const changed = item.old_path !== item.new_path
+                return (
+                  <div key={i} className={`rounded border p-3 space-y-1 ${changed ? 'border-emerald-700/50 bg-emerald-950/20' : 'border-zinc-700/50'}`}>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-zinc-500 shrink-0">{t('magazineDetail.renameCurrent')}:</span>
+                      <span className={`font-mono text-xs truncate ${changed ? 'text-zinc-400 line-through' : 'text-zinc-400'}`}>{item.old_path.split('/').pop()}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`shrink-0 ${changed ? 'text-emerald-500' : 'text-zinc-600'}`}>{t('magazineDetail.renameNew')}:</span>
+                      <span className={`font-mono text-xs truncate ${changed ? 'text-emerald-400' : 'text-zinc-600'}`}>{item.new_path.split('/').pop()}</span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)}>{t('common.cancel')}</Button>
+            <Button
+              onClick={handleExecuteRename}
+              disabled={renameLoading || renamePreviewData.filter(i => i.old_path !== i.new_path).length === 0}
+            >
+              {renameLoading ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Check className="size-3.5 mr-1" />}
+              {t('magazineDetail.renameConfirm', { count: renamePreviewData.filter(i => i.old_path !== i.new_path).length })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -2692,6 +2786,7 @@ function MagazineRulesTab({ magazine, magazineId }: { magazine: Magazine; magazi
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }

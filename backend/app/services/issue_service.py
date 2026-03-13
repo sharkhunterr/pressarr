@@ -379,8 +379,6 @@ async def rename_issues(
             continue
 
         old_path = Path(issue.file.path)
-        if not old_path.exists():
-            continue
 
         new_name = apply_template(
             naming_template,
@@ -394,18 +392,22 @@ async def rename_issues(
             file_format=issue.file.format,
             group=issue.file.release_group,
             language=issue.file.language or "unknown",
+            is_special=issue.is_special,
         )
 
         new_path = Path(root_path) / new_name
         rename_info = {"old_path": str(old_path), "new_path": str(new_path)}
-        results.append(rename_info)
 
-        if not preview_only and str(old_path) != str(new_path):
+        if preview_only:
+            results.append(rename_info)
+        elif str(old_path) != str(new_path) and old_path.exists():
             import shutil
             new_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(old_path), str(new_path))
             issue.file.path = str(new_path)
             issue.file.relative_path = str(new_path.relative_to(root_path))
+            issue.file.original_filename = new_path.name
             await db.flush()
+            results.append(rename_info)
 
     return results

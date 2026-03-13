@@ -22,6 +22,7 @@ TEMPLATE_VARIABLES = {
     "format": "File format (pdf, epub, etc.)",
     "group": "Release group name",
     "language": "Language code",
+    "special": "Special/Hors-Série indicator (HS if special, empty otherwise)",
 }
 
 # French aliases → canonical English name
@@ -35,6 +36,8 @@ _FRENCH_ALIASES = {
     "qualite": "quality",
     "groupe": "group",
     "langue": "language",
+    "hors_serie": "special",
+    "hs": "special",
 }
 
 # Characters not allowed in filenames
@@ -74,6 +77,7 @@ def apply_template(
     file_format: str = "pdf",
     group: str | None = None,
     language: str = "unknown",
+    is_special: bool = False,
 ) -> str:
     """Apply naming template with given values."""
     result = template
@@ -89,6 +93,7 @@ def apply_template(
         "format": file_format.lower().lstrip("."),
         "group": group or "",
         "language": language,
+        "special": "HS" if is_special else "",
     }
 
     # Build reverse alias map: french_name -> same value as the canonical english name
@@ -106,6 +111,7 @@ def apply_template(
     result = re.sub(r"-00(?=\))", "", result)  # Remove -00 day suffix
     result = re.sub(r" +- +\(\d{4}-00\)", "", result)  # Remove date if no month
     result = re.sub(r"\(\s*\)", "", result)  # Remove empty parens
+    result = re.sub(r" - HS", " HS", result)  # Normalize HS placement
     result = re.sub(r" {2,}", " ", result)  # Collapse multiple spaces
     result = result.strip()
 
@@ -192,6 +198,7 @@ async def import_file(
     group: str | None = None,
     language: str = "unknown",
     import_mode: str = "copy",
+    is_special: bool = False,
 ) -> Path:
     """Import a file into the library using the naming template.
 
@@ -214,6 +221,7 @@ async def import_file(
         file_format=file_format,
         group=group,
         language=language,
+        is_special=is_special,
     )
 
     dest = library_path / new_name
@@ -493,6 +501,7 @@ async def process_downloaded_file(
             group=parsed.release_group,
             language=parsed.language,
             import_mode=import_mode,
+            is_special=getattr(issue, "is_special", False),
         )
     except OSError as e:
         await create_event(

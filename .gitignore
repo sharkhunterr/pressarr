@@ -40,6 +40,7 @@ Thumbs.db
 **/config/pressarr.yml
 **/config/logs/
 .dev-config/
+.dev-magazines/
 
 # Build artifacts
 *.tsbuildinfo

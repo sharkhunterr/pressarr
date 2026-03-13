@@ -31,6 +31,18 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+function shortenPath(path: string, maxLen = 35): string {
+  if (path.length <= maxLen) return path
+  const parts = path.split('/')
+  let short = parts[parts.length - 1]
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const candidate = parts[i] + '/' + short
+    if (candidate.length + 4 > maxLen) break
+    short = candidate
+  }
+  return '.../' + short
+}
+
 export default function AddMagazine() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -333,13 +345,13 @@ export default function AddMagazine() {
                 {t('addMagazine.rootFolder')}
               </label>
               <Select value={rootFolderId} onValueChange={setRootFolderId}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full truncate">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {rootFolders.map((folder) => (
                     <SelectItem key={folder.id} value={String(folder.id)}>
-                      {folder.path}
+                      {shortenPath(folder.path)}
                     </SelectItem>
                   ))}
                 </SelectContent>

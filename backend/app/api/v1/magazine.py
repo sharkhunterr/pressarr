@@ -227,6 +227,66 @@ async def upload_cover(
     return resource
 
 
+
+
+@router.get("/{magazine_id}/rename")
+async def preview_rename(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Preview file renames for a magazine (dry run)."""
+    from app.models.root_folder import RootFolder
+    from app.services.issue_service import rename_issues
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+
+    root_folder = await db.get(RootFolder, magazine.root_folder_id)
+    if not root_folder:
+        raise HTTPException(404, "Root folder not found")
+
+    naming_template = getattr(config, "naming_template", None)
+    if not naming_template:
+        from app.services.import_service import DEFAULT_TEMPLATE
+        naming_template = DEFAULT_TEMPLATE
+
+    results = await rename_issues(
+        db, magazine, naming_template, root_folder.path, preview_only=True,
+    )
+    return results
+
+
+@router.post("/{magazine_id}/rename")
+async def execute_rename(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Rename all issue files for a magazine according to the naming template."""
+    from app.models.root_folder import RootFolder
+    from app.services.issue_service import rename_issues
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+
+    root_folder = await db.get(RootFolder, magazine.root_folder_id)
+    if not root_folder:
+        raise HTTPException(404, "Root folder not found")
+
+    naming_template = getattr(config, "naming_template", None)
+    if not naming_template:
+        from app.services.import_service import DEFAULT_TEMPLATE
+        naming_template = DEFAULT_TEMPLATE
+
+    results = await rename_issues(
+        db, magazine, naming_template, root_folder.path, preview_only=False,
+    )
+    renamed = [r for r in results if r["old_path"] != r["new_path"]]
+    return {"renamed": len(renamed), "results": renamed}
+
 @router.post("/{magazine_id}/refresh", status_code=200)
 async def refresh_magazine(
     magazine_id: int,

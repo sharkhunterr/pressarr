@@ -99,6 +99,22 @@ export const searchMetadata = (query: string) =>
 export const refreshMetadata = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}/refresh`, { method: 'POST' })
 
+export interface RenamePreview {
+  old_path: string
+  new_path: string
+}
+
+export interface RenameResult {
+  renamed: number
+  results: RenamePreview[]
+}
+
+export const previewRename = (id: number) =>
+  apiFetch<RenamePreview[]>(`/magazine/${id}/rename`)
+
+export const executeRename = (id: number) =>
+  apiFetch<RenameResult>(`/magazine/${id}/rename`, { method: 'POST' })
+
 export const uploadMagazineCover = (id: number, data: FormData) =>
   apiFetch<Magazine>(`/magazine/${id}/cover`, { method: 'POST', body: data })
 
