@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.42](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.41...v0.1.42) (2026-03-13)
+
+
+### Features
+
+* add mass rename files feature and {special}/{hs} template variable ([86d5ca9](https://github.com/sharkhunterr/pressarr/-/commit/86d5ca9d1036b5ba201652898d2deccde3eb8f04))
+* scan creates issues for unmatched files found on disk ([479edc2](https://github.com/sharkhunterr/pressarr/-/commit/479edc2240519de69c582df2d4fb5b429240addd))
+
+
+### Bug Fixes
+
+* use issue DB values for import naming and fix mismatch detection ([54eb5a6](https://github.com/sharkhunterr/pressarr/-/commit/54eb5a6b6337fdbc023ac1c6e4985de8027fc03d))
+
 ### [0.1.41](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.40...v0.1.41) (2026-03-11)
 
 ### [0.1.40](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.39...v0.1.40) (2026-03-11)
