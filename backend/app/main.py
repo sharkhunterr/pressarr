@@ -138,6 +138,7 @@ def _migrate_add_columns(connection) -> None:
         ("history", "data", "TEXT"),
         ("history", "pack_id", "INTEGER REFERENCES pack(id) ON DELETE SET NULL"),
         ("indexer_config", "indexer_overrides", "TEXT NOT NULL DEFAULT '{}'"),
+        ("issue_file", "magazine_id", "INTEGER REFERENCES magazine(id) ON DELETE CASCADE"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -145,6 +146,16 @@ def _migrate_add_columns(connection) -> None:
             logger.info("Migration: added %s.%s", table, column)
         except Exception:
             pass  # Column already exists
+
+    # Backfill issue_file.magazine_id from the linked issue
+    try:
+        connection.execute(sa.text(
+            "UPDATE issue_file SET magazine_id = ("
+            "  SELECT issue.magazine_id FROM issue WHERE issue.id = issue_file.issue_id"
+            ") WHERE magazine_id IS NULL AND issue_id IS NOT NULL"
+        ))
+    except Exception:
+        pass
 
 
 async def _create_default_quality_profile() -> None:
