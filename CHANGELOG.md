@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.44](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.43...v0.1.44) (2026-03-14)
+
+
+### Bug Fixes
+
+* add issue_file.magazine_id to startup migration for Docker deployments ([bf8acdc](https://github.com/sharkhunterr/pressarr/-/commit/bf8acdc4bdd8a248bf067803a75cd2032113e1a1))
+
 ### [0.1.43](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.42...v0.1.43) (2026-03-14)
 
 
