@@ -110,6 +110,39 @@ async def update_issue(
     return issue
 
 
+async def reassign_issue_file(
+    db: AsyncSession, source_issue_id: int, target_issue_id: int
+) -> tuple[Issue, Issue]:
+    """Move a file from one issue to another. Returns (source, target)."""
+    source = await get_issue(db, source_issue_id)
+    if not source or not source.file:
+        raise ValueError("Source issue has no file")
+
+    target = await get_issue(db, target_issue_id)
+    if not target:
+        raise ValueError("Target issue not found")
+    if target.file:
+        raise ValueError("Target issue already has a file")
+
+    # Move the file record
+    source.file.issue_id = target_issue_id
+
+    # Update source status
+    source.status = "wanted" if source.monitored else "missing"
+
+    # Update target status
+    target.status = "available"
+    if target.is_forecast:
+        target.is_forecast = False
+
+    await db.flush()
+
+    # Re-fetch to get updated relationships
+    source = await get_issue(db, source_issue_id)
+    target = await get_issue(db, target_issue_id)
+    return source, target
+
+
 SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".cbr", ".cbz"}
 
 

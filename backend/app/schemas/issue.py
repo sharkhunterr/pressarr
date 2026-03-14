@@ -56,6 +56,10 @@ class IssueUpdateRequest(CamelModel):
     original_filename: str | None = None
 
 
+class IssueReassignRequest(CamelModel):
+    target_issue_id: int
+
+
 class IssueBatchMonitorRequest(CamelModel):
     issue_ids: list[int]
     monitored: bool

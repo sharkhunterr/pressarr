@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_db
 from app.schemas.issue import (
     IssueBatchMonitorRequest,
+    IssueReassignRequest,
     IssueResource,
     IssueUpdateRequest,
 )
@@ -99,7 +100,37 @@ async def update_issue(
         raise
     if issue is None:
         raise HTTPException(404, "Issue not found")
+
+    # Regenerate forecasts when issue number changes
+    if "number" in data:
+        from app.services.calendar_service import generate_forecasts
+        from app.services.magazine_service import get_magazine
+        magazine = await get_magazine(db, issue.magazine_id)
+        if magazine:
+            await generate_forecasts(db, magazine)
+
     return issue
+
+
+@router.put("/{issue_id}/reassign", response_model=IssueResource)
+async def reassign_issue_file(
+    issue_id: int,
+    body: IssueReassignRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a file from one issue to another."""
+    try:
+        source, target = await issue_service.reassign_issue_file(
+            db, issue_id, body.target_issue_id
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "no file" in msg or "not found" in msg:
+            raise HTTPException(404, msg)
+        if "already has" in msg:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
+    return target
 
 
 @router.delete("/{issue_id}")

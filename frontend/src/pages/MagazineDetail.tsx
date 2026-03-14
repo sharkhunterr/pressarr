@@ -23,6 +23,7 @@ import {
   X,
   Check,
   FileEdit,
+  FolderOpen,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -70,6 +71,7 @@ import { getRootFolders } from '@/api/system'
 import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
+import { FileManagerModal } from '@/components/FileManagerModal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -215,6 +217,9 @@ export default function MagazineDetail() {
   const [searchPage, setSearchPage] = useState(1)
   const [searchSourceFilter, setSearchSourceFilter] = useState('')
   const [searchDateSort, setSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
+
+  // File manager modal state
+  const [fileManagerOpen, setFileManagerOpen] = useState(false)
 
   // Rename modal state
   const [renameOpen, setRenameOpen] = useState(false)
@@ -966,6 +971,14 @@ export default function MagazineDetail() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => setFileManagerOpen(true)}
+                >
+                  <FolderOpen className="size-3.5" />
+                  {t('magazineDetail.fileManager')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleOpenManualSearch}
                 >
                   <Search className="size-3.5" />
@@ -1017,6 +1030,14 @@ export default function MagazineDetail() {
               >
                 <FileEdit className={`size-3.5 ${renameLoading ? 'animate-pulse' : ''}`} />
                 {t('magazineDetail.renameFiles')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFileManagerOpen(true)}
+              >
+                <FolderOpen className="size-3.5" />
+                {t('magazineDetail.fileManager')}
               </Button>
               <Button
                 variant="outline"
@@ -2299,6 +2320,15 @@ export default function MagazineDetail() {
         magazineId={magazine?.id}
         issueId={historyIssueId ?? undefined}
         title={`${t('history.title')} — ${magazine?.title ?? ''} #${issues.find(i => i.id === historyIssueId)?.number ?? historyIssueId ?? ''}`}
+      />
+
+      {/* File Manager modal */}
+      <FileManagerModal
+        open={fileManagerOpen}
+        onOpenChange={setFileManagerOpen}
+        magazineId={magazineId}
+        issues={issues}
+        magazineTitle={magazine?.title ?? ''}
       />
 
       {/* Rename preview modal */}

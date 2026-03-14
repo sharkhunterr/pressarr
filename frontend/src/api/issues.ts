@@ -76,6 +76,12 @@ export const updateIssue = (id: number, data: IssueUpdate) =>
     body: JSON.stringify(data),
   })
 
+export const reassignIssueFile = (issueId: number, targetIssueId: number) =>
+  apiFetch<Issue>(`/issue/${issueId}/reassign`, {
+    method: 'PUT',
+    body: JSON.stringify({ targetIssueId }),
+  })
+
 export const deleteIssueFile = (id: number, unmonitor = false) =>
   apiFetch<void>(`/issue/${id}/file?unmonitor=${unmonitor}`, { method: 'DELETE' })
 

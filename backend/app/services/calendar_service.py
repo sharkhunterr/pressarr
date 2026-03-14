@@ -134,10 +134,19 @@ async def generate_forecasts(
         # No known issues, start from today
         next_date = start_date
 
-    # Find last known issue number
-    last_number = None
-    if last_issue and last_issue.number is not None:
-        last_number = last_issue.number
+    # Find issue with highest number (for auto-increment)
+    last_numbered_result = await db.execute(
+        select(Issue)
+        .where(
+            Issue.magazine_id == magazine.id,
+            Issue.is_forecast == False,  # noqa: E712
+            Issue.number.isnot(None),
+        )
+        .order_by(Issue.number.desc())
+        .limit(1)
+    )
+    last_numbered_issue = last_numbered_result.scalars().first()
+    last_number = last_numbered_issue.number if last_numbered_issue else None
 
     # Remove existing forecasts for this magazine — but KEEP forecasts that
     # have been promoted to "wanted" or grabbed ("snatched"), as those are
@@ -164,9 +173,10 @@ async def generate_forecasts(
     existing_numbers: set[int] = {row[0] for row in existing_numbers_result.all()}
 
     # Estimate the starting number accounting for date gaps
-    if last_issue and last_number is not None and last_issue.publication_date:
-        # Count how many periods fit between last issue and the first forecast date
-        cursor = last_issue.publication_date
+    last_numbered_date = last_numbered_issue.publication_date if last_numbered_issue else None
+    if last_number is not None and last_numbered_date:
+        # Count how many periods fit between last numbered issue and the first forecast date
+        cursor = last_numbered_date
         periods_skipped = 0
         while _advance_date(cursor, magazine.frequency) < max(next_date, start_date):
             cursor = _advance_date(cursor, magazine.frequency)
