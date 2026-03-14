@@ -76,10 +76,19 @@ export const updateIssue = (id: number, data: IssueUpdate) =>
     body: JSON.stringify(data),
   })
 
-export const reassignIssueFile = (issueId: number, targetIssueId: number) =>
+export const reassignIssueFile = (issueId: number, targetIssueId: number | null) =>
   apiFetch<Issue>(`/issue/${issueId}/reassign`, {
     method: 'PUT',
     body: JSON.stringify({ targetIssueId }),
+  })
+
+export const getUnassignedFiles = (magazineId: number) =>
+  apiFetch<IssueFile[]>(`/issue/unassigned-files?magazineId=${magazineId}`)
+
+export const assignFileToIssue = (fileId: number, targetIssueId: number) =>
+  apiFetch<Issue>(`/issue/assign-file`, {
+    method: 'PUT',
+    body: JSON.stringify({ fileId, targetIssueId }),
   })
 
 export const deleteIssueFile = (id: number, unmonitor = false) =>

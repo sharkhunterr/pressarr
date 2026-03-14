@@ -270,6 +270,7 @@ async def _register_issue_file(
 
     issue_file = IssueFile(
         issue_id=issue.id,
+        magazine_id=issue.magazine_id,
         path=str(file_path),
         relative_path=relative,
         size=size,

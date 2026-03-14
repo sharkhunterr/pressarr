@@ -111,12 +111,58 @@ async def update_issue(
 
 
 async def reassign_issue_file(
-    db: AsyncSession, source_issue_id: int, target_issue_id: int
-) -> tuple[Issue, Issue]:
-    """Move a file from one issue to another. Returns (source, target)."""
+    db: AsyncSession, source_issue_id: int, target_issue_id: int | None
+) -> tuple[Issue, Issue | None]:
+    """Move a file from one issue to another, or unassign it (target=None)."""
     source = await get_issue(db, source_issue_id)
     if not source or not source.file:
         raise ValueError("Source issue has no file")
+
+    if target_issue_id is not None:
+        target = await get_issue(db, target_issue_id)
+        if not target:
+            raise ValueError("Target issue not found")
+        if target.file:
+            raise ValueError("Target issue already has a file")
+
+        # Move the file record
+        source.file.issue_id = target_issue_id
+
+        # Update target status
+        target.status = "available"
+        if target.is_forecast:
+            target.is_forecast = False
+    else:
+        # Unassign: detach file from issue
+        source.file.issue_id = None
+        target = None
+
+    # Update source status
+    source.status = "wanted" if source.monitored else "missing"
+
+    await db.flush()
+
+    # Re-fetch to get updated relationships
+    source = await get_issue(db, source_issue_id)
+    if target_issue_id is not None:
+        target = await get_issue(db, target_issue_id)
+    return source, target
+
+
+async def assign_file_to_issue(
+    db: AsyncSession, file_id: int, target_issue_id: int
+) -> Issue:
+    """Assign an unassigned file to an issue."""
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(IssueFile).where(IssueFile.id == file_id)
+    )
+    issue_file = result.scalars().first()
+    if not issue_file:
+        raise ValueError("File not found")
+    if issue_file.issue_id is not None:
+        raise ValueError("File is already assigned to an issue")
 
     target = await get_issue(db, target_issue_id)
     if not target:
@@ -124,23 +170,27 @@ async def reassign_issue_file(
     if target.file:
         raise ValueError("Target issue already has a file")
 
-    # Move the file record
-    source.file.issue_id = target_issue_id
-
-    # Update source status
-    source.status = "wanted" if source.monitored else "missing"
-
-    # Update target status
+    issue_file.issue_id = target_issue_id
     target.status = "available"
     if target.is_forecast:
         target.is_forecast = False
 
     await db.flush()
-
-    # Re-fetch to get updated relationships
-    source = await get_issue(db, source_issue_id)
     target = await get_issue(db, target_issue_id)
-    return source, target
+    return target
+
+
+async def get_unassigned_files(db: AsyncSession, magazine_id: int) -> list[IssueFile]:
+    """Get files that belong to a magazine but are not assigned to any issue."""
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(IssueFile).where(
+            IssueFile.magazine_id == magazine_id,
+            IssueFile.issue_id.is_(None),
+        )
+    )
+    return list(result.scalars().all())
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".cbr", ".cbz"}
@@ -157,19 +207,18 @@ def _rename_issue_file(issue_file: "IssueFile", new_filename: str) -> None:
         raise ValueError(f"Unsupported extension: {ext}")
 
     old_path = Path(issue_file.path)
-    if not old_path.exists():
-        raise ValueError("Source file not found on disk")
-
     new_path = old_path.parent / new_filename
-    if new_path.exists() and new_path != old_path:
-        raise ValueError("A file with that name already exists")
 
-    old_path.rename(new_path)
+    if old_path.exists():
+        if new_path.exists() and new_path != old_path:
+            raise ValueError("A file with that name already exists")
+        old_path.rename(new_path)
 
-    # Update DB fields
+    # Update DB fields regardless of whether the file exists on disk
     old_relative = Path(issue_file.relative_path)
     issue_file.path = str(new_path)
     issue_file.relative_path = str(old_relative.parent / new_filename)
+    issue_file.original_filename = new_filename
 
 
 async def delete_issue_file(
@@ -369,6 +418,7 @@ async def scan_magazine_folder(
 
             issue_file = IssueFile(
                 issue_id=issue.id,
+                magazine_id=issue.magazine_id,
                 path=str(file_path),
                 relative_path=str(file_path.relative_to(root_path)),
                 size=file_path.stat().st_size,

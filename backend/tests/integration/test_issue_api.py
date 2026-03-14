@@ -51,6 +51,7 @@ async def seed_data(test_session: AsyncSession):
     # Add a file to issue 1
     issue_file = IssueFile(
         issue_id=issues[0].id,
+        magazine_id=magazine.id,
         path="/magazines/Science et Vie/SEV-1281.pdf",
         relative_path="Science et Vie/SEV-1281.pdf",
         size=52_000_000,

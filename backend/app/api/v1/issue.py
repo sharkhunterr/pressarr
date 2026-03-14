@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
 from app.schemas.issue import (
+    FileAssignRequest,
     IssueBatchMonitorRequest,
     IssueReassignRequest,
+    IssueFileResource,
     IssueResource,
     IssueUpdateRequest,
 )
@@ -66,6 +68,36 @@ async def batch_monitor(
     return updated
 
 
+# Static routes MUST be declared before /{issue_id} routes
+@router.get("/unassigned-files", response_model=list[IssueFileResource])
+async def list_unassigned_files(
+    magazine_id: int = Query(..., alias="magazineId"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List files that belong to a magazine but are not assigned to any issue."""
+    return await issue_service.get_unassigned_files(db, magazine_id)
+
+
+@router.put("/assign-file", response_model=IssueResource)
+async def assign_file_to_issue(
+    body: FileAssignRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign an unassigned file to an issue."""
+    try:
+        target = await issue_service.assign_file_to_issue(
+            db, body.file_id, body.target_issue_id
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "not found" in msg:
+            raise HTTPException(404, msg)
+        if "already" in msg:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
+    return target
+
+
 @router.get("/{issue_id}", response_model=IssueResource)
 async def get_issue(
     issue_id: int,
@@ -112,13 +144,13 @@ async def update_issue(
     return issue
 
 
-@router.put("/{issue_id}/reassign", response_model=IssueResource)
+@router.put("/{issue_id}/reassign")
 async def reassign_issue_file(
     issue_id: int,
     body: IssueReassignRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a file from one issue to another."""
+    """Move a file from one issue to another, or unassign it."""
     try:
         source, target = await issue_service.reassign_issue_file(
             db, issue_id, body.target_issue_id
@@ -130,7 +162,9 @@ async def reassign_issue_file(
         if "already has" in msg:
             raise HTTPException(409, msg)
         raise HTTPException(400, msg)
-    return target
+    if target:
+        return target
+    return source
 
 
 @router.delete("/{issue_id}")

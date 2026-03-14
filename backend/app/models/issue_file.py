@@ -12,8 +12,11 @@ class IssueFile(Base):
     __tablename__ = "issue_file"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    issue_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("issue.id", ondelete="CASCADE"), nullable=False, unique=True
+    issue_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("issue.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    magazine_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("magazine.id", ondelete="CASCADE"), nullable=False
     )
     path: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)
     relative_path: Mapped[str] = mapped_column(String(1000), nullable=False)
@@ -27,4 +30,5 @@ class IssueFile(Base):
         DateTime, nullable=False, server_default=func.now()
     )
 
-    issue: Mapped["Issue"] = relationship(back_populates="file")
+    issue: Mapped["Issue | None"] = relationship(back_populates="file")
+    magazine: Mapped["Magazine"] = relationship()

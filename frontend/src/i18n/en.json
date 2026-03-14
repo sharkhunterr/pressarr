@@ -161,6 +161,8 @@
     "fileManagerSaved": "Changes saved successfully.",
     "fileManagerIssueHasFile": "Has a file",
     "fileManagerNoIssue": "No issue",
+    "fileManagerMismatch": "Mismatch",
+    "fileManagerNone": "— No issue —",
     "searchPlaceholder": "Search for a magazine...",
     "manualSearchHint": "Enter a search query and click Search to find results.",
     "tabAnnasArchive": "Anna's Archive",

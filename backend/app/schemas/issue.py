@@ -57,6 +57,11 @@ class IssueUpdateRequest(CamelModel):
 
 
 class IssueReassignRequest(CamelModel):
+    target_issue_id: int | None = None
+
+
+class FileAssignRequest(CamelModel):
+    file_id: int
     target_issue_id: int
 
 

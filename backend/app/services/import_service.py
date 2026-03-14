@@ -548,6 +548,7 @@ async def process_downloaded_file(
     # 8. Create IssueFile record
     issue_file = IssueFile(
         issue_id=issue.id,
+        magazine_id=issue.magazine_id,
         path=str(dest),
         relative_path=str(dest.relative_to(library_path)),
         size=dest.stat().st_size,
@@ -759,6 +760,7 @@ async def import_file_for_issue(
     # 7. Create IssueFile record
     issue_file = IssueFile(
         issue_id=issue.id,
+        magazine_id=issue.magazine_id,
         path=str(dest),
         relative_path=str(dest.relative_to(library_path)),
         size=dest.stat().st_size,
