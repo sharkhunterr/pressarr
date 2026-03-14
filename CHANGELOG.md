@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.43](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.42...v0.1.43) (2026-03-14)
+
+
+### Features
+
+* add file manager modal and fix forecast auto-increment ([04623cd](https://github.com/sharkhunterr/pressarr/-/commit/04623cdb4adddde76547fb4a1b284873db857974))
+* enhance file manager with unassign, mismatch indicator, and remove rename button ([fd9d58a](https://github.com/sharkhunterr/pressarr/-/commit/fd9d58a82e93dd858edc69c7fb85c43d652829b7))
+
 ### [0.1.42](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.41...v0.1.42) (2026-03-13)
 
 
