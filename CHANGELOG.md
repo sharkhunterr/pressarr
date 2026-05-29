@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.45](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.44...v0.1.45) (2026-05-29)
+
+
+### Bug Fixes
+
+* **history:** structured error events for RSS / import failures ([8f5dfcd](https://github.com/sharkhunterr/pressarr/-/commit/8f5dfcd6b8ddc8c87cb832c6c42b542a632219dc))
+* **magazine:** pattern + rule edit + convert pattern to exclude rule ([fadd682](https://github.com/sharkhunterr/pressarr/-/commit/fadd6822b659bf53680461b6bcee0dbcf23f9683))
+* **parser:** trust torznab language attr over filename heuristic ([3441d97](https://github.com/sharkhunterr/pressarr/-/commit/3441d97301bafc5dccd7b9f97b04be9fd8b74f70))
+* **qbittorrent:** handle 204 auth + extract hash on add_torrent ([de378de](https://github.com/sharkhunterr/pressarr/-/commit/de378deebf69a99db7b8c3961cd7b63c5725460f))
+
 ### [0.1.44](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.43...v0.1.44) (2026-03-14)
 
 
