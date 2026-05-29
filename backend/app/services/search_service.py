@@ -10,7 +10,38 @@ from sqlalchemy.orm import selectinload
 from app.models.issue import Issue
 from app.models.magazine import Magazine
 from app.models.quality_profile import QualityProfileItem
-from app.parser.magazine_parser import fuzzy_match_title, parse_magazine_filename
+from app.parser.magazine_parser import (
+    _LANGUAGE_MAP,
+    fuzzy_match_title,
+    parse_magazine_filename,
+)
+
+
+def _resolve_language(raw_language: str | None, parsed_language: str) -> str:
+    """Trust the indexer's torznab ``language`` attr over filename parsing.
+
+    The filename regex matches ``\\bde\\b`` as a standalone word and
+    French titles like "60 Millions de Consommateurs" or "Tribune de
+    Genève" trip it into ``german``. The torznab attr (when present)
+    is the indexer's authoritative tag — Grabarr ships ``fr`` for
+    every Bookys hit, so the right thing is to honour it.
+
+    Order:
+      1. ``raw.language`` from Prowlarr (mapped through ``_LANGUAGE_MAP``
+         so "fr" / "FR" / "french" / "French" / "fr-FR" all collapse
+         to ``french``). Returned when present + recognised.
+      2. ``parsed.language`` (filename heuristic) when it actually
+         resolved (``!= "unknown"``).
+      3. ``"unknown"``.
+    """
+    if raw_language:
+        key = raw_language.strip().lower()
+        mapped = _LANGUAGE_MAP.get(key)
+        if mapped:
+            return mapped
+    if parsed_language and parsed_language != "unknown":
+        return parsed_language
+    return "unknown"
 from app.schemas.search import SearchResultResource
 from app.services.history_service import create_event, is_blocklisted
 from app.services.quality_service import QUALITY_ORDER
@@ -167,11 +198,7 @@ async def search_issue(
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
-                language = (
-                    parsed.language
-                    if parsed.language != "unknown"
-                    else "unknown"
-                )
+                language = _resolve_language(raw.language, parsed.language)
 
                 blocked = await is_blocklisted(db, raw.title)
 
@@ -255,11 +282,7 @@ async def search_free(
             for raw in raw_results:
                 parsed = parse_magazine_filename(raw.title)
                 quality = parsed.quality if parsed.quality != "unknown" else "unknown"
-                language = (
-                    parsed.language
-                    if parsed.language != "unknown"
-                    else "unknown"
-                )
+                language = _resolve_language(raw.language, parsed.language)
 
                 blocked = await is_blocklisted(db, raw.title)
 

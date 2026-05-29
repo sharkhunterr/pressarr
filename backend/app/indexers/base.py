@@ -19,6 +19,13 @@ class RawSearchResult:
     info_url: str | None = None
     publish_date: str | None = None  # ISO datetime from Prowlarr
     categories: list[int] | None = field(default=None)
+    # Language code or name as advertised by the indexer's torznab
+    # ``<torznab:attr name="language">``. Trusted over filename
+    # parsing in the search service — a French magazine titled
+    # "60 Millions de Consommateurs" otherwise gets misclassified
+    # as German because the parser's regex matches the bare word
+    # "de" (= "of" in French).
+    language: str | None = None
 
 
 class IndexerBase(ABC):

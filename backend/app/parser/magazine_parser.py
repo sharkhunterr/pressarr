@@ -168,10 +168,36 @@ _RE_QUALITY = re.compile(
     re.IGNORECASE,
 )
 
-# Language keywords pattern
-_LANG_KEYWORDS = sorted(_LANGUAGE_MAP.keys(), key=len, reverse=True)
+# Language keywords pattern.
+#
+# Long-form names ("french", "german", …) match as plain words.
+# Two-letter codes ("fr", "de", "en", "es", "it") MUST sit inside
+# brackets / parens or follow a ``lang:`` / ``language:`` prefix —
+# otherwise the regex matches the French preposition "de" in
+# "60 Millions de Consommateurs" and tags it as German. Same
+# rationale for "en" (= "in" in French), "it" (English pronoun),
+# "es" (Spanish verb form).
+#
+# Both groups feed the same `.group(1)` slot so the caller's
+# ``_LANGUAGE_MAP[match.group(1).lower()]`` lookup keeps working
+# unchanged — we use a non-capturing wrapper around the alternation.
+_LONG_LANG_KEYWORDS = sorted(
+    (k for k in _LANGUAGE_MAP if len(k) > 2), key=len, reverse=True
+)
+_SHORT_LANG_KEYWORDS = sorted(
+    (k for k in _LANGUAGE_MAP if len(k) == 2), key=len, reverse=True
+)
 _RE_LANGUAGE = re.compile(
-    r"\b(" + "|".join(re.escape(k) for k in _LANG_KEYWORDS) + r")\b",
+    r"(?:"
+    # 1) Long names anywhere — unambiguous.
+    r"\b(" + "|".join(re.escape(k) for k in _LONG_LANG_KEYWORDS) + r")\b"
+    r"|"
+    # 2) Short codes only when bracketed / parenthesised /
+    #    prefixed with ``lang:`` / ``language:``.
+    r"(?:[\[\(]|\blang(?:uage)?\s*[:=]\s*)"
+    r"(" + "|".join(re.escape(k) for k in _SHORT_LANG_KEYWORDS) + r")"
+    r"(?=[\]\)\s,;.]|$)"
+    r")",
     re.IGNORECASE,
 )
 
@@ -298,7 +324,11 @@ def parse_magazine_filename(filename: str) -> ParseResult:
         #    Process on a working copy; search from longest keyword first.
         working, l_match = _consume(working, _RE_LANGUAGE)
         if l_match:
-            result.language = _LANGUAGE_MAP[l_match.group(1).lower()]
+            # Either group 1 (long form) or group 2 (short code) was
+            # captured — never both, never neither.
+            keyword = (l_match.group(1) or l_match.group(2) or "").lower()
+            if keyword in _LANGUAGE_MAP:
+                result.language = _LANGUAGE_MAP[keyword]
 
         # 6. Extract hors-serie markers
         working, s_match = _consume(working, _RE_SPECIAL)

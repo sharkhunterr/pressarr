@@ -94,6 +94,19 @@ class ProwlarrClient(IndexerBase):
         else:
             indexer_name = data.get("indexer", "unknown")
 
+        # Prowlarr surfaces the torznab ``<attr name="language">`` via
+        # a top-level ``language`` field (when the indexer ships one).
+        # Some indexers return a ``languages`` list, others a single
+        # string like "French" / "fr" / "en-US". Normalise here so
+        # the search service gets a single lowercase code/name; the
+        # parser's ``_LANGUAGE_MAP`` does the rest.
+        raw_lang = data.get("language") or (data.get("languages") or [None])[0]
+        language: str | None = None
+        if isinstance(raw_lang, dict):
+            raw_lang = raw_lang.get("name") or raw_lang.get("value")
+        if isinstance(raw_lang, str) and raw_lang.strip():
+            language = raw_lang.strip().lower().split("-", 1)[0]
+
         return RawSearchResult(
             guid=data.get("guid", ""),
             title=data.get("title", ""),
@@ -110,6 +123,7 @@ class ProwlarrClient(IndexerBase):
                 for c in data.get("categories", [])
                 if isinstance(c, dict)
             ],
+            language=language,
         )
 
     async def close(self):
