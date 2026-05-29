@@ -195,7 +195,84 @@ function renderEventDetails(
             {data.grabbed_count !== undefined && (
               <DetailRow label={t('historyDetail.grabbedCount')} value={data.grabbed_count as number} />
             )}
+            {/* RSS skip breakdown — only show counters > 0 so a clean
+                run stays uncluttered. Together they explain "why 0
+                grabbed?" instead of leaving the user guessing. */}
+            {typeof data.unmatched_count === 'number' && data.unmatched_count > 0 && (
+              <DetailRow label={t('historyDetail.unmatchedCount')} value={data.unmatched_count} />
+            )}
+            {typeof data.no_url_count === 'number' && data.no_url_count > 0 && (
+              <DetailRow label={t('historyDetail.noUrlCount')} value={data.no_url_count} />
+            )}
+            {typeof data.blocklisted_count === 'number' && data.blocklisted_count > 0 && (
+              <DetailRow label={t('historyDetail.blocklistedCount')} value={data.blocklisted_count} />
+            )}
+            {typeof data.grab_failed_count === 'number' && data.grab_failed_count > 0 && (
+              <DetailRow label={t('historyDetail.grabFailedCount')} value={data.grab_failed_count} />
+            )}
           </div>
+
+          {/* Per-indexer / per-item errors — surfaced for RSS sync
+              runs where one or more indexers failed or a grab raised. */}
+          {Array.isArray(data.errors) && (data.errors as Array<{indexer: string; stage: string; title?: string; error: string}>).length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-red-400 uppercase tracking-wide mb-2">
+                {t('historyDetail.errors')}
+              </h4>
+              <div className="rounded border border-red-900/50 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-red-950/30 text-red-400">
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.indexer')}</th>
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.stage')}</th>
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.releaseTitle')}</th>
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.error')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.errors as Array<{indexer: string; stage: string; title?: string; error: string}>).map((e, i) => (
+                      <tr key={i} className="border-t border-red-900/30 hover:bg-red-950/20">
+                        <td className="px-2 py-1.5 text-zinc-200">{e.indexer}</td>
+                        <td className="px-2 py-1.5 text-zinc-400">{e.stage}</td>
+                        <td className="px-2 py-1.5 text-zinc-400 max-w-[180px] truncate" title={e.title}>{e.title ?? '-'}</td>
+                        <td className="px-2 py-1.5 text-red-300 max-w-[260px] truncate" title={e.error}>{e.error}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Sample of un-grabbed items so the user can sanity-check
+              why their RSS feed isn't translating to grabs. */}
+          {Array.isArray(data.skipped_samples) && (data.skipped_samples as Array<{title: string; reason: string; indexer?: string; magazine?: string}>).length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">
+                {t('historyDetail.skippedSamples')}
+              </h4>
+              <div className="rounded border border-zinc-800 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-zinc-900/50 text-zinc-500">
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.releaseTitle')}</th>
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.indexer')}</th>
+                      <th className="text-left px-2 py-1.5 font-medium">{t('historyDetail.reason')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.skipped_samples as Array<{title: string; reason: string; indexer?: string; magazine?: string}>).map((s, i) => (
+                      <tr key={i} className="border-t border-zinc-800/50 hover:bg-zinc-900/30">
+                        <td className="px-2 py-1.5 text-zinc-200 max-w-[260px] truncate" title={s.title}>{s.title}</td>
+                        <td className="px-2 py-1.5 text-zinc-400">{s.indexer ?? '-'}</td>
+                        <td className="px-2 py-1.5 text-zinc-400">{t(`historyDetail.skipReason_${s.reason}`, s.reason)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Top search results table */}
           {Array.isArray(data.top_results) && (data.top_results as SearchResult[]).length > 0 && (

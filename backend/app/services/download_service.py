@@ -750,6 +750,11 @@ async def _try_import_item(
         item.save_path, remote_path, local_path,
     )
 
+    # Resolve grab info for history events
+    grab = _grab_registry.get(item.download_id) if item.download_id else None
+    hist_magazine_id = override_magazine_id or (grab.magazine_id if grab else None)
+    hist_issue_id = override_issue_id or (grab.issue_id if grab else None)
+
     if not save_path:
         # Track consecutive failures — log WARNING only the first few times,
         # then switch to DEBUG to avoid spamming the log every 30 seconds.
@@ -761,6 +766,23 @@ async def _try_import_item(
                 "Monitor: giving up on download %s after %d failed path resolutions. "
                 "Check volume mounts or Remote Path Mapping.",
                 item.download_id, fail_count,
+            )
+            mapped = _apply_path_mapping(item.save_path, remote_path, local_path)
+            expected = f"{mapped}/{item.name}" if item.name else mapped
+            await create_event(
+                db, "error",
+                magazine_id=hist_magazine_id,
+                issue_id=hist_issue_id,
+                details=f"Import failed: file not accessible after {fail_count} attempts",
+                data={
+                    "error": "path_not_found",
+                    "download_id": item.download_id,
+                    "download_name": item.name,
+                    "expected_path": expected,
+                    "remote_path": remote_path,
+                    "local_path": local_path,
+                    "attempts": fail_count,
+                },
             )
             _processed_downloads.add(item.download_id)
             _import_fail_count.pop(item.download_id, None)
@@ -789,6 +811,18 @@ async def _try_import_item(
 
     if not files:
         logger.warning("Monitor: no supported files found in %s", save_path)
+        await create_event(
+            db, "error",
+            magazine_id=hist_magazine_id,
+            issue_id=hist_issue_id,
+            details="Import failed: no supported files in download",
+            data={
+                "error": "no_supported_files",
+                "download_id": item.download_id,
+                "download_name": item.name,
+                "path": str(save_path),
+            },
+        )
         # Mark as processed so we don't retry every 30 seconds
         if item.download_id:
             _processed_downloads.add(item.download_id)
@@ -842,6 +876,19 @@ async def _try_import_item(
             logger.warning(
                 "Monitor: giving up on download %s after %d failed import attempts: %s",
                 item.download_id, fail_count, last_result.get("message", "unknown"),
+            )
+            await create_event(
+                db, "error",
+                magazine_id=hist_magazine_id,
+                issue_id=hist_issue_id,
+                details=f"Import failed: {last_result.get('message', 'unknown reason')}",
+                data={
+                    "error": "import_failed",
+                    "download_id": item.download_id,
+                    "download_name": item.name,
+                    "reason": last_result.get("message", "unknown"),
+                    "attempts": fail_count,
+                },
             )
             _processed_downloads.add(item.download_id)
             _import_fail_count.pop(item.download_id, None)

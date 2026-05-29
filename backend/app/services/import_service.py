@@ -279,6 +279,17 @@ async def process_downloaded_file(
 
     supported = {".pdf", ".epub", ".cbr", ".cbz"}
     if file_path.suffix.lower() not in supported:
+        await create_event(
+            db, "error",
+            magazine_id=magazine_id,
+            issue_id=issue_id,
+            details=f"Import failed: unsupported format {file_path.suffix}",
+            data={
+                "error": "unsupported_format",
+                "filename": file_path.name,
+                "format": file_path.suffix,
+            },
+        )
         return {"success": False, "issue_id": None, "message": "Unsupported file format"}
 
     # 1. Parse filename
