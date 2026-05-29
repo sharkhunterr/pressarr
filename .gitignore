@@ -41,6 +41,13 @@ Thumbs.db
 **/config/logs/
 .dev-config/
 .dev-magazines/
+# Per-operator runtime data created by the docker-compose stack
+# (DB + registry JSONs + cover cache + magazine library). Never
+# source — keeping them out of git so release scripts see a
+# clean working tree.
+/config/
+/data/
+docker-compose.override.yml
 
 # Build artifacts
 *.tsbuildinfo
