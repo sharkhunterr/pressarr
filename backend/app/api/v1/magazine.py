@@ -11,16 +11,18 @@ from app.schemas.magazine import (
     MagazineCreateResource,
     MagazinePatternCreateResource,
     MagazinePatternResource,
+    MagazinePatternUpdateResource,
     MagazineResource,
     MagazineRuleCreateResource,
     MagazineRuleResource,
+    MagazineRuleUpdateResource,
     MagazineStatistics,
     MagazineUpdateResource,
     MetadataSearchResult,
 )
-from app.services.smart_matcher import invalidate_pattern_cache
 from app.services import magazine_service
 from app.services.command_service import execute_command, register_command
+from app.services.smart_matcher import invalidate_pattern_cache
 
 router = APIRouter(prefix="/api/v1/magazine", tags=["Magazines"])
 
@@ -331,6 +333,27 @@ async def add_pattern(
     return MagazinePatternResource.model_validate(pattern)
 
 
+@router.put(
+    "/{magazine_id}/pattern/{pattern_id}",
+    response_model=MagazinePatternResource,
+)
+async def update_pattern(
+    magazine_id: int,
+    pattern_id: int,
+    body: MagazinePatternUpdateResource,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a naming pattern."""
+    pattern = await magazine_service.update_magazine_pattern(
+        db, pattern_id, body.model_dump(exclude_none=True)
+    )
+    if pattern is None:
+        raise HTTPException(404, "Pattern not found")
+    await db.commit()
+    invalidate_pattern_cache(magazine_id)
+    return MagazinePatternResource.model_validate(pattern)
+
+
 @router.delete("/{magazine_id}/pattern/{pattern_id}", status_code=204)
 async def delete_pattern(
     magazine_id: int,
@@ -342,6 +365,54 @@ async def delete_pattern(
         raise HTTPException(404, "Pattern not found")
     await db.commit()
     invalidate_pattern_cache(magazine_id)
+
+
+@router.post(
+    "/{magazine_id}/pattern/{pattern_id}/to-exclude-rule",
+    response_model=MagazineRuleResource,
+)
+async def convert_pattern_to_exclude_rule(
+    magazine_id: int,
+    pattern_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Convert a pattern to an exclude rule (template-based regex) and delete it."""
+    import re as re_mod
+
+    from app.parser.magazine_parser import parse_magazine_filename
+    from app.services.smart_matcher import extract_naming_pattern
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+
+    pattern_obj = await magazine_service.get_magazine_pattern(db, pattern_id)
+    if pattern_obj is None:
+        raise HTTPException(404, "Pattern not found")
+
+    # Convert pattern text → template → regex
+    parsed = parse_magazine_filename(pattern_obj.pattern)
+    template = extract_naming_pattern(pattern_obj.pattern, parsed)
+
+    if template:
+        # Build regex from template (same logic as match_against_pattern)
+        regex_str = re_mod.escape(template)
+        regex_str = regex_str.replace(re_mod.escape("{number}"), r"\d+")
+        regex_str = regex_str.replace(re_mod.escape("{year}"), r"\d{4}")
+        regex_str = regex_str.replace(re_mod.escape("{month}"), r"\d{1,2}")
+        regex_str = regex_str.replace(re_mod.escape("{day}"), r"\d{1,2}")
+    else:
+        # No template extraction possible — use escaped literal
+        regex_str = re_mod.escape(pattern_obj.pattern)
+
+    # Create exclude rule + delete pattern
+    rule = await magazine_service.add_magazine_rule(
+        db, magazine_id, {"rule_type": "exclude", "pattern": regex_str}
+    )
+    await magazine_service.delete_magazine_pattern(db, pattern_id)
+    await db.commit()
+    invalidate_pattern_cache(magazine_id)
+    return MagazineRuleResource.model_validate(rule)
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +437,26 @@ async def add_rule(
     rule = await magazine_service.add_magazine_rule(
         db, magazine_id, body.model_dump()
     )
+    await db.commit()
+    return MagazineRuleResource.model_validate(rule)
+
+
+@router.put(
+    "/{magazine_id}/rule/{rule_id}",
+    response_model=MagazineRuleResource,
+)
+async def update_rule(
+    magazine_id: int,
+    rule_id: int,
+    body: MagazineRuleUpdateResource,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an include/exclude rule."""
+    rule = await magazine_service.update_magazine_rule(
+        db, rule_id, body.model_dump(exclude_none=True)
+    )
+    if rule is None:
+        raise HTTPException(404, "Rule not found")
     await db.commit()
     return MagazineRuleResource.model_validate(rule)
 

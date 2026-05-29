@@ -513,6 +513,29 @@ async def add_magazine_pattern(
     return pattern
 
 
+async def get_magazine_pattern(db: AsyncSession, pattern_id: int) -> MagazinePattern | None:
+    result = await db.execute(
+        select(MagazinePattern).where(MagazinePattern.id == pattern_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_magazine_pattern(
+    db: AsyncSession, pattern_id: int, data: dict
+) -> MagazinePattern | None:
+    result = await db.execute(
+        select(MagazinePattern).where(MagazinePattern.id == pattern_id)
+    )
+    pattern = result.scalar_one_or_none()
+    if pattern is None:
+        return None
+    for key in ("pattern", "source", "uploader"):
+        if key in data and data[key] is not None:
+            setattr(pattern, key, data[key])
+    await db.flush()
+    return pattern
+
+
 async def delete_magazine_pattern(db: AsyncSession, pattern_id: int) -> bool:
     result = await db.execute(
         select(MagazinePattern).where(MagazinePattern.id == pattern_id)
@@ -567,6 +590,23 @@ async def add_magazine_rule(
         pattern=data["pattern"],
     )
     db.add(rule)
+    await db.flush()
+    return rule
+
+
+async def update_magazine_rule(
+    db: AsyncSession, rule_id: int, data: dict
+) -> MagazineRule | None:
+    result = await db.execute(
+        select(MagazineRule).where(MagazineRule.id == rule_id)
+    )
+    rule = result.scalar_one_or_none()
+    if rule is None:
+        return None
+    if "rule_type" in data and data["rule_type"] is not None:
+        rule.rule_type = data["rule_type"]
+    if "pattern" in data and data["pattern"] is not None:
+        rule.pattern = data["pattern"]
     await db.flush()
     return rule
 

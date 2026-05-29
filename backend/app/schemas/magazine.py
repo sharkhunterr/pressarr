@@ -38,9 +38,20 @@ class MagazineRuleResource(CamelModel):
     pattern: str
 
 
+class MagazinePatternUpdateResource(CamelModel):
+    pattern: str | None = None
+    source: str | None = None
+    uploader: str | None = None
+
+
 class MagazineRuleCreateResource(CamelModel):
     rule_type: str
     pattern: str
+
+
+class MagazineRuleUpdateResource(CamelModel):
+    rule_type: str | None = None
+    pattern: str | None = None
 
 
 class MagazineResource(CamelModel):

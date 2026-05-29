@@ -128,13 +128,30 @@ export const addMagazinePattern = (magazineId: number, data: { pattern: string; 
     body: JSON.stringify(data),
   })
 
+export const updateMagazinePattern = (magazineId: number, patternId: number, data: { pattern?: string; source?: string; uploader?: string }) =>
+  apiFetch<MagazinePattern>(`/magazine/${magazineId}/pattern/${patternId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+
 export const deleteMagazinePattern = (magazineId: number, patternId: number) =>
   apiFetch<void>(`/magazine/${magazineId}/pattern/${patternId}`, { method: 'DELETE' })
+
+export const convertPatternToExcludeRule = (magazineId: number, patternId: number) =>
+  apiFetch<MagazineRule>(`/magazine/${magazineId}/pattern/${patternId}/to-exclude-rule`, {
+    method: 'POST',
+  })
 
 // Rule management
 export const addMagazineRule = (magazineId: number, data: { ruleType: string; pattern: string }) =>
   apiFetch<MagazineRule>(`/magazine/${magazineId}/rule`, {
     method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+export const updateMagazineRule = (magazineId: number, ruleId: number, data: { ruleType?: string; pattern?: string }) =>
+  apiFetch<MagazineRule>(`/magazine/${magazineId}/rule/${ruleId}`, {
+    method: 'PUT',
     body: JSON.stringify(data),
   })
 

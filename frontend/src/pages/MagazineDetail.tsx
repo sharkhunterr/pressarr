@@ -23,6 +23,7 @@ import {
   X,
   Check,
   FolderOpen,
+  Ban,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -34,8 +35,11 @@ import {
   deleteMagazine,
   refreshMetadata,
   addMagazinePattern,
+  updateMagazinePattern,
   deleteMagazinePattern,
+  convertPatternToExcludeRule,
   addMagazineRule,
+  updateMagazineRule,
   deleteMagazineRule,
   type Magazine,
 } from '@/api/magazines'
@@ -2290,6 +2294,10 @@ function MagazinePatternsTab({ magazine, magazineId }: { magazine: Magazine; mag
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
+  // Inline edit state for patterns
+  const [editingPatternId, setEditingPatternId] = useState<number | null>(null)
+  const [editPatternValue, setEditPatternValue] = useState('')
+
   // Search state
   const [query, setQuery] = useState(magazine.title || '')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -2357,6 +2365,28 @@ function MagazinePatternsTab({ magazine, magazineId }: { magazine: Magazine; mag
     }
   }
 
+  async function handleConvertToBanRule(pattern: { id: number }) {
+    try {
+      await convertPatternToExcludeRule(magazineId, pattern.id)
+      toast.success(t('magazineDetail.patternConvertedToBan'))
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.patternConvertToBanError'))
+    }
+  }
+
+  async function handleSavePatternEdit(patternId: number) {
+    if (!editPatternValue.trim()) return
+    try {
+      await updateMagazinePattern(magazineId, patternId, { pattern: editPatternValue.trim() })
+      toast.success(t('magazineDetail.patternUpdated'))
+      setEditingPatternId(null)
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.patternUpdateError'))
+    }
+  }
+
   const sources = [...new Set(results.map((r) => r.source || r.indexer).filter(Boolean))]
   const bySource = sourceFilter
     ? results.filter((r) => (r.source || r.indexer) === sourceFilter)
@@ -2381,14 +2411,35 @@ function MagazinePatternsTab({ magazine, magazineId }: { magazine: Magazine; mag
                 <TableHead className="text-zinc-400 w-32">{t('magazineDetail.source')}</TableHead>
                 <TableHead className="text-zinc-400 w-32">{t('magazineDetail.uploader')}</TableHead>
                 <TableHead className="text-zinc-400 w-36">{t('history.date')}</TableHead>
-                <TableHead className="text-zinc-400 w-12" />
+                <TableHead className="text-zinc-400 w-20" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {magazine.patterns.map((p) => (
                 <TableRow key={p.id} className="border-zinc-800">
                   <TableCell className="text-zinc-100 text-sm">
-                    <span className="line-clamp-2">{p.pattern}</span>
+                    {editingPatternId === p.id ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={editPatternValue}
+                          onChange={(e) => setEditPatternValue(e.target.value)}
+                          className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-8"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSavePatternEdit(p.id)
+                            if (e.key === 'Escape') setEditingPatternId(null)
+                          }}
+                          autoFocus
+                        />
+                        <button type="button" onClick={() => handleSavePatternEdit(p.id)} className="p-1 text-zinc-500 hover:text-green-400">
+                          <Check className="size-4" />
+                        </button>
+                        <button type="button" onClick={() => setEditingPatternId(null)} className="p-1 text-zinc-500 hover:text-zinc-300">
+                          <X className="size-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="line-clamp-2">{p.pattern}</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-zinc-400 text-sm">{p.source || '-'}</TableCell>
                   <TableCell className="text-zinc-400 text-sm">{p.uploader || '-'}</TableCell>
@@ -2396,13 +2447,32 @@ function MagazinePatternsTab({ magazine, magazineId }: { magazine: Magazine; mag
                     {new Date(p.lastSeenAt).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(p.id)}
-                      className="p-1 text-zinc-500 hover:text-red-400"
-                    >
-                      <X className="size-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => { setEditingPatternId(p.id); setEditPatternValue(p.pattern) }}
+                        className="p-1 text-zinc-500 hover:text-zinc-300"
+                        title={t('common.edit')}
+                      >
+                        <Pencil className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleConvertToBanRule(p)}
+                        className="p-1 text-zinc-500 hover:text-amber-400"
+                        title={t('magazineDetail.convertToBanRule')}
+                      >
+                        <Ban className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(p.id)}
+                        className="p-1 text-zinc-500 hover:text-red-400"
+                        title={t('common.delete')}
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -2615,6 +2685,11 @@ function MagazineRulesTab({ magazine, magazineId }: { magazine: Magazine; magazi
   const [ruleType, setRuleType] = useState<string>('exclude')
   const [rulePattern, setRulePattern] = useState('')
 
+  // Inline edit state
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null)
+  const [editRuleType, setEditRuleType] = useState<string>('exclude')
+  const [editRulePattern, setEditRulePattern] = useState('')
+
   async function handleAdd() {
     if (!rulePattern.trim()) return
     try {
@@ -2628,6 +2703,21 @@ function MagazineRulesTab({ magazine, magazineId }: { magazine: Magazine; magazi
       queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
     } catch {
       toast.error(t('magazineDetail.ruleAddError'))
+    }
+  }
+
+  async function handleSaveRuleEdit(ruleId: number) {
+    if (!editRulePattern.trim()) return
+    try {
+      await updateMagazineRule(magazineId, ruleId, {
+        ruleType: editRuleType,
+        pattern: editRulePattern.trim(),
+      })
+      toast.success(t('magazineDetail.ruleUpdated'))
+      setEditingRuleId(null)
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+    } catch {
+      toast.error(t('magazineDetail.ruleUpdateError'))
     }
   }
 
@@ -2659,26 +2749,77 @@ function MagazineRulesTab({ magazine, magazineId }: { magazine: Magazine; magazi
             <TableRow className="border-zinc-800 hover:bg-transparent">
               <TableHead className="text-zinc-400 w-24">{t('magazineDetail.ruleType')}</TableHead>
               <TableHead className="text-zinc-400">{t('magazineDetail.rulePattern')}</TableHead>
-              <TableHead className="text-zinc-400 w-12" />
+              <TableHead className="text-zinc-400 w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {magazine.rules.map((r) => (
               <TableRow key={r.id} className="border-zinc-800">
                 <TableCell>
-                  <Badge variant={r.ruleType === 'include' ? 'default' : 'destructive'} className={r.ruleType === 'include' ? 'bg-green-700' : ''}>
-                    {t(`magazineDetail.${r.ruleType}`)}
-                  </Badge>
+                  {editingRuleId === r.id ? (
+                    <Select value={editRuleType} onValueChange={setEditRuleType}>
+                      <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 h-8 w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="include">{t('magazineDetail.include')}</SelectItem>
+                        <SelectItem value="exclude">{t('magazineDetail.exclude')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge variant={r.ruleType === 'include' ? 'default' : 'destructive'} className={r.ruleType === 'include' ? 'bg-green-700' : ''}>
+                      {t(`magazineDetail.${r.ruleType}`)}
+                    </Badge>
+                  )}
                 </TableCell>
-                <TableCell className="text-zinc-100 text-sm font-mono">{r.pattern}</TableCell>
+                <TableCell className="text-zinc-100 text-sm font-mono">
+                  {editingRuleId === r.id ? (
+                    <Input
+                      value={editRulePattern}
+                      onChange={(e) => setEditRulePattern(e.target.value)}
+                      className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm font-mono h-8"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveRuleEdit(r.id)
+                        if (e.key === 'Escape') setEditingRuleId(null)
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    r.pattern
+                  )}
+                </TableCell>
                 <TableCell>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(r.id)}
-                    className="p-1 text-zinc-500 hover:text-red-400"
-                  >
-                    <X className="size-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {editingRuleId === r.id ? (
+                      <>
+                        <button type="button" onClick={() => handleSaveRuleEdit(r.id)} className="p-1 text-zinc-500 hover:text-green-400">
+                          <Check className="size-4" />
+                        </button>
+                        <button type="button" onClick={() => setEditingRuleId(null)} className="p-1 text-zinc-500 hover:text-zinc-300">
+                          <X className="size-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => { setEditingRuleId(r.id); setEditRuleType(r.ruleType); setEditRulePattern(r.pattern) }}
+                          className="p-1 text-zinc-500 hover:text-zinc-300"
+                          title={t('common.edit')}
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(r.id)}
+                          className="p-1 text-zinc-500 hover:text-red-400"
+                          title={t('common.delete')}
+                        >
+                          <X className="size-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
