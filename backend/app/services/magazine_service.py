@@ -15,7 +15,11 @@ from app.models.issue import Issue
 from app.models.magazine import Magazine
 from app.models.magazine_pattern import MagazinePattern
 from app.models.magazine_rule import MagazineRule
-from app.schemas.magazine import MetadataSearchResult, SourceInfo
+from app.schemas.magazine import (
+    MagazineIdentitySchema,
+    MetadataSearchResult,
+    SourceInfo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -250,26 +254,44 @@ async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:
 
 
 async def search_metadata(
-    query: str, config, db: AsyncSession | None = None,
+    query: str,
+    config,
+    db: AsyncSession | None = None,
+    locale: str | None = None,
 ) -> list[MetadataSearchResult]:
-    """Search all metadata providers and deduplicate results."""
+    """Search every metadata source and deduplicate results.
+
+    Fan-out:
+      * ZDB + Wikidata (via ``app.metadata.cascade``) — the ISSN-first
+        primary source. Worldwide, free, no auth. Returns identities
+        with rich enrichment (cover, country, language, categories).
+      * Google Books — fallback cover provider; broad popular catalogue.
+      * Internet Archive — covers digitised back-issues that the other
+        sources don't index.
+
+    Results merge by ISSN first (canonical for the cascade output),
+    then by title slug for entries that aren't ISSN-tagged. Cascade
+    enrichment fields (language, wikidata_qid, zdb_id, …) only land
+    on the merged entry when the cascade contributed.
+    """
+    import asyncio
+
+    from app.metadata.cascade import search_cascade
     from app.metadata.google_books import GoogleBooksProvider
     from app.metadata.internet_archive import InternetArchiveProvider
 
     api_key = getattr(config, "google_books_api_key", None)
-
     google = GoogleBooksProvider(api_key=api_key)
     archive = InternetArchiveProvider()
 
-    # Search all providers concurrently
-    import asyncio
-    google_results, archive_results = await asyncio.gather(
+    cascade_results, google_results, archive_results = await asyncio.gather(
+        search_cascade(query, db=db, locale=locale),
         google.search(query),
         archive.search(query),
         return_exceptions=True,
     )
 
-    # Fetch existing library titles for already_in_library check
+    # Fetch existing library titles for already_in_library check.
     existing_slugs: set[str] = set()
     if db is not None:
         stmt = select(Magazine.title_slug)
@@ -277,76 +299,156 @@ async def search_metadata(
         existing_slugs = {row[0] for row in result.all()}
 
     all_results: list[MetadataSearchResult] = []
-    seen_slugs: dict[str, int] = {}  # slug -> index in all_results
+    by_slug: dict[str, int] = {}
+    by_issn: dict[str, int] = {}
 
-    for results in [google_results, archive_results]:
-        if isinstance(results, BaseException):
-            logger.warning("Metadata provider error: %s", results)
-            continue
-        for r in results:
-            slug = generate_title_slug(r.title)
-            source = SourceInfo(provider=r.provider, provider_id=r.provider_id)
+    def _absorb_legacy(r) -> None:
+        """Google Books + Internet Archive — legacy MetadataResult."""
+        slug = generate_title_slug(r.title)
+        source = SourceInfo(provider=r.provider, provider_id=r.provider_id)
+        idx = (by_issn.get(r.issn) if r.issn else None) or by_slug.get(slug)
+        if idx is not None:
+            existing = all_results[idx]
+            provider_source = next(
+                (s for s in existing.sources if s.provider == r.provider), None
+            )
+            if provider_source:
+                provider_source.count += 1
+            else:
+                existing.sources.append(source)
+            if not existing.cover_url and r.cover_url:
+                existing.cover_url = r.cover_url
+            if not existing.publisher and r.publisher:
+                existing.publisher = r.publisher
+            if r.description and (
+                not existing.description
+                or len(r.description) > len(existing.description)
+            ):
+                existing.description = r.description
+            if not existing.frequency and r.frequency:
+                existing.frequency = r.frequency
+            if not existing.issn and r.issn:
+                existing.issn = r.issn
+                by_issn[r.issn] = idx
+            return
+        idx = len(all_results)
+        by_slug[slug] = idx
+        if r.issn:
+            by_issn[r.issn] = idx
+        all_results.append(
+            MetadataSearchResult(
+                provider=r.provider,
+                provider_id=r.provider_id,
+                title=r.title,
+                publisher=r.publisher,
+                country=r.country,
+                description=r.description,
+                cover_url=r.cover_url,
+                issn=r.issn,
+                frequency=r.frequency,
+                already_in_library=slug in existing_slugs,
+                sources=[source],
+            )
+        )
 
-            if slug in seen_slugs:
-                # Merge into existing entry
-                existing = all_results[seen_slugs[slug]]
-                # Increment count for existing provider or add new one
-                provider_source = next(
-                    (s for s in existing.sources if s.provider == r.provider), None
-                )
-                if provider_source:
-                    provider_source.count += 1
-                else:
-                    existing.sources.append(source)
-                if not existing.cover_url and r.cover_url:
-                    existing.cover_url = r.cover_url
-                if not existing.publisher and r.publisher:
-                    existing.publisher = r.publisher
-                if r.description and (
-                    not existing.description
-                    or len(r.description) > len(existing.description)
-                ):
-                    existing.description = r.description
-                if not existing.frequency and r.frequency:
-                    existing.frequency = r.frequency
-                if not existing.issn and r.issn:
-                    existing.issn = r.issn
-                continue
-
-            seen_slugs[slug] = len(all_results)
+    # Seed first with cascade hits so legacy providers merge INTO the
+    # richer identity records (and not the other way round).
+    if isinstance(cascade_results, BaseException):
+        logger.warning("Cascade error: %s", cascade_results)
+    else:
+        for ident in cascade_results:
+            slug = generate_title_slug(ident.title)
+            idx = len(all_results)
+            by_slug[slug] = idx
+            if ident.issn:
+                by_issn[ident.issn] = idx
+            sources = [SourceInfo(provider=s, provider_id="") for s in ident.sources]
             all_results.append(
                 MetadataSearchResult(
-                    provider=r.provider,
-                    provider_id=r.provider_id,
-                    title=r.title,
-                    publisher=r.publisher,
-                    country=r.country,
-                    description=r.description,
-                    cover_url=r.cover_url,
-                    issn=r.issn,
-                    frequency=r.frequency,
+                    provider=(ident.sources[0] if ident.sources else "cascade"),
+                    provider_id=(ident.issn or ident.wikidata_qid or slug),
+                    title=ident.title,
+                    publisher=ident.publisher,
+                    country=ident.country,
+                    description=ident.description,
+                    cover_url=ident.cover_url,
+                    issn=ident.issn,
+                    frequency=ident.frequency,
                     already_in_library=slug in existing_slugs,
-                    sources=[source],
+                    sources=sources,
+                    language=ident.language,
+                    wikidata_qid=ident.wikidata_qid,
+                    zdb_id=ident.zdb_id,
+                    wikipedia_url=ident.wikipedia_url,
+                    categories=ident.categories,
+                    first_issued=ident.first_issued,
+                    ceased_at=ident.ceased_at,
                 )
             )
 
-    # Sort by relevance: exact title matches first, then prefix matches,
-    # then everything else.
+    for legacy in (google_results, archive_results):
+        if isinstance(legacy, BaseException):
+            logger.warning("Metadata provider error: %s", legacy)
+            continue
+        for r in legacy:
+            _absorb_legacy(r)
+
+    # Relevance sort: exact title → prefix → substring → other,
+    # with a bonus for cascade-enriched entries (more complete data
+    # surfaces ahead of cover-only Google Books hits at the same
+    # match level).
     query_lower = query.lower().strip()
 
-    def _relevance(item: MetadataSearchResult) -> tuple[int, str]:
+    def _relevance(item: MetadataSearchResult) -> tuple[int, int, str]:
         title_lower = item.title.lower().strip()
         if title_lower == query_lower:
-            return (0, title_lower)
-        if title_lower.startswith(query_lower):
-            return (1, title_lower)
-        if query_lower in title_lower:
-            return (2, title_lower)
-        return (3, title_lower)
+            tier = 0
+        elif title_lower.startswith(query_lower):
+            tier = 1
+        elif query_lower in title_lower:
+            tier = 2
+        else:
+            tier = 3
+        cascade_bonus = 0 if (item.wikidata_qid or item.zdb_id) else 1
+        return (tier, cascade_bonus, title_lower)
 
     all_results.sort(key=_relevance)
-
     return all_results
+
+
+async def lookup_magazine_by_issn(
+    issn: str,
+    db: AsyncSession | None = None,
+    locale: str | None = None,
+) -> MagazineIdentitySchema | None:
+    """Authoritative ISSN → ``MagazineIdentity``.
+
+    Used by the manual-add flow (operator pastes an ISSN) and by
+    allseerr's dispatcher to verify the record before promoting a
+    cascade hit to a monitored Magazine.
+    """
+    from app.metadata.cascade import lookup_issn
+
+    ident = await lookup_issn(issn, db=db, locale=locale)
+    if ident is None:
+        return None
+    return MagazineIdentitySchema(
+        title=ident.title,
+        issn=ident.issn,
+        publisher=ident.publisher,
+        country=ident.country,
+        language=ident.language,
+        frequency=ident.frequency,
+        cover_url=ident.cover_url,
+        description=ident.description,
+        first_issued=ident.first_issued,
+        ceased_at=ident.ceased_at,
+        wikidata_qid=ident.wikidata_qid,
+        zdb_id=ident.zdb_id,
+        wikipedia_url=ident.wikipedia_url,
+        categories=ident.categories,
+        sources=ident.sources,
+    )
 
 
 async def refresh_metadata(db: AsyncSession, magazine_id: int) -> str | None:

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_config, get_db
 from app.schemas.magazine import (
     MagazineCreateResource,
+    MagazineIdentitySchema,
     MagazinePatternCreateResource,
     MagazinePatternResource,
     MagazinePatternUpdateResource,
@@ -68,12 +69,50 @@ register_command("RefreshMagazine", _handle_refresh_magazine)
 @router.get("/lookup", response_model=list[MetadataSearchResult])
 async def lookup_metadata(
     query: str = Query(..., min_length=1),
+    locale: str | None = Query(
+        None,
+        min_length=2,
+        max_length=2,
+        description="ISO-3166 alpha-2 country code; biases ranking toward that country.",
+    ),
     config=Depends(get_config),
     db: AsyncSession = Depends(get_db),
 ):
-    """Search metadata providers for magazine information."""
-    results = await magazine_service.search_metadata(query, config, db=db)
-    return results
+    """Free-text search across the ISSN-first cascade + legacy providers.
+
+    Returns a deduplicated list of candidate magazines ordered by
+    title match → cascade enrichment → alphabetical. Each entry's
+    ``sources`` list shows which catalogues contributed.
+    """
+    return await magazine_service.search_metadata(
+        query, config, db=db, locale=locale
+    )
+
+
+@router.get("/identity", response_model=MagazineIdentitySchema)
+async def lookup_identity(
+    issn: str = Query(
+        ...,
+        min_length=8,
+        max_length=9,
+        description="ISSN — eight digits, optional hyphen.",
+    ),
+    locale: str | None = Query(None, min_length=2, max_length=2),
+    db: AsyncSession = Depends(get_db),
+):
+    """Authoritative ISSN lookup.
+
+    Returns the merged identity from ZDB + Wikidata (+ regional
+    providers in phase 3). 404 when no source recognises the ISSN.
+    Used by the manual-add flow and by allseerr's dispatcher to
+    enrich requests before sending them here.
+    """
+    identity = await magazine_service.lookup_magazine_by_issn(
+        issn, db=db, locale=locale
+    )
+    if identity is None:
+        raise HTTPException(status_code=404, detail="ISSN not found")
+    return identity
 
 
 @router.get("", response_model=list[MagazineResource])

@@ -139,3 +139,38 @@ class MetadataSearchResult(CamelModel):
     frequency: str | None = None
     already_in_library: bool = False
     sources: list[SourceInfo] = []
+    # ISSN-first cascade enrichment (populated by ZDB / Wikidata /
+    # BnF / LoC). Older Google Books / Internet Archive providers
+    # leave these blank — the field stays absent on the JSON wire
+    # since CamelModel drops Nones.
+    language: str | None = None
+    wikidata_qid: str | None = None
+    zdb_id: str | None = None
+    wikipedia_url: str | None = None
+    categories: list[str] = []
+    first_issued: str | None = None
+    ceased_at: str | None = None
+
+
+class MagazineIdentitySchema(CamelModel):
+    """Authoritative single-magazine identity returned by the ISSN
+    lookup endpoint. Same shape as ``MetadataSearchResult`` but
+    expresses "this IS the magazine" rather than "here's a candidate"
+    — no ``already_in_library`` flag and ``sources`` is the list of
+    provider names that contributed (not ranked candidates)."""
+
+    title: str
+    issn: str | None = None
+    publisher: str | None = None
+    country: str | None = None
+    language: str | None = None
+    frequency: str | None = None
+    cover_url: str | None = None
+    description: str | None = None
+    first_issued: str | None = None
+    ceased_at: str | None = None
+    wikidata_qid: str | None = None
+    zdb_id: str | None = None
+    wikipedia_url: str | None = None
+    categories: list[str] = []
+    sources: list[str] = []
