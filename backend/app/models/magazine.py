@@ -49,6 +49,21 @@ class Magazine(Base):
     last_metadata_refresh: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     excluded_days: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # ISSN-first cascade enrichment (populated by ZDB / Wikidata / BnF / LoC
+    # via app.metadata.cascade). All nullable — the cascade is best-effort
+    # and rarely fills everything.
+    language: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    wikidata_qid: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    zdb_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    wikipedia_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Comma-separated coarse labels: press, newspaper, scientific, sports, …
+    categories: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    first_issued: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    ceased_at: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    enrichment_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")
     issues: Mapped[list["Issue"]] = relationship(
