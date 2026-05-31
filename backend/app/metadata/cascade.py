@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.metadata.base import MetadataResult
+from app.metadata.bnf import BnfProvider
 from app.metadata.wikidata import WikidataProvider
 from app.metadata.zdb import ZdbProvider
 
@@ -113,16 +114,21 @@ async def lookup_issn(
 def _enabled_providers(
     *, db: AsyncSession | None, locale: str | None
 ) -> list[tuple[str, object]]:
-    """Build the parallel fan-out list. Phase-3 regional providers
-    will plug in here behind a locale check.
+    """Build the parallel fan-out list. Worldwide providers always
+    run; regional providers add coverage for their country when
+    ``locale`` matches (or always, for the small French press
+    catalogue where BnF outclasses both ZDB and Wikidata for a
+    title-by-title lookup).
     """
     out: list[tuple[str, object]] = [
         ("zdb", ZdbProvider(db=db)),
         ("wikidata", WikidataProvider(db=db)),
     ]
-    # Regional providers added in phase 3 — keep the locale param
-    # threaded through now so wiring them is a one-line append.
-    _ = locale
+    # BnF: French press authority. We always include it (not
+    # gated on locale) because it carries titles ZDB doesn't index
+    # at all (L'Équipe, Le Figaro under their canonical ISSN, …)
+    # — its results merge cleanly with the rest via ISSN/title.
+    out.append(("bnf", BnfProvider(db=db)))
     return out
 
 
@@ -176,18 +182,20 @@ def _merge(rows: list[tuple[str, MetadataResult]]) -> list[MagazineIdentity]:
 #
 # Title: Wikidata labels are concise and curated ("Nature"). ZDB titles
 # carry catalogue artifacts ("Nature : international weekly journal of
-# science; [Mehrjahresausgabe]"), so Wikidata wins when present.
-# Publisher / language / first_issued / ISSN: ZDB is the authoritative
-# library catalogue. Country: Wikidata has cleaner ISO-2 codes.
+# science; [Mehrjahresausgabe]"), so Wikidata wins when present, then
+# BnF (also clean), then ZDB.
+# Publisher / language / first_issued / ISSN: national libraries are
+# authoritative (BnF for FR, ZDB worldwide). Country: BnF guarantees
+# FR for its rows; Wikidata's ISO-2 codes win otherwise.
 _PRIORITY = {
-    "title": ["wikidata", "zdb"],
-    "publisher": ["zdb", "wikidata"],
-    "country": ["wikidata", "zdb"],
-    "language": ["zdb", "wikidata"],
-    "first_issued": ["zdb", "wikidata"],
-    "ceased_at": ["wikidata", "zdb"],
-    "issn": ["zdb", "wikidata"],
-    "description": ["zdb", "wikidata"],
+    "title": ["wikidata", "bnf", "zdb"],
+    "publisher": ["bnf", "zdb", "wikidata"],
+    "country": ["wikidata", "bnf", "zdb"],
+    "language": ["bnf", "zdb", "wikidata"],
+    "first_issued": ["bnf", "zdb", "wikidata"],
+    "ceased_at": ["wikidata", "bnf", "zdb"],
+    "issn": ["bnf", "zdb", "wikidata"],
+    "description": ["zdb", "wikidata", "bnf"],
 }
 
 
