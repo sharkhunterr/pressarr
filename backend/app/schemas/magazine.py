@@ -106,6 +106,18 @@ class MagazineCreateResource(CamelModel):
     metadata_provider: str | None = None
     excluded_days: list[int] | None = None
     search_for_missing_issues: bool = True
+    # ISSN-first cascade enrichment — allseerr's dispatcher forwards
+    # what its search already resolved so pressarr persists the
+    # complete identity without an extra cascade roundtrip. When
+    # absent, ``create_magazine`` back-fills these from its own
+    # cascade.lookup_issn() if an ISSN is present.
+    language: str | None = None
+    wikidata_qid: str | None = None
+    zdb_id: str | None = None
+    wikipedia_url: str | None = None
+    categories: list[str] | None = None
+    first_issued: str | None = None
+    ceased_at: str | None = None
 
 
 class MagazineUpdateResource(CamelModel):

@@ -137,11 +137,66 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         metadata_provider_id=data.get("metadata_provider_id"),
         metadata_provider=data.get("metadata_provider"),
         excluded_days=excluded_days_str,
+        # Cascade enrichment fields when caller already has them
+        # (allseerr's dispatcher forwards what its search showed).
+        language=data.get("language"),
+        wikidata_qid=data.get("wikidata_qid"),
+        zdb_id=data.get("zdb_id"),
+        wikipedia_url=data.get("wikipedia_url"),
+        categories=_categories_to_csv(data.get("categories")),
+        first_issued=data.get("first_issued"),
+        ceased_at=data.get("ceased_at"),
     )
+
+    # When the caller passed an ISSN but no cascade enrichment,
+    # back-fill from the cascade ourselves — best-effort, swallows
+    # failures so a slow/down provider never blocks magazine
+    # creation. Same enrichment shape the manual-add flow would
+    # produce when the operator pastes an ISSN directly.
+    if magazine.issn and not (
+        magazine.wikidata_qid or magazine.zdb_id or magazine.cover_path
+    ):
+        try:
+            from app.metadata.cascade import lookup_issn
+
+            ident = await lookup_issn(magazine.issn, db=db)
+            if ident is not None:
+                magazine.publisher = magazine.publisher or ident.publisher
+                magazine.country = magazine.country or ident.country
+                magazine.description = magazine.description or ident.description
+                magazine.language = magazine.language or ident.language
+                magazine.wikidata_qid = ident.wikidata_qid
+                magazine.zdb_id = ident.zdb_id
+                magazine.wikipedia_url = ident.wikipedia_url
+                magazine.first_issued = ident.first_issued
+                magazine.ceased_at = ident.ceased_at
+                if ident.categories:
+                    magazine.categories = _categories_to_csv(ident.categories)
+                magazine.enrichment_status = (
+                    "complete"
+                    if (ident.publisher and ident.country and ident.language)
+                    else "partial"
+                )
+        except Exception:
+            logger.warning(
+                "create_magazine: cascade enrichment failed for ISSN %s",
+                magazine.issn,
+                exc_info=True,
+            )
+
     db.add(magazine)
     await db.flush()
     # Re-fetch with eager-loaded relationships to avoid lazy-load errors
     return await get_magazine(db, magazine.id)  # type: ignore[return-value]
+
+
+def _categories_to_csv(value) -> str | None:
+    """Accepts list[str] (cascade) or str (already CSV from forms)."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return ",".join(c for c in value if c) or None
+    return str(value) or None
 
 
 async def update_magazine(
