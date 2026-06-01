@@ -168,10 +168,53 @@ class WikidataProvider(MetadataProviderBase):
         LIMIT 200
     """
 
+    _RELATED_PUBS_QUERY = """
+        SELECT ?related ?relatedLabel ?issn ?relation WHERE {{
+          {{ wd:{qid} wdt:P747 ?related. BIND("edition" AS ?relation) }}
+          UNION
+          {{ wd:{qid} wdt:P527 ?related. BIND("supplement" AS ?relation) }}
+          UNION
+          {{ ?related wdt:P361 wd:{qid}. BIND("supplement" AS ?relation) }}
+          UNION
+          {{ wd:{qid} wdt:P155 ?related. BIND("preceded_by" AS ?relation) }}
+          UNION
+          {{ wd:{qid} wdt:P156 ?related. BIND("followed_by" AS ?relation) }}
+          OPTIONAL {{ ?related wdt:P236 ?issn }}
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en,fr". }}
+        }}
+        LIMIT 30
+    """
+
+    async def _fetch_related_publications(self, qid: str) -> list[dict]:
+        """Pull P747 (editions / translations), P527/P361 (supplement
+        relationships), P155/P156 (preceded-by / followed-by) for the
+        given QID in one SPARQL roundtrip. Returns a deduplicated list
+        of ``{wikidata_qid, title, issn?, relation}`` dicts.
+        """
+        query = self._RELATED_PUBS_QUERY.format(qid=qid)
+        data = await self._sparql(query)
+        seen: dict[str, dict] = {}
+        for b in data.get("results", {}).get("bindings", []):
+            related_uri = _val(b, "related")
+            if not related_uri:
+                continue
+            related_qid = related_uri.rsplit("/", 1)[-1]
+            if related_qid == qid or related_qid in seen:
+                continue
+            seen[related_qid] = {
+                "wikidata_qid": related_qid,
+                "title": _val(b, "relatedLabel") or related_qid,
+                "issn": _val(b, "issn"),
+                "relation": _val(b, "relation") or "related",
+            }
+        return list(seen.values())
+
     async def _sparql_by_issn(self, issn: str) -> list[MetadataResult]:
         match = f'?item wdt:P236 "{_escape_literal(issn)}".'
         query = self._BASE_SELECT.format(match=match)
-        return self._parse_sparql(await self._sparql(query))
+        results = self._parse_sparql(await self._sparql(query))
+        await self._enrich_related(results)
+        return results
 
     async def _sparql_by_qids(self, qids: list[str]) -> list[MetadataResult]:
         # `VALUES ?item { wd:Q123 wd:Q456 ... }` — gets all in one shot.
@@ -184,7 +227,32 @@ class WikidataProvider(MetadataProviderBase):
         # Filter to serial-shaped items (since wbsearchentities matches
         # anything by label, including unrelated people/places sharing
         # the magazine's name).
-        return [r for r in rows if _is_serial(r)]
+        rows = [r for r in rows if _is_serial(r)]
+        await self._enrich_related(rows)
+        return rows
+
+    async def _enrich_related(self, rows: list[MetadataResult]) -> None:
+        """Populate ``related_publications`` on hits that have a QID.
+
+        Best-effort: a slow / failing related-publications query never
+        breaks the main lookup. Sequential per-hit (parallel would
+        hammer Wikidata for queries with many hits like a free-text
+        search — keep it simple and skip when we have many results).
+        """
+        # Only enrich the top few — free-text search can return 20+
+        # entities and we don't want to fire 20 SPARQL roundtrips.
+        for r in rows[:5]:
+            if not r.wikidata_qid:
+                continue
+            try:
+                related = await self._fetch_related_publications(r.wikidata_qid)
+                if related:
+                    r.related_publications = related
+            except Exception:
+                logger.debug(
+                    "Wikidata related-publications enrichment skipped",
+                    exc_info=True,
+                )
 
     async def _sparql(self, query: str) -> dict[str, Any]:
         # Wikidata's SPARQL endpoint sporadically returns 502/503 when

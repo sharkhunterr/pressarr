@@ -164,6 +164,17 @@ class MetadataSearchResult(CamelModel):
     ceased_at: str | None = None
 
 
+class RelatedPublication(CamelModel):
+    """One entry of the related-publications list (international
+    editions / supplements / preceded-by / followed-by) surfaced
+    from Wikidata's P747 / P527 / P361 / P155 / P156 properties."""
+
+    wikidata_qid: str | None = None
+    title: str
+    issn: str | None = None
+    relation: str | None = None  # edition / supplement / preceded_by / followed_by
+
+
 class MagazineIdentitySchema(CamelModel):
     """Authoritative single-magazine identity returned by the ISSN
     lookup endpoint. Same shape as ``MetadataSearchResult`` but
@@ -186,3 +197,4 @@ class MagazineIdentitySchema(CamelModel):
     wikipedia_url: str | None = None
     categories: list[str] = []
     sources: list[str] = []
+    related_publications: list[RelatedPublication] = []

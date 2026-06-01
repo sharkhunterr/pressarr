@@ -14,6 +14,13 @@ class MetadataResult:
     description: str | None = None
     cover_url: str | None = None
     issn: str | None = None
+    # ISSN-L (linking ISSN) — the canonical identifier shared by
+    # every edition of the same publication (print + online + format
+    # variants). Sourced from the ISSN Portal. The cascade uses it as
+    # the primary group key so "Le Monde print" / "Le Monde online" /
+    # ... never appear as separate magazine cards even when their
+    # individual ISSNs differ.
+    issn_l: str | None = None
     frequency: str | None = None
     # Extended fields populated by the ISSN-first cascade. The original
     # Google Books / Internet Archive providers leave these blank;
@@ -37,6 +44,14 @@ class MetadataResult:
     # or aliases — used as fallback dedup signal when BnF doesn't
     # share an ISSN with the Wikidata canonical record.
     alt_titles: list[str] | None = None
+    # Related publications surfaced from Wikidata's P747 (has edition
+    # or translation), P527 / P361 (part-of relationships) — used to
+    # render an "Editions / supplements" section on the detail page
+    # (e.g. "Le Monde diplomatique Brasil", "Le Monde diplomatique
+    # in Esperanto" for Le Monde diplomatique). Each entry is a
+    # ``{wikidata_qid, title, issn?, relation}`` dict where relation
+    # ∈ {"edition", "supplement", "preceded_by", "followed_by"}.
+    related_publications: list[dict] | None = None
 
 
 @dataclass

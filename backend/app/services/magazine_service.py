@@ -520,6 +520,7 @@ async def lookup_magazine_by_issn(
         wikipedia_url=ident.wikipedia_url,
         categories=ident.categories,
         sources=ident.sources,
+        related_publications=ident.related_publications,
     )
 
 

@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.metadata.base import MetadataResult
 from app.metadata.bnf import BnfProvider
+from app.metadata.issn_portal import IssnPortalProvider
 from app.metadata.wikidata import WikidataProvider
 from app.metadata.zdb import ZdbProvider
 
@@ -47,6 +48,10 @@ class MagazineIdentity:
 
     title: str
     issn: str | None = None
+    # Linking ISSN — authoritative grouping key for editions of the
+    # same publication (sourced from ISSN Portal). Hidden by the API
+    # response (internal dedup), used here for ``_merge``.
+    issn_l: str | None = None
     publisher: str | None = None
     country: str | None = None  # ISO-2
     language: str | None = None  # ISO-2
@@ -64,6 +69,11 @@ class MagazineIdentity:
     # online" together when other providers return them as separate
     # rows. Not surfaced on the API response (internal only).
     related_issns: list[str] = field(default_factory=list)
+    # Editions / supplements / preceded-by / followed-by entries from
+    # Wikidata (P747 / P527 / P361 / P155 / P156). Surfaced on the
+    # detail page so the operator can navigate to international
+    # editions and supplements of the same publication.
+    related_publications: list[dict] = field(default_factory=list)
     # Provenance list, e.g. ``["zdb", "wikidata"]`` — exposed in the
     # API so the operator can see how complete this identity is.
     sources: list[str] = field(default_factory=list)
@@ -108,6 +118,12 @@ async def search_cascade(
     Each provider is bounded by ``_PROVIDER_TIMEOUT`` — slow upstreams
     don't hold up the whole cascade. ``locale`` (ISO-2 country code)
     biases ranking toward the matching country when set.
+
+    Post-merge, the top hits with an ISSN but no ISSN-L are enriched
+    via the ISSN Portal in parallel so a second collapse pass can fuse
+    print/online/format-variant editions that the providers returned
+    as separate rows (BnF in particular registers one record per
+    edition; their ISSN-Ls all point at the canonical work).
     """
     providers = _enabled_providers(db=db, locale=locale)
     raw = await _gather_with_timeout(
@@ -115,7 +131,80 @@ async def search_cascade(
     )
     flattened = [(name, r) for (name, _), rows in zip(providers, raw) for r in rows]
     merged = _merge(flattened)
+    merged = await _enrich_issn_l_topn(merged, db=db)
     return _rank(merged, query=query, locale=locale)
+
+
+async def _enrich_issn_l_topn(
+    identities: list[MagazineIdentity],
+    *,
+    db: AsyncSession | None,
+    top_n: int = 15,
+) -> list[MagazineIdentity]:
+    """Side-call ISSN Portal on the top hits that carry an ISSN but no
+    ISSN-L, then collapse any duplicates the new ISSN-Ls reveal.
+
+    Bounded by ``top_n`` to keep wall time predictable on broad
+    searches that return 50+ hits. Hits past the cutoff stay
+    unenriched — they're below the fold anyway and rarely picked.
+    """
+    candidates = [
+        i for i in identities[:top_n] if i.issn and not i.issn_l
+    ]
+    if not candidates:
+        return identities
+
+    portal = IssnPortalProvider(db=db)
+    results = await asyncio.gather(
+        *(portal.lookup_issn(c.issn) for c in candidates),  # type: ignore[arg-type]
+        return_exceptions=True,
+    )
+    for ident, result in zip(candidates, results):
+        if isinstance(result, BaseException):
+            continue
+        if result and result[0].issn_l:
+            ident.issn_l = result[0].issn_l
+            if portal.__class__.__name__ not in ident.sources:
+                pass  # don't add a source line for an enrichment call
+    return _collapse_by_issn_l(identities)
+
+
+def _collapse_by_issn_l(
+    identities: list[MagazineIdentity],
+) -> list[MagazineIdentity]:
+    """Group identities that share an ISSN-L into one keeper.
+
+    Picks the most-enriched identity in each group (same scoring as
+    ``_dedup_root_slug``) and folds the others into it. Identities
+    without an ISSN-L are left untouched.
+    """
+    groups: dict[str, list[int]] = {}
+    for i, ident in enumerate(identities):
+        if ident.issn_l:
+            groups.setdefault(ident.issn_l, []).append(i)
+    if not groups:
+        return identities
+
+    keep = set(range(len(identities)))
+    for indices in groups.values():
+        if len(indices) < 2:
+            continue
+        def score(idx: int) -> tuple:
+            ii = identities[idx]
+            return (
+                bool(ii.wikidata_qid),
+                bool(ii.cover_url),
+                bool(ii.wikipedia_url),
+                len(ii.sources),
+            )
+        keeper_idx = max(indices, key=score)
+        keeper = identities[keeper_idx]
+        for i in indices:
+            if i == keeper_idx:
+                continue
+            _merge_into(keeper, identities[i])
+            keep.discard(i)
+    return [identities[i] for i in range(len(identities)) if i in keep]
 
 
 async def lookup_issn(
@@ -164,6 +253,10 @@ def _enabled_providers(
     # at all (L'Équipe, Le Figaro under their canonical ISSN, …)
     # — its results merge cleanly with the rest via ISSN/title.
     out.append(("bnf", BnfProvider(db=db)))
+    # ISSN Portal: only useful on the lookup_issn leg (no usable
+    # free-text search). The provider's ``search`` returns [] so
+    # we can keep it in the list without inflating search latency.
+    out.append(("issn_portal", IssnPortalProvider(db=db)))
     return out
 
 
@@ -194,6 +287,7 @@ def _merge(rows: list[tuple[str, MetadataResult]]) -> list[MagazineIdentity]:
       3. Otherwise → new identity.
     """
     by_issn: dict[str, MagazineIdentity] = {}
+    by_issn_l: dict[str, MagazineIdentity] = {}
     by_slug: dict[str, MagazineIdentity] = {}
     out: list[MagazineIdentity] = []
 
@@ -207,6 +301,10 @@ def _merge(rows: list[tuple[str, MetadataResult]]) -> list[MagazineIdentity]:
         if issn and issn not in by_issn:
             by_issn[issn] = bucket
 
+    def _index_issn_l(bucket: MagazineIdentity, issn_l: str | None) -> None:
+        if issn_l and issn_l not in by_issn_l:
+            by_issn_l[issn_l] = bucket
+
     # Pass 1 — seed Wikidata identities + register their related
     # ISSN list. Subsequent providers' ISSNs that appear in any
     # canonical entity's related list route into that entity.
@@ -215,25 +313,34 @@ def _merge(rows: list[tuple[str, MetadataResult]]) -> list[MagazineIdentity]:
             continue
         bucket = _spawn(r)
         _index_issn(bucket, r.issn)
+        _index_issn_l(bucket, r.issn_l)
         for related in r.related_issns or []:
             _index_issn(bucket, related)
         _absorb(bucket, source, r)
 
     # Pass 2 — everyone else. The ISSN map now includes related
-    # ISSNs from Wikidata, so a BnF row carrying the online-edition
-    # ISSN of "Le Monde" lands in the same identity as the
-    # Wikidata seed.
+    # ISSNs from Wikidata; ISSN-L (sourced by ISSN Portal) ties
+    # together print/online/format editions even when Wikidata
+    # doesn't list them. Lookup order:
+    #   1. ISSN-L match (canonical — every edition of a publication
+    #      shares one ISSN-L per the ISSN authority)
+    #   2. ISSN match (direct or Wikidata-related)
+    #   3. Title-slug match
+    #   4. New identity
     for source, r in rows:
         if source == "wikidata":
             continue
         bucket: MagazineIdentity | None = None
-        if r.issn:
+        if r.issn_l:
+            bucket = by_issn_l.get(r.issn_l)
+        if bucket is None and r.issn:
             bucket = by_issn.get(r.issn)
         if bucket is None:
             bucket = by_slug.get(_slug(r.title))
         if bucket is None:
             bucket = _spawn(r)
         _index_issn(bucket, r.issn)
+        _index_issn_l(bucket, r.issn_l)
         _absorb(bucket, source, r)
 
     # Pass 3 — root-slug dedup. Strips BnF's parenthetical-suffix
@@ -281,29 +388,42 @@ def _dedup_root_slug(
         sorted_indices = sorted(indices, key=score, reverse=True)
         keeper_idx = sorted_indices[0]
         keeper = identities[keeper_idx]
+        # Is the keeper firmly canonical (Wikidata-anchored AND
+        # cross-validated by at least one library catalogue)? Used
+        # below to decide whether to merge in BnF-only edition
+        # variants that share the root slug but carry distinct ISSNs.
+        keeper_canonical = bool(
+            keeper.wikidata_qid
+            and ({"zdb", "bnf"} & set(keeper.sources))
+        )
         for i in indices:
             if i == keeper_idx:
                 continue
             other = identities[i]
-            # Strong "these are genuinely different periodicals" signal:
-            # both entries have an ISSN AND those ISSNs differ AND
-            # neither's ISSN is in the keeper's Wikidata-related-ISSN
-            # list. Stay separate. ("Le Monde" canonical vs.
-            # "Le Monde (1860–1896)" defunct).
             related = set(keeper.related_issns or [])
-            if (
+            issns_disagree = (
                 other.issn
                 and keeper.issn
                 and other.issn != keeper.issn
                 and other.issn not in related
                 and keeper.issn not in (other.related_issns or [])
-            ):
+            )
+            other_has_wikidata = bool(other.wikidata_qid)
+            # Keep apart when BOTH carry independent Wikidata
+            # identities AND their ISSNs disagree — Wikidata has
+            # explicitly modelled them as distinct periodicals
+            # ("Le Monde" vs. "Le Monde (1860–1896)").
+            if issns_disagree and other_has_wikidata:
                 continue
-            # Otherwise: the other entry shares the root title and
-            # carries no contradicting ISSN — fold into the canonical.
-            # Catches: same-label Wikidata sub-entities with no data,
-            # case-difference duplicates, BnF parenthetical-year
-            # variants pointing at the same publication.
+            # When the other side is BnF-only (no Wikidata) and the
+            # keeper is a fully cross-validated canonical hit, treat
+            # the other as a parenthetical edition variant of the
+            # same publication and absorb it. Catches BnF's
+            # "(Paris. 1978)" / "(Morlaix)" rows that registered
+            # their own ISSN but represent the same magazine in the
+            # operator's mental model.
+            if issns_disagree and not keeper_canonical:
+                continue
             _merge_into(keeper, other)
             keep_index.discard(i)
     return [identities[i] for i in range(len(identities)) if i in keep_index]
@@ -410,6 +530,27 @@ def _absorb(target: MagazineIdentity, source: str, r: MetadataResult) -> None:
             dict.fromkeys([*target.related_issns, *r.related_issns])
         )
         target.related_issns = merged_issns
+    # Latch the canonical ISSN-L from the first provider that
+    # surfaces one (ISSN Portal is the authority but Wikidata also
+    # carries it for some entities).
+    if r.issn_l and not target.issn_l:
+        target.issn_l = r.issn_l
+
+    # Pass through Wikidata's related-publications list when
+    # present (international editions / supplements / preceded /
+    # followed). Dedup by QID since multiple providers might
+    # surface the same publication independently in the future.
+    if r.related_publications:
+        existing_qids = {
+            (p.get("wikidata_qid") or p.get("title", ""))
+            for p in target.related_publications
+        }
+        for pub in r.related_publications:
+            key = pub.get("wikidata_qid") or pub.get("title", "")
+            if key in existing_qids:
+                continue
+            existing_qids.add(key)
+            target.related_publications.append(pub)
 
 
 def _prefer(
