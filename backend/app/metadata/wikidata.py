@@ -258,6 +258,13 @@ class WikidataProvider(MetadataProviderBase):
             issns = sorted(set(issns_per_qid.get(qid, [])))
             if issns:
                 entry.issn = issns[0]  # canonical: lowest-numbered ISSN
+                # Surface every ISSN this QID owns so the cascade
+                # can group BnF / ZDB records that share any of
+                # them under the same canonical identity. "Le Monde"
+                # for instance has print + online + historical
+                # ISSNs that BnF returns as separate rows.
+                if len(issns) > 1:
+                    entry.related_issns = issns
             cats = sorted(set(categories_per_qid.get(qid, [])))
             if cats:
                 entry.categories = cats

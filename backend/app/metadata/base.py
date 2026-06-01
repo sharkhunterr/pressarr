@@ -25,6 +25,18 @@ class MetadataResult:
     categories: list[str] | None = None  # press, newspaper, scientific, …
     first_issued: str | None = None  # ISO date or year string
     ceased_at: str | None = None  # ISO date or year string
+    # Wikidata exposes every ISSN a periodical has ever carried
+    # (print + online + historical editions). When the provider
+    # surfaces them all the cascade can group BnF / ZDB records
+    # that share any of these ISSNs under one canonical identity
+    # instead of leaving "Le Monde" / "Le Monde online" / etc. as
+    # apparent duplicates. Set on the canonical Wikidata hit, not
+    # on per-ISSN hits.
+    related_issns: list[str] | None = None
+    # Alternate titles (variant labels) Wikidata stores via P1813
+    # or aliases — used as fallback dedup signal when BnF doesn't
+    # share an ISSN with the Wikidata canonical record.
+    alt_titles: list[str] | None = None
 
 
 @dataclass
