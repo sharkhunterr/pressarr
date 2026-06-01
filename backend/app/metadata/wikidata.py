@@ -173,7 +173,7 @@ class WikidataProvider(MetadataProviderBase):
 
     _BASE_SELECT = """
         SELECT ?item ?itemLabel ?issn ?publisherLabel ?countryCode
-               ?languageCode ?image ?inception ?dissolved ?wikipedia
+               ?languageCode ?logo ?image ?inception ?dissolved ?wikipedia
                ?instanceOf ?publicationSpeed
         WHERE {{
           {match}
@@ -181,6 +181,11 @@ class WikidataProvider(MetadataProviderBase):
           OPTIONAL {{ ?item wdt:P123 ?publisher }}
           OPTIONAL {{ ?item wdt:P495 ?country. ?country wdt:P297 ?countryCode }}
           OPTIONAL {{ ?item wdt:P407 ?lang. ?lang wdt:P218 ?languageCode }}
+          # P154 is the journal/brand logo (clean, vector, recognisable).
+          # P18 is a generic image — often a historic cover or, for
+          # Le Monde Q12461 specifically, an unrelated photograph
+          # ("EmbeTattoohand1968.jpg"). Prefer the logo when present.
+          OPTIONAL {{ ?item wdt:P154 ?logo }}
           OPTIONAL {{ ?item wdt:P18 ?image }}
           OPTIONAL {{ ?item wdt:P571 ?inception }}
           OPTIONAL {{ ?item wdt:P576 ?dissolved }}
@@ -325,6 +330,14 @@ class WikidataProvider(MetadataProviderBase):
 
             entry = by_qid.get(qid)
             if entry is None:
+                # Prefer the brand logo (P154) over a generic
+                # image (P18) for cover_url. Logos are sharper, on
+                # a transparent background, and instantly
+                # recognisable. Falls back to P18 only when the
+                # entity has no logo at all.
+                cover = _commons_image_url(_val(b, "logo")) or _commons_image_url(
+                    _val(b, "image")
+                )
                 entry = MetadataResult(
                     provider=PROVIDER_NAME,
                     provider_id=qid,
@@ -332,7 +345,7 @@ class WikidataProvider(MetadataProviderBase):
                     publisher=_val(b, "publisherLabel"),
                     country=_val(b, "countryCode"),
                     language=_val(b, "languageCode"),
-                    cover_url=_commons_image_url(_val(b, "image")),
+                    cover_url=cover,
                     wikipedia_url=_val(b, "wikipedia"),
                     wikidata_qid=qid,
                     first_issued=_year(_val(b, "inception")),
