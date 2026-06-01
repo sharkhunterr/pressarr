@@ -448,24 +448,41 @@ async def search_metadata(
         for r in legacy:
             _absorb_legacy(r)
 
-    # Relevance sort: exact title → prefix → substring → other,
-    # with a bonus for cascade-enriched entries (more complete data
-    # surfaces ahead of cover-only Google Books hits at the same
-    # match level).
+    # Relevance sort: same shape as ``cascade._rank`` so legacy
+    # provider hits (Google Books / Internet Archive) interleave
+    # cleanly with cascade entries instead of overriding the
+    # ISSN-first ordering the cascade already established.
+    #
+    # Title-match tier first (exact / prefix / substring / other),
+    # then "is this a real requestable magazine" signal tier
+    # (ISSN + enrichment > ISSN alone > Wikidata-only > catalogue
+    # noise) — exact wording mirrors cascade.signal_tier so the
+    # explanation stays in one place.
     query_lower = query.lower().strip()
+
+    def _signal_tier(item: MetadataSearchResult) -> int:
+        has_issn = bool(item.issn)
+        has_wd = bool(item.wikidata_qid)
+        has_country = bool(item.country)
+        if has_issn and (has_wd or has_country):
+            return 0
+        if has_issn:
+            return 1
+        if has_wd:
+            return 2
+        return 3
 
     def _relevance(item: MetadataSearchResult) -> tuple[int, int, str]:
         title_lower = item.title.lower().strip()
         if title_lower == query_lower:
-            tier = 0
+            title_tier = 0
         elif title_lower.startswith(query_lower):
-            tier = 1
+            title_tier = 1
         elif query_lower in title_lower:
-            tier = 2
+            title_tier = 2
         else:
-            tier = 3
-        cascade_bonus = 0 if (item.wikidata_qid or item.zdb_id) else 1
-        return (tier, cascade_bonus, title_lower)
+            title_tier = 3
+        return (title_tier, _signal_tier(item), title_lower)
 
     all_results.sort(key=_relevance)
     return all_results

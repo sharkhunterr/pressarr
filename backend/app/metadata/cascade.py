@@ -255,16 +255,47 @@ def _rank(
     query: str,
     locale: str | None,
 ) -> list[MagazineIdentity]:
-    """Sort: exact-match titles first, then prefix matches, then by
-    completeness (more populated fields → higher rank), then alpha.
-    Locale match (when set) bubbles up titles from that country.
+    """Sort: exact-match titles first, then prefix, then "is this
+    actually a magazine we can request" signal tier, then completeness.
+
+    The signal tier suppresses bare-ZDB catalogue entries that match
+    the query by title but carry no ISSN, no country, and no Wikidata
+    backlink — they're authority records the operator can't act on.
+    Penalising them avoids burying canonical hits ("Le Monde", ISSN
+    0395-2037) under a wall of "Le monde de … : collection" /
+    "Le monde des grands musées" rows that share a title prefix but
+    aren't requestable magazines.
+
+    Locale match (when set) only kicks in within the same signal tier
+    so an FR canonical hit always beats an FR ZDB-only entry.
     """
     q = query.lower().strip()
+
+    def signal_tier(i: MagazineIdentity) -> int:
+        # 0 = ISSN known and at least one rich provider contributed
+        #     (Wikidata QID or BnF/Wikidata-derived country). This is
+        #     the "real magazine" bucket.
+        # 1 = ISSN known but only ZDB contributed (catalogue match
+        #     without enrichment — usable but lower confidence).
+        # 2 = no ISSN but at least Wikidata recognised it (popular
+        #     title that lacks ISSN registration; still a real thing).
+        # 3 = no ISSN, no Wikidata — pure ZDB / IA catalogue noise.
+        has_issn = bool(i.issn)
+        has_wd = bool(i.wikidata_qid)
+        has_country = bool(i.country)
+        if has_issn and (has_wd or has_country):
+            return 0
+        if has_issn:
+            return 1
+        if has_wd:
+            return 2
+        return 3
 
     def key(i: MagazineIdentity) -> tuple:
         title = (i.title or "").lower().strip()
         exact = 0 if title == q else 1
         prefix = 0 if title.startswith(q) else 1
+        tier = signal_tier(i)
         locale_match = 0 if (locale and i.country == locale.upper()) else 1
         completeness = -sum(
             bool(getattr(i, f))
@@ -279,7 +310,7 @@ def _rank(
                 "first_issued",
             )
         )
-        return (exact, prefix, locale_match, completeness, title)
+        return (exact, prefix, tier, locale_match, completeness, title)
 
     return sorted(identities, key=key)
 
