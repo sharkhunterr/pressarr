@@ -73,6 +73,31 @@ QID_CATEGORY = {
     "Q12539852": "magazine",
     "Q41607413": "newspaper",
     "Q19389637": "newspaper",
+    "Q11313190": "newspaper",  # sports newspaper
+    "Q1153191": "newspaper",  # online newspaper
+    "Q685935": "magazine",  # trade magazine
+}
+
+# Wikidata frequency inference from P31 instance-of values. Some
+# QIDs encode publication speed directly ("daily newspaper" = daily,
+# "weekly newspaper" = weekly). Used as a fallback when the entity
+# has no explicit P2241 (publication speed) statement.
+QID_FREQUENCY = {
+    "Q1110794": "daily",       # daily newspaper
+    "Q41607413": "weekly",     # weekly newspaper
+    "Q3331189": "weekly",      # weekly newspaper (alt)
+    "Q5633421": "monthly",     # scientific journal (commonly monthly)
+}
+
+# Wikidata P2241 publication speed → human label. These are the
+# QIDs the value can hold (a controlled vocabulary).
+P2241_FREQUENCY = {
+    "Q11451": "daily",
+    "Q9799105": "weekly",
+    "Q21672015": "monthly",
+    "Q11448": "quarterly",
+    "Q31893": "annual",
+    "Q19389637": "weekly",     # weekly newspaper alias
 }
 
 
@@ -148,7 +173,8 @@ class WikidataProvider(MetadataProviderBase):
 
     _BASE_SELECT = """
         SELECT ?item ?itemLabel ?issn ?publisherLabel ?countryCode
-               ?languageCode ?image ?inception ?dissolved ?wikipedia ?instanceOf
+               ?languageCode ?image ?inception ?dissolved ?wikipedia
+               ?instanceOf ?publicationSpeed
         WHERE {{
           {match}
           OPTIONAL {{ ?item wdt:P236 ?issn }}
@@ -159,6 +185,7 @@ class WikidataProvider(MetadataProviderBase):
           OPTIONAL {{ ?item wdt:P571 ?inception }}
           OPTIONAL {{ ?item wdt:P576 ?dissolved }}
           OPTIONAL {{ ?item wdt:P31 ?instanceOf }}
+          OPTIONAL {{ ?item wdt:P2241 ?publicationSpeed }}
           OPTIONAL {{
             ?wikipedia schema:about ?item;
                        schema:isPartOf <https://en.wikipedia.org/>.
@@ -288,6 +315,8 @@ class WikidataProvider(MetadataProviderBase):
         by_qid: dict[str, MetadataResult] = {}
         categories_per_qid: dict[str, list[str]] = {}
         issns_per_qid: dict[str, list[str]] = {}
+        instances_per_qid: dict[str, list[str]] = {}
+        speed_per_qid: dict[str, list[str]] = {}
         for b in bindings:
             item_uri = _val(b, "item")
             if not item_uri:
@@ -318,9 +347,15 @@ class WikidataProvider(MetadataProviderBase):
             inst = _val(b, "instanceOf")
             if inst:
                 inst_qid = inst.rsplit("/", 1)[-1]
+                instances_per_qid.setdefault(qid, []).append(inst_qid)
                 cat = QID_CATEGORY.get(inst_qid)
                 if cat:
                     categories_per_qid.setdefault(qid, []).append(cat)
+
+            speed = _val(b, "publicationSpeed")
+            if speed:
+                speed_qid = speed.rsplit("/", 1)[-1]
+                speed_per_qid.setdefault(qid, []).append(speed_qid)
 
         for qid, entry in by_qid.items():
             issns = sorted(set(issns_per_qid.get(qid, [])))
@@ -336,6 +371,23 @@ class WikidataProvider(MetadataProviderBase):
             cats = sorted(set(categories_per_qid.get(qid, [])))
             if cats:
                 entry.categories = cats
+
+            # Frequency inference: explicit P2241 publication speed
+            # wins; fall back to instance-of (Q1110794 daily newspaper
+            # / Q41607413 weekly newspaper / etc.). Unknown speeds
+            # leave the field empty.
+            freq: str | None = None
+            for s in speed_per_qid.get(qid, []):
+                if s in P2241_FREQUENCY:
+                    freq = P2241_FREQUENCY[s]
+                    break
+            if not freq:
+                for i in instances_per_qid.get(qid, []):
+                    if i in QID_FREQUENCY:
+                        freq = QID_FREQUENCY[i]
+                        break
+            if freq:
+                entry.frequency = freq
 
         return list(by_qid.values())
 

@@ -75,17 +75,28 @@ async def lookup_metadata(
         max_length=2,
         description="ISO-3166 alpha-2 country code; biases ranking toward that country.",
     ),
+    status: str | None = Query(
+        None,
+        pattern="^(ongoing|ceased|all)$",
+        description=(
+            "Filter results by publication status. ``ongoing`` hides "
+            "magazines with a ``ceasedAt`` date, ``ceased`` keeps only "
+            "those, ``all`` (default when omitted) keeps everything. "
+            "Ongoing entries are always ranked before ceased ones "
+            "regardless of this filter."
+        ),
+    ),
     config=Depends(get_config),
     db: AsyncSession = Depends(get_db),
 ):
     """Free-text search across the ISSN-first cascade + legacy providers.
 
     Returns a deduplicated list of candidate magazines ordered by
-    title match → cascade enrichment → alphabetical. Each entry's
-    ``sources`` list shows which catalogues contributed.
+    title match → ongoing-first → cascade enrichment → alphabetical.
+    Each entry's ``sources`` list shows which catalogues contributed.
     """
     return await magazine_service.search_metadata(
-        query, config, db=db, locale=locale
+        query, config, db=db, locale=locale, status=status
     )
 
 

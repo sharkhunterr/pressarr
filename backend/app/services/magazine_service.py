@@ -313,6 +313,7 @@ async def search_metadata(
     config,
     db: AsyncSession | None = None,
     locale: str | None = None,
+    status: str | None = None,
 ) -> list[MetadataSearchResult]:
     """Search every metadata source and deduplicate results.
 
@@ -472,7 +473,16 @@ async def search_metadata(
             return 2
         return 3
 
-    def _relevance(item: MetadataSearchResult) -> tuple[int, int, str]:
+    def _ongoing_tier(item: MetadataSearchResult) -> int:
+        # Same shape as cascade.ongoing_tier so the search ordering
+        # surfaces still-publishing magazines first.
+        if item.ceased_at:
+            return 2
+        if item.first_issued or item.issn or item.wikidata_qid:
+            return 0
+        return 1
+
+    def _relevance(item: MetadataSearchResult) -> tuple[int, int, int, str]:
         title_lower = item.title.lower().strip()
         if title_lower == query_lower:
             title_tier = 0
@@ -482,9 +492,21 @@ async def search_metadata(
             title_tier = 2
         else:
             title_tier = 3
-        return (title_tier, _signal_tier(item), title_lower)
+        return (
+            title_tier,
+            _ongoing_tier(item),
+            _signal_tier(item),
+            title_lower,
+        )
 
     all_results.sort(key=_relevance)
+
+    # Optional status filter (defaults to no filter = return all).
+    if status == "ongoing":
+        all_results = [r for r in all_results if not r.ceased_at]
+    elif status == "ceased":
+        all_results = [r for r in all_results if r.ceased_at]
+
     return all_results
 
 

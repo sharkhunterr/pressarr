@@ -486,10 +486,17 @@ _PRIORITY = {
     "publisher": ["bnf", "zdb", "wikidata"],
     "country": ["wikidata", "bnf", "zdb"],
     "language": ["bnf", "zdb", "wikidata"],
-    "first_issued": ["bnf", "zdb", "wikidata"],
+    # Wikidata wins on dates — its P571/P576 record the publication's
+    # original creation/dissolution year, whereas BnF often stores the
+    # re-registration date when an ISSN was assigned mid-life. For
+    # Le Monde that's 1944 (correct) vs. BnF's 1989 (re-cataloguing).
+    "first_issued": ["wikidata", "bnf", "zdb"],
     "ceased_at": ["wikidata", "bnf", "zdb"],
     "issn": ["bnf", "zdb", "wikidata"],
     "description": ["zdb", "wikidata", "bnf"],
+    # Wikidata is the only source that derives a "daily"/"weekly"/
+    # "monthly" label (from P2241 or P31 instance-of mapping).
+    "frequency": ["wikidata", "zdb", "bnf"],
 }
 
 
@@ -616,10 +623,22 @@ def _rank(
             return 2
         return 3
 
+    def ongoing_tier(i: MagazineIdentity) -> int:
+        # 0 = ongoing (no ceased_at OR ceased in the future) — what
+        #     the operator typically wants when typing a magazine name.
+        # 1 = unknown publication status
+        # 2 = ceased — pushed below the fold by default.
+        if i.ceased_at:
+            return 2
+        if i.first_issued or i.issn or i.wikidata_qid:
+            return 0
+        return 1
+
     def key(i: MagazineIdentity) -> tuple:
         title = (i.title or "").lower().strip()
         exact = 0 if title == q else 1
         prefix = 0 if title.startswith(q) else 1
+        ongoing = ongoing_tier(i)
         tier = signal_tier(i)
         locale_match = 0 if (locale and i.country == locale.upper()) else 1
         completeness = -sum(
@@ -635,7 +654,7 @@ def _rank(
                 "first_issued",
             )
         )
-        return (exact, prefix, tier, locale_match, completeness, title)
+        return (exact, prefix, ongoing, tier, locale_match, completeness, title)
 
     return sorted(identities, key=key)
 
