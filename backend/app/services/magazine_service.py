@@ -314,6 +314,7 @@ async def search_metadata(
     db: AsyncSession | None = None,
     locale: str | None = None,
     status: str | None = None,
+    verified_only: bool = False,
 ) -> list[MetadataSearchResult]:
     """Search every metadata source and deduplicate results.
 
@@ -506,6 +507,20 @@ async def search_metadata(
         all_results = [r for r in all_results if not r.ceased_at]
     elif status == "ceased":
         all_results = [r for r in all_results if r.ceased_at]
+
+    # "Verified" filter — keep only entries with a Wikidata QID OR
+    # an ISSN that the cascade enriched cross-providers (multi-source
+    # ``sources`` list). Hides BnF-only / ZDB-only catalogue
+    # records that aren't recognised by any worldwide authority,
+    # which is what an operator typically wants when noise like
+    # "L'Equipe Feder (Montpellier)" or "Le Monde de (Morlaix)"
+    # shows up alongside the canonical title they're looking for.
+    if verified_only:
+        all_results = [
+            r
+            for r in all_results
+            if r.wikidata_qid or (len(r.sources) >= 2)
+        ]
 
     return all_results
 

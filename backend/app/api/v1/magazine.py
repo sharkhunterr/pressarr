@@ -86,6 +86,15 @@ async def lookup_metadata(
             "regardless of this filter."
         ),
     ),
+    verified: bool = Query(
+        False,
+        description=(
+            "When true, hide entries that are only attested by a single "
+            "national-catalogue source and don't have a Wikidata QID. "
+            "Cuts BnF-only / ZDB-only edition records like "
+            "``L'Equipe Feder (Montpellier)`` from the result list."
+        ),
+    ),
     config=Depends(get_config),
     db: AsyncSession = Depends(get_db),
 ):
@@ -96,7 +105,12 @@ async def lookup_metadata(
     Each entry's ``sources`` list shows which catalogues contributed.
     """
     return await magazine_service.search_metadata(
-        query, config, db=db, locale=locale, status=status
+        query,
+        config,
+        db=db,
+        locale=locale,
+        status=status,
+        verified_only=verified,
     )
 
 

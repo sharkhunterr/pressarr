@@ -132,7 +132,38 @@ async def search_cascade(
     flattened = [(name, r) for (name, _), rows in zip(providers, raw) for r in rows]
     merged = _merge(flattened)
     merged = await _enrich_issn_l_topn(merged, db=db)
+    merged = await _enrich_frequency_topn(merged, db=db)
     return _rank(merged, query=query, locale=locale)
+
+
+async def _enrich_frequency_topn(
+    identities: list[MagazineIdentity],
+    *,
+    db: AsyncSession | None,
+    top_n: int = 10,
+) -> list[MagazineIdentity]:
+    """Side-call BnF for ``frequency`` on the top hits that have an
+    ISSN but no frequency yet. Wikidata's P2241 / P31 coverage is
+    sparse (only the most popular titles); BnF's MARC tag 326 has it
+    for every French periodical and many international ones.
+    """
+    candidates = [
+        i for i in identities[:top_n] if i.issn and not i.frequency
+    ]
+    if not candidates:
+        return identities
+
+    bnf = BnfProvider(db=db)
+    results = await asyncio.gather(
+        *(bnf.fetch_frequency(c.issn) for c in candidates),  # type: ignore[arg-type]
+        return_exceptions=True,
+    )
+    for ident, freq in zip(candidates, results):
+        if isinstance(freq, BaseException):
+            continue
+        if freq:
+            ident.frequency = freq
+    return identities
 
 
 async def _enrich_issn_l_topn(

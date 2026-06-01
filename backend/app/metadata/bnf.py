@@ -18,6 +18,7 @@ Docs: https://api.bnf.fr/fr/api-catalogue-de-la-bnf-sru-au-format-xml
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from xml.etree import ElementTree as ET
 
@@ -63,6 +64,61 @@ class BnfProvider(MetadataProviderBase):
 
     async def get_issues(self, provider_id: str) -> list[IssueMetadata]:
         return []
+
+    async def fetch_frequency(self, issn: str) -> str | None:
+        """Parse BnF's MARC tag 326 (Frequency) for the given ISSN.
+
+        BnF's dublincore record doesn't carry frequency; the
+        intermarcxchange schema does. Cheap follow-up query used
+        by the cascade enrichment pass to fill in ``frequency``
+        when Wikidata didn't surface one.
+
+        Returns a canonical English label ("daily" / "weekly" /
+        "monthly" / "quarterly" / "annual") when the French label
+        maps cleanly, otherwise the raw French string so the UI
+        still has something to show.
+        """
+        issn = _normalize_issn(issn).replace("-", "")
+        cache_key = f"freq:{issn}"
+        cached: str | None = None
+        if self.db is not None:
+            cached = await self._get_cache(cache_key)
+            if cached is not None:
+                # Empty payload means "we already checked and BnF
+                # had no 326 tag" — return None without re-querying.
+                return cached or None
+
+        try:
+            resp = await self._client.get(
+                SRU_URL,
+                params={
+                    "version": "1.2",
+                    "operation": "searchRetrieve",
+                    "query": f'bib.issn = "{issn}"',
+                    "recordSchema": "intermarcxchange",
+                    "maximumRecords": "1",
+                },
+            )
+            resp.raise_for_status()
+            xml = resp.text
+        except Exception:
+            logger.warning(
+                "BnF frequency lookup failed", extra={"issn": issn}
+            )
+            return None
+
+        # MARC tag 326 ``$a`` carries the French frequency string —
+        # "Quotidien" / "Hebdomadaire" / "Mensuel" / etc.
+        match = re.search(
+            r'<mxc:datafield tag="326"[^>]*>\s*'
+            r'<mxc:subfield code="a">([^<]+)</mxc:subfield>',
+            xml,
+        )
+        raw = match.group(1).strip() if match else None
+        normalised = _normalise_frequency(raw) if raw else None
+        if self.db is not None:
+            await self._set_cache(cache_key, normalised or "")
+        return normalised
 
     # ------------------------------------------------------------------
 
@@ -246,3 +302,39 @@ _LANG_MAP = {
 
 def _iso639_2_to_1(code: str) -> str | None:
     return _LANG_MAP.get(code.lower())
+
+
+# BnF's MARC tag 326 emits the publication frequency as a French
+# label. Mapped to the canonical English values the rest of the
+# pressarr / allseerr stack already uses. Anything not in the map
+# passes through verbatim so the operator still sees the original
+# string (e.g. "Bimestriel", "Trimestriel : 4 n° + 1 supplément").
+_FR_FREQUENCY = {
+    "quotidien": "daily",
+    "quotidienne": "daily",
+    "hebdomadaire": "weekly",
+    "bimensuel": "biweekly",
+    "bimensuelle": "biweekly",
+    "mensuel": "monthly",
+    "mensuelle": "monthly",
+    "bimestriel": "bimonthly",
+    "bimestrielle": "bimonthly",
+    "trimestriel": "quarterly",
+    "trimestrielle": "quarterly",
+    "semestriel": "semi-annual",
+    "semestrielle": "semi-annual",
+    "annuel": "annual",
+    "annuelle": "annual",
+    "irrégulier": "irregular",
+    "irreg": "irregular",
+}
+
+
+def _normalise_frequency(raw: str) -> str:
+    """Map a French BnF frequency string to the canonical English
+    label when we recognise it; pass through verbatim otherwise."""
+    if not raw:
+        return raw
+    # Strip trailing qualifiers like "Trimestriel : 4 n°…" → "Trimestriel"
+    head = raw.split(":", 1)[0].strip().lower()
+    return _FR_FREQUENCY.get(head, raw.strip())
