@@ -74,6 +74,14 @@ class MagazineIdentity:
     # detail page so the operator can navigate to international
     # editions and supplements of the same publication.
     related_publications: list[dict] = field(default_factory=list)
+    # ``[{issn, format}, ...]`` — every ISSN that the ISSN authority
+    # groups under this publication's ISSN-L (one per format: print,
+    # online, CD-ROM, microform, …). Sourced from the ISSN Portal
+    # ``hasPart`` collection on the ISSN-L resource. Exposed on the
+    # detail page so the operator sees "Le Monde" carries 0395-2037
+    # (Print), 2262-4694 (Online), 1284-1250 (CD-ROM) — all the
+    # same publication.
+    issns: list[dict[str, str | None]] = field(default_factory=list)
     # Provenance list, e.g. ``["zdb", "wikidata"]`` — exposed in the
     # API so the operator can see how complete this identity is.
     sources: list[str] = field(default_factory=list)
@@ -137,7 +145,39 @@ async def search_cascade(
     merged = _merge(flattened)
     merged = await _enrich_issn_l_topn(merged, db=db)
     merged = await _enrich_frequency_topn(merged, db=db)
+    merged = await _enrich_issn_parts_topn(merged, db=db)
     return _rank(merged, query=query, locale=locale)
+
+
+async def _enrich_issn_parts_topn(
+    identities: list[MagazineIdentity],
+    *,
+    db: AsyncSession | None,
+    top_n: int = 8,
+) -> list[MagazineIdentity]:
+    """Fetch the per-format ISSN siblings (Print / Online / CD-ROM)
+    from the ISSN Portal's ISSN-L resource for the top hits.
+
+    The detail page surfaces them so the operator sees the full
+    lineage instead of only the canonical print ISSN. Skipped for
+    entries without an ISSN-L (the Portal can't reach them).
+    """
+    candidates = [
+        i for i in identities[:top_n] if i.issn_l and not i.issns
+    ]
+    if not candidates:
+        return identities
+    portal = IssnPortalProvider(db=db)
+    results = await asyncio.gather(
+        *(portal.fetch_issn_l_parts(c.issn_l) for c in candidates),  # type: ignore[arg-type]
+        return_exceptions=True,
+    )
+    for ident, parts in zip(candidates, results):
+        if isinstance(parts, BaseException):
+            continue
+        if parts:
+            ident.issns = parts
+    return identities
 
 
 async def _enrich_frequency_topn(
@@ -262,7 +302,13 @@ async def lookup_issn(
     if not flattened:
         return None
     merged = _merge(flattened)
-    return merged[0] if merged else None
+    if not merged:
+        return None
+    # Same per-format ISSN sibling enrichment the search path does —
+    # so the identity endpoint surfaces print + online + CD-ROM rows
+    # under one record.
+    merged = await _enrich_issn_parts_topn(merged, db=db, top_n=1)
+    return merged[0]
 
 
 # ----------------------------------------------------------------------

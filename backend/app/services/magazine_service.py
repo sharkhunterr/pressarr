@@ -558,6 +558,7 @@ async def lookup_magazine_by_issn(
         categories=ident.categories,
         sources=ident.sources,
         related_publications=ident.related_publications,
+        issns=ident.issns,
     )
 
 

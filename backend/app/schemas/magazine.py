@@ -175,6 +175,15 @@ class RelatedPublication(CamelModel):
     relation: str | None = None  # edition / supplement / preceded_by / followed_by
 
 
+class IssnEntry(CamelModel):
+    """One ISSN under the same ISSN-L group, with its format label
+    (Print / Online / DigitalCarrier / Microform). Sourced from the
+    ISSN Portal ``hasPart`` collection."""
+
+    issn: str
+    format: str | None = None
+
+
 class MagazineIdentitySchema(CamelModel):
     """Authoritative single-magazine identity returned by the ISSN
     lookup endpoint. Same shape as ``MetadataSearchResult`` but
@@ -198,3 +207,7 @@ class MagazineIdentitySchema(CamelModel):
     categories: list[str] = []
     sources: list[str] = []
     related_publications: list[RelatedPublication] = []
+    # Full ISSN sibling list under this publication's ISSN-L group
+    # (print + online + CD-ROM + microform variants). Empty when
+    # ISSN Portal didn't have the linkage.
+    issns: list[IssnEntry] = []

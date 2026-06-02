@@ -116,6 +116,66 @@ class IssnPortalProvider(MetadataProviderBase):
     async def get_issues(self, provider_id: str) -> list[IssueMetadata]:
         return []
 
+    async def fetch_issn_l_parts(
+        self, issn_l: str
+    ) -> list[dict[str, str | None]]:
+        """List every ISSN that belongs to the same ISSN-L group.
+
+        The ISSN-L resource on the portal exposes ``hasPart`` —
+        one entry per format-specific ISSN (Print / Online /
+        DigitalCarrier / Microform / Electronic). Returns
+        ``[{issn, format}, ...]`` so the detail page can render
+        the full lineage of a publication's ISSNs.
+
+        Cached aggressively (same month-long TTL as the per-ISSN
+        records) because the group rarely changes.
+        """
+        issn_l = _normalize_issn(issn_l)
+        cache_key = f"issn-l:{issn_l}"
+        if self.db is not None:
+            cached = await self._get_cache(cache_key)
+            if cached is not None:
+                return self._parse_issn_l_parts(cached)
+
+        try:
+            resp = await self._client.get(
+                f"https://portal.issn.org/resource/ISSN-L/{issn_l}"
+            )
+            if resp.status_code != 200:
+                return []
+            payload = resp.text
+        except Exception:
+            logger.warning(
+                "ISSN Portal ISSN-L lookup failed", extra={"issn_l": issn_l}
+            )
+            return []
+
+        parts = self._parse_issn_l_parts(payload)
+        if self.db is not None and parts:
+            await self._set_cache(cache_key, payload)
+        return parts
+
+    def _parse_issn_l_parts(self, payload: str) -> list[dict[str, str | None]]:
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return []
+        parts = data.get("hasPart") or []
+        out: list[dict[str, str | None]] = []
+        for p in parts if isinstance(parts, list) else []:
+            if not isinstance(p, dict):
+                continue
+            issn = p.get("identifier")
+            if not isinstance(issn, str) or not _looks_like_issn(issn):
+                continue
+            out.append(
+                {
+                    "issn": _normalize_issn(issn),
+                    "format": _medium_label(p.get("format")),
+                }
+            )
+        return out
+
     # ------------------------------------------------------------------
     # Parsing
     # ------------------------------------------------------------------
