@@ -339,10 +339,11 @@ class WikidataProvider(MetadataProviderBase):
                 # image (P18) for cover_url. Logos are sharper, on
                 # a transparent background, and instantly
                 # recognisable. Falls back to P18 only when the
-                # entity has no logo at all.
-                cover = _commons_image_url(_val(b, "logo")) or _commons_image_url(
-                    _val(b, "image")
-                )
+                # entity has no logo at all. Carry a flag so the
+                # UI knows to render the logo with ``contain`` +
+                # neutral background instead of zoom-cropping it.
+                logo = _commons_image_url(_val(b, "logo"))
+                cover = logo or _commons_image_url(_val(b, "image"))
                 entry = MetadataResult(
                     provider=PROVIDER_NAME,
                     provider_id=qid,
@@ -351,6 +352,7 @@ class WikidataProvider(MetadataProviderBase):
                     country=_val(b, "countryCode"),
                     language=_val(b, "languageCode"),
                     cover_url=cover,
+                    cover_is_logo=bool(logo),
                     wikipedia_url=_val(b, "wikipedia"),
                     wikidata_qid=qid,
                     first_issued=_year(_val(b, "inception")),

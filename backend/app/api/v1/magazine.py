@@ -95,6 +95,15 @@ async def lookup_metadata(
             "``L'Equipe Feder (Montpellier)`` from the result list."
         ),
     ),
+    multi_issn: bool = Query(
+        False,
+        description=(
+            "When true, keep only entries whose ISSN Portal record "
+            "exposes multiple ISSNs under the same ISSN-L (print + "
+            "online + CD-ROM, …). Filters out one-shot serials and "
+            "obscure single-edition records."
+        ),
+    ),
     config=Depends(get_config),
     db: AsyncSession = Depends(get_db),
 ):
@@ -111,6 +120,7 @@ async def lookup_metadata(
         locale=locale,
         status=status,
         verified_only=verified,
+        multi_issn_only=multi_issn,
     )
 
 

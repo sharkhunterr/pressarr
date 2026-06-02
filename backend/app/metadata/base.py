@@ -13,6 +13,11 @@ class MetadataResult:
     country: str | None = None
     description: str | None = None
     cover_url: str | None = None
+    # True when ``cover_url`` is a brand logo (Wikidata P154) rather
+    # than a content image — the UI uses this to switch from a
+    # zoom-cropped fill (which butchers logos) to a contained layout
+    # with a neutral background.
+    cover_is_logo: bool = False
     issn: str | None = None
     # ISSN-L (linking ISSN) — the canonical identifier shared by
     # every edition of the same publication (print + online + format

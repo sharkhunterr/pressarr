@@ -315,6 +315,7 @@ async def search_metadata(
     locale: str | None = None,
     status: str | None = None,
     verified_only: bool = False,
+    multi_issn_only: bool = False,
 ) -> list[MetadataSearchResult]:
     """Search every metadata source and deduplicate results.
 
@@ -429,7 +430,9 @@ async def search_metadata(
                     country=ident.country,
                     description=ident.description,
                     cover_url=ident.cover_url,
+                    cover_is_logo=ident.cover_is_logo,
                     issn=ident.issn,
+                    issns=ident.issns,
                     frequency=ident.frequency,
                     already_in_library=slug in existing_slugs,
                     sources=sources,
@@ -522,6 +525,12 @@ async def search_metadata(
             if r.wikidata_qid or (len(r.sources) >= 2)
         ]
 
+    # ``multi_issn_only``: keep entries where ISSN Portal returned a
+    # multi-format group (print + online + …). Filters out one-shots
+    # and obscure single-edition catalogue records.
+    if multi_issn_only:
+        all_results = [r for r in all_results if len(r.issns) >= 2]
+
     return all_results
 
 
@@ -549,6 +558,7 @@ async def lookup_magazine_by_issn(
         language=ident.language,
         frequency=ident.frequency,
         cover_url=ident.cover_url,
+        cover_is_logo=ident.cover_is_logo,
         description=ident.description,
         first_issued=ident.first_issued,
         ceased_at=ident.ceased_at,

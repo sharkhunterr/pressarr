@@ -57,6 +57,7 @@ class MagazineIdentity:
     language: str | None = None  # ISO-2
     frequency: str | None = None
     cover_url: str | None = None
+    cover_is_logo: bool = False
     first_issued: str | None = None  # YYYY
     ceased_at: str | None = None  # YYYY
     wikidata_qid: str | None = None
@@ -598,6 +599,7 @@ def _absorb(target: MagazineIdentity, source: str, r: MetadataResult) -> None:
     # Wikidata-only enrichment fields — no precedence battles.
     if r.cover_url and not target.cover_url:
         target.cover_url = r.cover_url
+        target.cover_is_logo = r.cover_is_logo
     if r.wikipedia_url and not target.wikipedia_url:
         target.wikipedia_url = r.wikipedia_url
     if r.wikidata_qid and not target.wikidata_qid:

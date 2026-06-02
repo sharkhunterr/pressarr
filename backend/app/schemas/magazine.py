@@ -139,6 +139,15 @@ class SourceInfo(CamelModel):
     count: int = 1
 
 
+class IssnEntry(CamelModel):
+    """One ISSN under the same ISSN-L group, with its format label
+    (Print / Online / DigitalCarrier / Microform). Sourced from the
+    ISSN Portal ``hasPart`` collection."""
+
+    issn: str
+    format: str | None = None
+
+
 class MetadataSearchResult(CamelModel):
     provider: str
     provider_id: str
@@ -147,7 +156,13 @@ class MetadataSearchResult(CamelModel):
     country: str | None = None
     description: str | None = None
     cover_url: str | None = None
+    cover_is_logo: bool = False
     issn: str | None = None
+    # Full ISSN-L sibling list when ISSN Portal returned a group
+    # (print + online + CD-ROM). Surfaced as a filter signal — the
+    # search-page "multi-ISSN only" toggle hides entries with
+    # fewer than two siblings.
+    issns: list[IssnEntry] = []
     frequency: str | None = None
     already_in_library: bool = False
     sources: list[SourceInfo] = []
@@ -175,15 +190,6 @@ class RelatedPublication(CamelModel):
     relation: str | None = None  # edition / supplement / preceded_by / followed_by
 
 
-class IssnEntry(CamelModel):
-    """One ISSN under the same ISSN-L group, with its format label
-    (Print / Online / DigitalCarrier / Microform). Sourced from the
-    ISSN Portal ``hasPart`` collection."""
-
-    issn: str
-    format: str | None = None
-
-
 class MagazineIdentitySchema(CamelModel):
     """Authoritative single-magazine identity returned by the ISSN
     lookup endpoint. Same shape as ``MetadataSearchResult`` but
@@ -198,6 +204,7 @@ class MagazineIdentitySchema(CamelModel):
     language: str | None = None
     frequency: str | None = None
     cover_url: str | None = None
+    cover_is_logo: bool = False
     description: str | None = None
     first_issued: str | None = None
     ceased_at: str | None = None
