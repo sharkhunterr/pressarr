@@ -144,10 +144,20 @@ async def search_cascade(
     )
     flattened = [(name, r) for (name, _), rows in zip(providers, raw) for r in rows]
     merged = _merge(flattened)
+    _sanitise_dates(merged)
+    # Rank FIRST, then enrich the top-N. Otherwise the enrichment
+    # passes (ISSN-L parts, frequency, ISSN-L sibling lookup) fire
+    # on whatever order the merge produced and the canonical
+    # entry — which only floats to the top after ``_rank`` —
+    # ends up un-enriched. That used to break the multi-ISSN
+    # filter for Science & Vie / Le Monde etc. (the canonical was
+    # ranked first but had ``issns=[]`` because enrichment skipped
+    # it earlier).
+    merged = _rank(merged, query=query, locale=locale)
     merged = await _enrich_issn_l_topn(merged, db=db)
     merged = await _enrich_frequency_topn(merged, db=db)
     merged = await _enrich_issn_parts_topn(merged, db=db)
-    return _rank(merged, query=query, locale=locale)
+    return merged
 
 
 async def _enrich_issn_parts_topn(
@@ -303,6 +313,7 @@ async def lookup_issn(
     if not flattened:
         return None
     merged = _merge(flattened)
+    _sanitise_dates(merged)
     if not merged:
         return None
     # Same per-format ISSN sibling enrichment the search path does —
@@ -539,6 +550,28 @@ def _merge_into(target: MagazineIdentity, src: MagazineIdentity) -> None:
         target.sources = list(dict.fromkeys([*target.sources, *src_srcs]))
 
 
+def _sanitise_dates(identities: list[MagazineIdentity]) -> None:
+    """Wikidata occasionally stores P576 (dissolved) earlier than
+    P571 (inception) when an entity conflates a refounded
+    publication with its predecessor (Le Figaro Q216047:
+    P576=1848, P571=1854 — the canonical paper was refounded in
+    1854 after the original 1826-1833 run). Treat that as bad
+    data and clear ``ceased_at`` so the ongoing filter doesn't
+    drop the canonical.
+
+    Done post-merge so the final dates from every contributing
+    provider are considered together (the per-absorb check missed
+    cases where ceased_at landed before first_issued in absorb
+    order).
+    """
+    for i in identities:
+        if not (i.ceased_at and i.first_issued):
+            continue
+        c, f = i.ceased_at[:4], i.first_issued[:4]
+        if c.isdigit() and f.isdigit() and int(c) < int(f):
+            i.ceased_at = None
+
+
 _ROOT_SLUG_PAREN = re.compile(r"\s*\([^)]*\)")
 
 
@@ -684,7 +717,16 @@ def _rank(
     Locale match (when set) only kicks in within the same signal tier
     so an FR canonical hit always beats an FR ZDB-only entry.
     """
-    q = query.lower().strip()
+    import unicodedata
+
+    def _norm(s: str) -> str:
+        # Strip accents + collapse "&"→"et" so "Science & Vie"
+        # matches "Science et vie" and "L'Équipe" matches "L'Equipe".
+        n = unicodedata.normalize("NFD", (s or "").lower())
+        n = "".join(c for c in n if unicodedata.category(c) != "Mn")
+        return n.replace("&", "et").replace("  ", " ").strip()
+
+    q = _norm(query)
 
     def signal_tier(i: MagazineIdentity) -> int:
         # 0 = ISSN known and at least one rich provider contributed
@@ -718,7 +760,17 @@ def _rank(
         return 1
 
     def key(i: MagazineIdentity) -> tuple:
-        title = (i.title or "").lower().strip()
+        title_raw = (i.title or "").lower().strip()
+        title = _norm(i.title or "")
+        # Canonical = title closely matches the query AND has a
+        # Wikidata QID AND ≥1 ISSN. Forces "L'Équipe" Q815748 ahead
+        # of BnF's "L'Equipe (1936)" / etc. so the enrichment passes
+        # downstream actually populate it.
+        canonical = 0 if (
+            (title == q or title.startswith(q))
+            and i.wikidata_qid
+            and i.issn
+        ) else 1
         exact = 0 if title == q else 1
         prefix = 0 if title.startswith(q) else 1
         ongoing = ongoing_tier(i)
@@ -737,7 +789,7 @@ def _rank(
                 "first_issued",
             )
         )
-        return (exact, prefix, ongoing, tier, locale_match, completeness, title)
+        return (canonical, exact, prefix, ongoing, tier, locale_match, completeness, title_raw)
 
     return sorted(identities, key=key)
 

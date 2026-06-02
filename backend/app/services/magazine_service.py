@@ -336,18 +336,23 @@ async def search_metadata(
 
     from app.metadata.cascade import search_cascade
     from app.metadata.google_books import GoogleBooksProvider
-    from app.metadata.internet_archive import InternetArchiveProvider
 
     api_key = getattr(config, "google_books_api_key", None)
     google = GoogleBooksProvider(api_key=api_key)
-    archive = InternetArchiveProvider()
 
-    cascade_results, google_results, archive_results = await asyncio.gather(
+    # Internet Archive returns one entry per scanned issue with no
+    # ISSN and no Wikidata QID — they pile up at the top of every
+    # search ("Science et Vie Hors Serie", "Science et Vie Hors
+    # Serie Special", "Science et vie micro HS", …) while the
+    # canonical Wikidata-anchored magazine ends up at position 18.
+    # Dropping IA from search entirely is cleaner than trying to
+    # filter it after the merge; it provides no canonical signal.
+    cascade_results, google_results = await asyncio.gather(
         search_cascade(query, db=db, locale=locale),
         google.search(query),
-        archive.search(query),
         return_exceptions=True,
     )
+    archive_results: list = []
 
     # Fetch existing library titles for already_in_library check.
     existing_slugs: set[str] = set()
@@ -486,7 +491,35 @@ async def search_metadata(
             return 0
         return 1
 
-    def _relevance(item: MetadataSearchResult) -> tuple[int, int, int, str]:
+    def _normalised(s: str) -> str:
+        # Strip accents + collapse "&"→"et" + lowercase so
+        # "Science & Vie" matches a "Science et vie" query, and
+        # "L'Équipe" matches "L'Equipe".
+        import unicodedata
+        n = unicodedata.normalize("NFD", s.lower())
+        n = "".join(c for c in n if unicodedata.category(c) != "Mn")
+        return n.replace("&", "et").replace("  ", " ").strip()
+
+    query_norm = _normalised(query_lower)
+
+    def _canonical_tier(item: MetadataSearchResult) -> int:
+        # Elite canonical: title closely matches the query AND is
+        # Wikidata-anchored AND has at least one ISSN. This is the
+        # "the user typed this magazine name — show their answer
+        # first" bucket. Everything else fights it out below.
+        title_norm = _normalised(item.title)
+        is_close_title_match = (
+            title_norm == query_norm or title_norm.startswith(query_norm)
+        )
+        if (
+            is_close_title_match
+            and item.wikidata_qid
+            and item.issn
+        ):
+            return 0
+        return 1
+
+    def _relevance(item: MetadataSearchResult) -> tuple:
         title_lower = item.title.lower().strip()
         if title_lower == query_lower:
             title_tier = 0
@@ -497,6 +530,7 @@ async def search_metadata(
         else:
             title_tier = 3
         return (
+            _canonical_tier(item),
             title_tier,
             _ongoing_tier(item),
             _signal_tier(item),
@@ -525,13 +559,24 @@ async def search_metadata(
             if r.wikidata_qid or (len(r.sources) >= 2)
         ]
 
-    # ``multi_issn_only``: keep entries where ISSN Portal returned a
-    # multi-format group (print + online + …). Filters out one-shots
-    # and obscure single-edition catalogue records.
+    # ``multi_issn_only``: keep entries with multi-format coverage
+    # OR a Wikidata anchor. Wikidata QID is a strong "real magazine"
+    # signal in its own right — entries like Picsou Magazine
+    # (Q3382556) or Science & Vie (Q3475754) have only one
+    # ISSN-L sibling registered with the ISSN authority but are
+    # unambiguously the publication the operator meant, so
+    # requiring strictly ≥2 ISSNs would drop them.
     if multi_issn_only:
-        all_results = [r for r in all_results if len(r.issns) >= 2]
+        all_results = [
+            r for r in all_results
+            if len(r.issns) >= 2 or r.wikidata_qid
+        ]
 
-    return all_results
+    # Cap the result list — past ~15 the operator scrolls past
+    # an undifferentiated mass of variant rows. The canonical
+    # tier guarantees the top hit; the next 14 cover sibling
+    # publications and edition variants worth knowing about.
+    return all_results[:15]
 
 
 async def lookup_magazine_by_issn(

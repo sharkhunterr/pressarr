@@ -261,7 +261,12 @@ class WikidataProvider(MetadataProviderBase):
         # anything by label, including unrelated people/places sharing
         # the magazine's name).
         rows = [r for r in rows if _is_serial(r)]
-        await self._enrich_related(rows)
+        # Don't enrich ``related_publications`` here — that's a
+        # detail-page concern and the extra SPARQL roundtrips (one
+        # per top hit, in parallel) used to push the search past
+        # the cascade's per-provider timeout and silently drop
+        # Wikidata entirely. ``lookup_issn`` enriches because the
+        # operator's already on a single-entity flow there.
         return rows
 
     async def _enrich_related(self, rows: list[MetadataResult]) -> None:
