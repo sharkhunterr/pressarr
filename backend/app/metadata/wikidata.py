@@ -26,6 +26,7 @@ are tiny single-entity fetches — well within the cap.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -266,31 +267,35 @@ class WikidataProvider(MetadataProviderBase):
     async def _enrich_related(self, rows: list[MetadataResult]) -> None:
         """Populate ``related_publications`` on hits that have a QID.
 
-        Best-effort: a slow / failing related-publications query never
-        breaks the main lookup. Sequential per-hit (parallel would
-        hammer Wikidata for queries with many hits like a free-text
-        search — keep it simple and skip when we have many results).
+        Parallel over the top-3 candidates — sequential blew through
+        the cascade's per-provider timeout when each SPARQL roundtrip
+        was ~500-800ms (5 sequential = 3-4s on top of the main query,
+        often pushing total Wikidata wall time past the 6s cap and
+        getting the whole provider skipped). Three is enough to cover
+        the canonical hit + a couple of close variants.
         """
-        # Only enrich the top few — free-text search can return 20+
-        # entities and we don't want to fire 20 SPARQL roundtrips.
-        for r in rows[:5]:
-            if not r.wikidata_qid:
+        candidates = [
+            r for r in rows[:3] if r.wikidata_qid
+        ]
+        if not candidates:
+            return
+        results = await asyncio.gather(
+            *(
+                self._fetch_related_publications(r.wikidata_qid)  # type: ignore[arg-type]
+                for r in candidates
+            ),
+            return_exceptions=True,
+        )
+        for r, related in zip(candidates, results):
+            if isinstance(related, BaseException):
                 continue
-            try:
-                related = await self._fetch_related_publications(r.wikidata_qid)
-                if related:
-                    r.related_publications = related
-            except Exception:
-                logger.debug(
-                    "Wikidata related-publications enrichment skipped",
-                    exc_info=True,
-                )
+            if related:
+                r.related_publications = related
 
     async def _sparql(self, query: str) -> dict[str, Any]:
         # Wikidata's SPARQL endpoint sporadically returns 502/503 when
         # the WDQS cluster is overloaded. One quick retry recovers most
         # transient cases without ballooning latency on real failures.
-        import asyncio
         for attempt in (1, 2):
             try:
                 resp = await self._client.get(

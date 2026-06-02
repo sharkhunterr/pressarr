@@ -80,11 +80,15 @@ class MagazineIdentity:
 
 
 # Per-provider soft timeout — beyond this we drop the provider's
-# result and proceed with whatever the rest returned. Picked so the
-# typical p95 of each upstream stays under the cap while honouring
-# the user-perceived budget for an interactive search (≤6s total
-# wall time once cached, ≤7s cold).
-_PROVIDER_TIMEOUT = 6.0
+# result and proceed with whatever the rest returned. 9s gives
+# Wikidata enough headroom for ``wbsearchentities`` + a SPARQL
+# detail fetch + the parallel related-publications enrichment
+# call (the slowest path), without keeping the operator waiting
+# noticeably on a degraded upstream. The Le Monde regression that
+# motivated bumping this used to clip Wikidata at ~7s, which
+# silently dropped the canonical hit and left BnF noise dominating
+# the result list.
+_PROVIDER_TIMEOUT = 9.0
 
 
 async def _gather_with_timeout(
