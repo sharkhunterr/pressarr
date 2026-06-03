@@ -131,6 +131,52 @@ export const testAnnasArchive = (mirror: string) =>
     body: JSON.stringify({ mirror }),
   })
 
+// Scene magazine indexers (Bookys, telecharger-magazines.org)
+// + FlareSolverr bypass + JDownloader 2 folder-watch.
+export interface SceneIndexersSettings {
+  bookysEnabled: boolean
+  bookysUrl: string
+  bookysUsername: string
+  /** Masked ("***") on read; UI sends back ``"***"`` to keep
+   *  the stored value, or a new string to replace, or empty to
+   *  clear. */
+  bookysPassword: string
+  telechargerMagazinesEnabled: boolean
+  telechargerMagazinesUrl: string
+  flaresolverrUrl: string
+  flaresolverrTimeoutMs: number
+  jdownloaderEnabled: boolean
+  jdownloaderFolderwatch: string
+  jdownloaderOutputPath: string
+}
+
+export const getSceneIndexers = () =>
+  apiFetch<SceneIndexersSettings>('/settings/scene-indexers')
+
+export const saveSceneIndexers = (data: Partial<SceneIndexersSettings>) =>
+  apiFetch<SceneIndexersSettings>('/settings/scene-indexers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+export const testBookys = () =>
+  apiFetch<{ isValid: boolean; message: string }>(
+    '/settings/scene-indexers/test/bookys',
+    { method: 'POST' },
+  )
+
+export const testTelechargerMagazines = () =>
+  apiFetch<{ isValid: boolean; message: string }>(
+    '/settings/scene-indexers/test/telecharger-magazines',
+    { method: 'POST' },
+  )
+
+export const testFlaresolverr = () =>
+  apiFetch<{ isValid: boolean; message: string }>(
+    '/settings/scene-indexers/test/flaresolverr',
+    { method: 'POST' },
+  )
+
 // Commands
 export interface CommandResource {
   id: number

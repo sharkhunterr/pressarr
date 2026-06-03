@@ -236,3 +236,215 @@ async def test_annas_archive(body: AnnasArchiveTestRequest):
         return TestResult(is_valid=False, message=str(e))
     finally:
         await provider.close()
+
+
+# ---------------------------------------------------------------------------
+# Scene magazine indexers (Bookys, telecharger-magazines.org)
+# + JDownloader 2 dispatcher + FlareSolverr bypass endpoint.
+# Bundled in one resource because the UI surfaces them on a
+# single page — the operator typically configures them
+# together (Bookys needs FlareSolverr, JD2 needs an output
+# path the importer can poll).
+# ---------------------------------------------------------------------------
+
+
+class _CredsMask:
+    """Helper — never echo passwords / sensitive strings back
+    in the GET response, but accept the same shape on PUT so
+    the UI doesn't have to be aware of masking."""
+
+    PLACEHOLDER = "***"
+
+    @staticmethod
+    def mask(value: str | None) -> str:
+        return _CredsMask.PLACEHOLDER if value else ""
+
+    @staticmethod
+    def keep(incoming: str | None, current: str) -> str:
+        # ``None`` from a partial PUT = "don't touch"; the
+        # placeholder also means "keep current"; everything
+        # else (even empty string) replaces.
+        if incoming is None or incoming == _CredsMask.PLACEHOLDER:
+            return current
+        return incoming
+
+
+class SceneIndexersResource(CamelModel):
+    bookys_enabled: bool
+    bookys_url: str
+    bookys_username: str
+    bookys_password: str
+    telecharger_magazines_enabled: bool
+    telecharger_magazines_url: str
+    flaresolverr_url: str
+    flaresolverr_timeout_ms: int
+    jdownloader_enabled: bool
+    jdownloader_folderwatch: str
+    jdownloader_output_path: str
+
+
+class SceneIndexersUpdateResource(CamelModel):
+    bookys_enabled: bool | None = None
+    bookys_url: str | None = None
+    bookys_username: str | None = None
+    bookys_password: str | None = None
+    telecharger_magazines_enabled: bool | None = None
+    telecharger_magazines_url: str | None = None
+    flaresolverr_url: str | None = None
+    flaresolverr_timeout_ms: int | None = None
+    jdownloader_enabled: bool | None = None
+    jdownloader_folderwatch: str | None = None
+    jdownloader_output_path: str | None = None
+
+
+def _serialise_scene_indexers(config) -> SceneIndexersResource:
+    return SceneIndexersResource(
+        bookys_enabled=config.bookys_enabled,
+        bookys_url=config.bookys_url,
+        bookys_username=config.bookys_username,
+        bookys_password=_CredsMask.mask(config.bookys_password),
+        telecharger_magazines_enabled=config.telecharger_magazines_enabled,
+        telecharger_magazines_url=config.telecharger_magazines_url,
+        flaresolverr_url=config.flaresolverr_url,
+        flaresolverr_timeout_ms=config.flaresolverr_timeout_ms,
+        jdownloader_enabled=config.jdownloader_enabled,
+        jdownloader_folderwatch=config.jdownloader_folderwatch,
+        jdownloader_output_path=config.jdownloader_output_path,
+    )
+
+
+@router.get("/scene-indexers", response_model=SceneIndexersResource)
+async def get_scene_indexers(config=Depends(get_config)):
+    return _serialise_scene_indexers(config)
+
+
+@router.post("/scene-indexers", response_model=SceneIndexersResource)
+async def save_scene_indexers(
+    body: SceneIndexersUpdateResource,
+    config=Depends(get_config),
+):
+    if body.bookys_enabled is not None:
+        config.bookys_enabled = body.bookys_enabled
+    if body.bookys_url is not None:
+        config.bookys_url = body.bookys_url.rstrip("/")
+    if body.bookys_username is not None:
+        config.bookys_username = body.bookys_username
+    # Password is masked on GET → use the keep helper so the
+    # placeholder coming back unchanged doesn't wipe the stored
+    # value.
+    config.bookys_password = _CredsMask.keep(
+        body.bookys_password, config.bookys_password
+    )
+    if body.telecharger_magazines_enabled is not None:
+        config.telecharger_magazines_enabled = (
+            body.telecharger_magazines_enabled
+        )
+    if body.telecharger_magazines_url is not None:
+        config.telecharger_magazines_url = (
+            body.telecharger_magazines_url.rstrip("/")
+        )
+    if body.flaresolverr_url is not None:
+        config.flaresolverr_url = body.flaresolverr_url
+    if body.flaresolverr_timeout_ms is not None:
+        config.flaresolverr_timeout_ms = body.flaresolverr_timeout_ms
+    if body.jdownloader_enabled is not None:
+        config.jdownloader_enabled = body.jdownloader_enabled
+    if body.jdownloader_folderwatch is not None:
+        config.jdownloader_folderwatch = body.jdownloader_folderwatch
+    if body.jdownloader_output_path is not None:
+        config.jdownloader_output_path = body.jdownloader_output_path
+    config.save()
+    return _serialise_scene_indexers(config)
+
+
+@router.post("/scene-indexers/test/bookys", response_model=TestResult)
+async def test_bookys(config=Depends(get_config)):
+    """Exercise the configured Bookys credentials through the
+    configured FlareSolverr endpoint. Returns ``is_valid=True``
+    only when the login dance reaches the ``dle_user_id``
+    cookie — anything before that surfaces with the failure
+    reason so the operator knows whether it's a CF/JS issue,
+    a wrong-creds issue, or a sidecar issue."""
+    from app.indexers.magazine_scene.bookys import BookysIndexer
+    from app.services.flaresolverr import build_client
+
+    flare = build_client(config)
+    indexer = BookysIndexer(
+        base_url=config.bookys_url,
+        username=config.bookys_username,
+        password=config.bookys_password,
+        flaresolverr=flare,
+    )
+    try:
+        ok, message = await indexer.test_connection()
+        return TestResult(is_valid=ok, message=message)
+    except Exception as e:
+        return TestResult(is_valid=False, message=str(e))
+    finally:
+        await indexer.close()
+
+
+@router.post(
+    "/scene-indexers/test/telecharger-magazines",
+    response_model=TestResult,
+)
+async def test_telecharger_magazines(config=Depends(get_config)):
+    """Reach the tm.org homepage to confirm the URL is alive
+    and not behind a 5xx. No login = nothing more to verify."""
+    from app.indexers.magazine_scene.telecharger_magazines import (
+        TelechargerMagazinesIndexer,
+    )
+
+    indexer = TelechargerMagazinesIndexer(
+        base_url=config.telecharger_magazines_url
+    )
+    try:
+        ok, message = await indexer.test_connection()
+        return TestResult(is_valid=ok, message=message)
+    except Exception as e:
+        return TestResult(is_valid=False, message=str(e))
+    finally:
+        await indexer.close()
+
+
+@router.post(
+    "/scene-indexers/test/flaresolverr",
+    response_model=TestResult,
+)
+async def test_flaresolverr(config=Depends(get_config)):
+    """Hit the FlareSolverr sidecar with a tiny ``request.get``
+    against ``example.com`` so the operator can confirm the
+    endpoint URL is correct before turning Bookys on."""
+    from app.services.flaresolverr import (
+        FlareSolverrError,
+        build_client,
+    )
+
+    client = build_client(config)
+    if client is None:
+        return TestResult(
+            is_valid=False, message="FlareSolverr URL is not configured"
+        )
+    try:
+        sol = await client.request_get("https://example.com")
+        if (sol or {}).get("status") == 200:
+            return TestResult(
+                is_valid=True,
+                message=(
+                    "FlareSolverr reached the test target "
+                    "(example.com)"
+                ),
+            )
+        return TestResult(
+            is_valid=False,
+            message=(
+                f"FlareSolverr reached but example.com returned "
+                f"status={(sol or {}).get('status')}"
+            ),
+        )
+    except FlareSolverrError as e:
+        return TestResult(is_valid=False, message=str(e))
+    except Exception as e:
+        return TestResult(is_valid=False, message=str(e))
+    finally:
+        await client.close()
