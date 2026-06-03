@@ -1071,8 +1071,7 @@ async def cleanup_orphaned_snatched(db: AsyncSession) -> int:
             )).scalars().first()
             grab_date = grab_event.date if grab_event else None
             if grab_date and hasattr(grab_date, "tzinfo") and grab_date.tzinfo is None:
-                from datetime import timezone
-                grab_date = grab_date.replace(tzinfo=timezone.utc)
+                grab_date = grab_date.replace(tzinfo=UTC)
             if not grab_event or (grab_date and grab_date < cutoff):
                 issue.status = "wanted"
                 for did in download_ids:

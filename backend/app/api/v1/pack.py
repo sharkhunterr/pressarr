@@ -1,7 +1,6 @@
 """Pack management API endpoints."""
 
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_config, get_db
 from app.schemas.pack import (
     PackCreateResource,
-    PackDispatchAssignment,
     PackDispatchFileResource,
     PackDispatchPreviewResource,
     PackPatternCreateResource,
@@ -323,8 +321,8 @@ async def execute_dispatch(
     from app.services.download_service import (
         _grab_registry,
         _processed_downloads,
-        _save_registry,
         _resolve_download_path,
+        _save_registry,
     )
 
     save_path = await _resolve_download_path(db, download_id)

@@ -41,6 +41,25 @@ class Config:
         self.annas_archive_enabled: bool = False
         self.annas_archive_mirror: str = "annas-archive.li"
 
+        # Scene magazine indexers. These scrape HTML — no public
+        # API exists — so they're disabled by default; operators
+        # turn them on explicitly. Credentials are stored in
+        # plaintext, same pattern as other provider settings;
+        # pressarr can grow a real secrets store later without
+        # touching this file's contract.
+        self.bookys_enabled: bool = False
+        # Bookys defaults to bookys-gratuit.com; some operators
+        # use a mirror so it stays configurable. Trailing slash
+        # is stripped at load time so the rest of the code can
+        # concatenate paths freely.
+        self.bookys_url: str = "https://www.bookys-gratuit.com"
+        self.bookys_username: str = ""
+        self.bookys_password: str = ""
+        self.telecharger_magazines_enabled: bool = False
+        self.telecharger_magazines_url: str = (
+            "https://www.telecharger-magazines.org"
+        )
+
         # Import mode: copy, move, or copy_delete
         self.import_mode: str = "copy"
 
@@ -78,6 +97,20 @@ class Config:
         self.annas_archive_mirror = metadata.get(
             "annas_archive_mirror", self.annas_archive_mirror
         )
+
+        indexers = data.get("indexers", {})
+        bookys = indexers.get("bookys", {})
+        self.bookys_enabled = bookys.get("enabled", self.bookys_enabled)
+        self.bookys_url = bookys.get("url", self.bookys_url).rstrip("/")
+        self.bookys_username = bookys.get("username", self.bookys_username)
+        self.bookys_password = bookys.get("password", self.bookys_password)
+        tm = indexers.get("telecharger_magazines", {})
+        self.telecharger_magazines_enabled = tm.get(
+            "enabled", self.telecharger_magazines_enabled
+        )
+        self.telecharger_magazines_url = tm.get(
+            "url", self.telecharger_magazines_url
+        ).rstrip("/")
 
         self.import_mode = data.get("import_mode", self.import_mode)
         self.download_path = data.get("download_path", self.download_path)
@@ -144,6 +177,18 @@ class Config:
                 "internet_archive_enabled": self.internet_archive_enabled,
                 "annas_archive_enabled": self.annas_archive_enabled,
                 "annas_archive_mirror": self.annas_archive_mirror,
+            },
+            "indexers": {
+                "bookys": {
+                    "enabled": self.bookys_enabled,
+                    "url": self.bookys_url,
+                    "username": self.bookys_username,
+                    "password": self.bookys_password,
+                },
+                "telecharger_magazines": {
+                    "enabled": self.telecharger_magazines_enabled,
+                    "url": self.telecharger_magazines_url,
+                },
             },
             "scheduler": {
                 "rss_sync_interval": self.rss_sync_interval,

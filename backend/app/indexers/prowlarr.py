@@ -4,7 +4,6 @@ import httpx
 
 from app.indexers.base import IndexerBase, RawSearchResult
 
-
 DEFAULT_CATEGORIES = [7000, 7010, 7020]
 
 

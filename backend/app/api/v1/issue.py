@@ -1,6 +1,5 @@
 """Issue management API endpoints."""
 
-import io
 import logging
 import zipfile
 from pathlib import Path
@@ -13,8 +12,8 @@ from app.dependencies import get_db
 from app.schemas.issue import (
     FileAssignRequest,
     IssueBatchMonitorRequest,
-    IssueReassignRequest,
     IssueFileResource,
+    IssueReassignRequest,
     IssueResource,
     IssueUpdateRequest,
 )
@@ -383,6 +382,7 @@ async def get_issue_page_count(
     """Return the number of pages in the issue file."""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
     from app.models.issue import Issue
 
     result = await db.execute(
@@ -422,6 +422,7 @@ async def get_issue_page(
     """Render a single page from the issue file as an image."""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
     from app.models.issue import Issue
 
     result = await db.execute(

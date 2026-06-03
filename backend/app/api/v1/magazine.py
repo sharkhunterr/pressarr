@@ -545,3 +545,63 @@ async def delete_rule(
     if not await magazine_service.delete_magazine_rule(db, rule_id):
         raise HTTPException(404, "Rule not found")
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Scene release scanning (Bookys / telecharger-magazines.org / …)
+#
+# These endpoints sit between the metadata cascade (which knows
+# *what* the magazine is) and the download dispatcher (which
+# knows *how* to fetch a file). Each call returns the latest set
+# of MagazineRelease rows for the magazine — POST kicks off a
+# fresh scrape of every enabled scene indexer; GET reads what's
+# already in the DB.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{magazine_id}/releases", response_model=list[dict])
+async def list_releases(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return every persisted scene release for a magazine,
+    newest-first. Empty list when no scan has run yet (or no
+    indexer is enabled)."""
+    from sqlalchemy import select
+
+    from app.models.magazine_release import MagazineRelease
+    from app.services.magazine_release_service import serialise_release
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+    rows = (
+        await db.scalars(
+            select(MagazineRelease)
+            .where(MagazineRelease.magazine_id == magazine_id)
+            .order_by(MagazineRelease.discovered_at.desc())
+        )
+    ).all()
+    return [serialise_release(r) for r in rows]
+
+
+@router.post("/{magazine_id}/releases/scan", response_model=list[dict])
+async def scan_releases(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Run a fresh scrape against every enabled scene indexer
+    and return the resulting release list. Idempotent — runs
+    against the same indexers + same title each time and
+    upserts on (source, source_url)."""
+    from app.services.magazine_release_service import (
+        scan_magazine_releases,
+        serialise_release,
+    )
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+    releases = await scan_magazine_releases(magazine, config, db)
+    return [serialise_release(r) for r in releases]
