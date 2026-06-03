@@ -34,6 +34,7 @@ def _register_tasks() -> None:
         refresh_forecasts,
         rss_sync,
         scene_auto_grab,
+        scene_import,
     )
 
     # Pack RSS sync runs BEFORE magazine RSS sync to avoid duplicates
@@ -102,6 +103,19 @@ def _register_tasks() -> None:
         hours=6,
         id="scene_auto_grab",
         name="Scene magazine auto-grab",
+        replace_existing=True,
+    )
+
+    # Scene importer — short cadence so the status chip flips
+    # from "grabbed" to "imported" within a couple of minutes
+    # of JD2 finishing the download. Cheap when the JD2 output
+    # folder is empty.
+    scheduler.add_job(
+        scene_import,
+        "interval",
+        seconds=90,
+        id="scene_import",
+        name="Scene magazine importer",
         replace_existing=True,
     )
 

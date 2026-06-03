@@ -539,3 +539,29 @@ async def scene_auto_grab():
                 )
         except Exception:
             logger.error("Scene auto-grab cycle failed", exc_info=True)
+
+
+async def scene_import():
+    """Walk JDownloader 2's output directory and move completed
+    files into the magazine library, flipping the matching
+    ``MagazineRelease`` row from ``grabbed`` to ``imported``.
+
+    Cadence is short (every 90s) because most magazines are
+    PDF and finish in a minute or two — operator feedback is
+    way better when the status chip flips quickly.
+    """
+    if not async_session_factory:
+        return
+    async with async_session_factory() as db:
+        try:
+            from app.dependencies import get_config
+            from app.services.scene_importer import run_scene_import
+
+            stats = await run_scene_import(db, get_config())
+            if stats["imported"]:
+                logger.info(
+                    "Scene importer: imported=%d scanned=%d skipped=%d",
+                    stats["imported"], stats["scanned"], stats["skipped"],
+                )
+        except Exception:
+            logger.error("Scene importer cycle failed", exc_info=True)
