@@ -38,6 +38,7 @@ from app.indexers.magazine_scene.telecharger_magazines import (
 )
 from app.models.magazine import Magazine
 from app.models.magazine_release import MagazineRelease
+from app.services.flaresolverr import build_client as build_flaresolverr
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +50,23 @@ def build_enabled_indexers(config) -> list[MagazineSceneIndexerBase]:
     error)."""
     indexers: list[MagazineSceneIndexerBase] = []
     if getattr(config, "bookys_enabled", False):
+        # Bookys lives behind Cloudflare. Build the FlareSolverr
+        # client per call so a disabled sidecar doesn't poison
+        # other indexers — the Bookys instance just runs with
+        # ``flaresolverr=None`` and ``search()`` short-circuits.
+        flare = build_flaresolverr(config)
+        if flare is None:
+            logger.warning(
+                "Bookys is enabled but flaresolverr_url is empty — Bookys "
+                "scrapes will return no releases until a bypass endpoint "
+                "is configured."
+            )
         indexers.append(
             BookysIndexer(
                 base_url=config.bookys_url,
                 username=config.bookys_username,
                 password=config.bookys_password,
+                flaresolverr=flare,
             )
         )
     if getattr(config, "telecharger_magazines_enabled", False):
