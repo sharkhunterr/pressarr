@@ -43,6 +43,14 @@ KNOWN_HOSTERS: tuple[str, ...] = (
     "letsupload.io",
     "drop.download",
     "drop.lk",
+    # Seen in the wild on telecharger-magazines.org via
+    # liens-direct.com — most are JDownloader-compatible.
+    "frdl.io",
+    "upfiles.com",
+    "dailyuploads.net",
+    "jioupload.top",
+    "filespayouts.com",
+    "filespay.com",
 )
 
 
