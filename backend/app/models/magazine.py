@@ -31,6 +31,26 @@ class Magazine(Base):
     frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="monthly")
     monitored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     monitoring_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # 'subscription' (default, recurring) | 'one_shot' (single
+    # back-issue, no further monitoring). The auto-grab
+    # scheduler reads this to decide whether to keep scanning
+    # indexers after the first successful grab.
+    request_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="subscription",
+        server_default="subscription",
+    )
+    # One-shot target — populated only when ``request_type``
+    # is ``one_shot``. Either an operator-typed issue identifier
+    # ("N°594", "HS 14", "594") or a publication date (used for
+    # dailies like L'Équipe where issues are not numbered).
+    target_issue_label: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
+    target_issue_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True
+    )
     search_terms: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cover_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     use_latest_issue_cover: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")

@@ -131,6 +131,16 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         frequency=data.get("frequency", "monthly"),
         monitored=data.get("monitored", True),
         monitoring_start_date=data.get("monitoring_start_date"),
+        # Default to recurring subscription when caller omits the
+        # field so legacy callers (and pre-allseerr direct adds)
+        # keep their original behaviour.
+        request_type=(
+            "one_shot"
+            if data.get("request_type") == "one_shot"
+            else "subscription"
+        ),
+        target_issue_label=data.get("target_issue_label"),
+        target_issue_date=data.get("target_issue_date"),
         search_terms=data.get("search_terms"),
         root_folder_id=data["root_folder_id"],
         quality_profile_id=data["quality_profile_id"],

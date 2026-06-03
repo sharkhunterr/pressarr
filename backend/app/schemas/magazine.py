@@ -65,6 +65,9 @@ class MagazineResource(CamelModel):
     frequency: str
     monitored: bool
     monitoring_start_date: date | None = None
+    request_type: str = "subscription"
+    target_issue_label: str | None = None
+    target_issue_date: date | None = None
     search_terms: str | None = None
     cover_path: str | None = None
     use_latest_issue_cover: bool = False
@@ -99,6 +102,13 @@ class MagazineCreateResource(CamelModel):
     frequency: str = "monthly"
     monitored: bool = True
     monitoring_start_date: date | None = None
+    # 'subscription' (default, recurring monitor) | 'one_shot'
+    # (single back-issue, no further monitoring). Auto-grab
+    # scheduler honours this when deciding whether to keep
+    # scanning indexers for new releases.
+    request_type: str = "subscription"
+    target_issue_label: str | None = None
+    target_issue_date: date | None = None
     search_terms: str | None = None
     root_folder_id: int
     quality_profile_id: int
