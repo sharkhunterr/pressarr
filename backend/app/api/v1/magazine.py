@@ -605,3 +605,56 @@ async def scan_releases(
         raise HTTPException(404, "Magazine not found")
     releases = await scan_magazine_releases(magazine, config, db)
     return [serialise_release(r) for r in releases]
+
+
+@router.post(
+    "/{magazine_id}/releases/{release_id}/grab",
+    response_model=dict,
+)
+async def grab_release(
+    magazine_id: int,
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Hand off a scraped release to the configured download
+    client (JDownloader 2 folder-watch in v1). Writes a
+    ``.crawljob`` file, flips the release's status to
+    ``grabbed`` + stamps ``grabbed_at``, returns the updated
+    row."""
+    from sqlalchemy import select
+
+    from app.models.magazine_release import MagazineRelease
+    from app.services.jdownloader_dispatcher import (
+        JDownloaderDispatchError,
+        dispatch_release,
+    )
+    from app.services.magazine_release_service import serialise_release
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+    release = await db.scalar(
+        select(MagazineRelease).where(
+            MagazineRelease.id == release_id,
+            MagazineRelease.magazine_id == magazine_id,
+        )
+    )
+    if release is None:
+        raise HTTPException(404, "Release not found for this magazine")
+
+    try:
+        dispatch_release(release=release, magazine=magazine, config=config)
+    except JDownloaderDispatchError as e:
+        # Persist the failure on the row so the UI can show
+        # *why* it didn't dispatch, then surface 502 so the
+        # caller knows the action was not retried.
+        release.status = "failed"
+        release.status_message = str(e)
+        await db.commit()
+        await db.refresh(release)
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    await db.commit()
+    await db.refresh(release)
+    return serialise_release(release)
