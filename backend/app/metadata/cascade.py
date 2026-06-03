@@ -157,6 +157,12 @@ async def search_cascade(
     merged = await _enrich_issn_l_topn(merged, db=db)
     merged = await _enrich_frequency_topn(merged, db=db)
     merged = await _enrich_issn_parts_topn(merged, db=db)
+    # Best-effort scene-indexer cover fallback for the #0 hit
+    # when the upstream catalogues only gave us a logo or
+    # nothing. tm.org / Bookys publish the actual current-issue
+    # cover; the enricher is cached 24h so a hot search only
+    # scrapes once a day.
+    await _enrich_scene_cover_top1(merged, db=db, query=query)
     return merged
 
 
@@ -219,6 +225,41 @@ async def _enrich_frequency_topn(
         if freq:
             ident.frequency = freq
     return identities
+
+
+async def _enrich_scene_cover_top1(
+    identities: list[MagazineIdentity],
+    *,
+    db: AsyncSession | None,
+    query: str,
+) -> None:
+    """Fill ``cover_url`` on the #0 identity from the scene
+    indexers (Bookys / tm.org) when the regular cascade only
+    returned a logo or nothing.
+
+    Logos (Wikidata P154) are technically a cover too, but
+    they often render poorly in the search tile — a real
+    issue cover is a better fallback when one is available.
+    The caller's cache (``app/metadata/scene_covers.py``) keeps
+    the scrape budget bounded to ~one per query per day.
+    """
+    if not identities or db is None:
+        return
+    top = identities[0]
+    if top.cover_url and not top.cover_is_logo:
+        return  # already have a real cover, nothing to do
+    try:
+        from app.dependencies import get_config
+        from app.metadata.scene_covers import find_scene_cover
+    except Exception:
+        return
+    try:
+        cover = await find_scene_cover(query, get_config(), db=db)
+    except Exception:
+        return
+    if cover:
+        top.cover_url = cover
+        top.cover_is_logo = False
 
 
 async def _enrich_issn_l_topn(
