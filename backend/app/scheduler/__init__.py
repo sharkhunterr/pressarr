@@ -33,6 +33,7 @@ def _register_tasks() -> None:
         purge_history,
         refresh_forecasts,
         rss_sync,
+        scene_auto_grab,
     )
 
     # Pack RSS sync runs BEFORE magazine RSS sync to avoid duplicates
@@ -88,6 +89,19 @@ def _register_tasks() -> None:
         hours=6,
         id="cleanup_orphaned_snatched",
         name="Orphaned snatched cleanup",
+        replace_existing=True,
+    )
+
+    # Scene-indexer auto-grab. 6h cadence matches the typical
+    # tm.org / Bookys release rhythm — new dailies surface a few
+    # times a day, monthlies once a week. Operator can rerun
+    # on demand from the magazine detail page in any case.
+    scheduler.add_job(
+        scene_auto_grab,
+        "interval",
+        hours=6,
+        id="scene_auto_grab",
+        name="Scene magazine auto-grab",
         replace_existing=True,
     )
 

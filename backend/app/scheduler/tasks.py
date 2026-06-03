@@ -507,3 +507,35 @@ async def refresh_forecasts():
             await db.commit()
         except Exception:
             logger.error("Forecast refresh failed", exc_info=True)
+
+
+
+async def scene_auto_grab():
+    """Auto-grab cycle for the scene magazine indexers (Bookys,
+    telecharger-magazines.org, …).
+
+    For each monitored magazine, scans every enabled indexer
+    and dispatches matching releases to the JDownloader 2
+    folder-watch. Subscription requests grab everything new on
+    or after ``monitoring_start_date``; one-shot requests grab
+    only the matching back-issue and then flip ``monitored=False``.
+
+    Safe to run on a cadence (default: every 6 hours via
+    ``app.scheduler``); the orchestrator dedupes on
+    ``(source, source_url)`` so re-scans don't double-dispatch.
+    """
+    if not async_session_factory:
+        return
+    async with async_session_factory() as db:
+        try:
+            from app.dependencies import get_config
+            from app.services.auto_grab_service import run_auto_grab
+
+            stats = await run_auto_grab(db, get_config())
+            if stats["scanned"]:
+                logger.info(
+                    "Scene auto-grab: scanned=%d grabbed=%d skipped=%d",
+                    stats["scanned"], stats["grabbed"], stats["skipped"],
+                )
+        except Exception:
+            logger.error("Scene auto-grab cycle failed", exc_info=True)
