@@ -102,11 +102,20 @@ async def scan_magazine_releases(
     magazine: Magazine,
     config,
     db: AsyncSession,
+    source: str | None = None,
 ) -> list[MagazineRelease]:
     """Run every enabled indexer against the magazine and
     persist the results. Returns the persisted rows (existing
-    rows refreshed, new rows inserted). Safe to re-run."""
+    rows refreshed, new rows inserted). Safe to re-run.
+
+    Pass ``source`` (e.g. ``'bookys'``, ``'telecharger_magazines'``)
+    to restrict the scrape to a single indexer — pressarr's
+    UI does this so the operator can re-scan just the tab
+    they're looking at without paying for the other one. When
+    omitted, every enabled indexer runs in parallel."""
     indexers = build_enabled_indexers(config)
+    if source:
+        indexers = [i for i in indexers if i.name == source]
     if not indexers:
         logger.debug(
             "No scene indexer enabled — skipping release scan for %s",

@@ -562,11 +562,15 @@ async def delete_rule(
 @router.get("/{magazine_id}/releases", response_model=list[dict])
 async def list_releases(
     magazine_id: int,
+    source: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Return every persisted scene release for a magazine,
     newest-first. Empty list when no scan has run yet (or no
-    indexer is enabled)."""
+    indexer is enabled). Pass ``?source=bookys`` (or
+    ``telecharger_magazines``) to restrict to one indexer —
+    the pressarr UI does this so each manual-search tab only
+    sees its own rows."""
     from sqlalchemy import select
 
     from app.models.magazine_release import MagazineRelease
@@ -575,26 +579,30 @@ async def list_releases(
     magazine = await magazine_service.get_magazine(db, magazine_id)
     if magazine is None:
         raise HTTPException(404, "Magazine not found")
-    rows = (
-        await db.scalars(
-            select(MagazineRelease)
-            .where(MagazineRelease.magazine_id == magazine_id)
-            .order_by(MagazineRelease.discovered_at.desc())
-        )
-    ).all()
+    stmt = (
+        select(MagazineRelease)
+        .where(MagazineRelease.magazine_id == magazine_id)
+        .order_by(MagazineRelease.discovered_at.desc())
+    )
+    if source:
+        stmt = stmt.where(MagazineRelease.source == source)
+    rows = (await db.scalars(stmt)).all()
     return [serialise_release(r) for r in rows]
 
 
 @router.post("/{magazine_id}/releases/scan", response_model=list[dict])
 async def scan_releases(
     magazine_id: int,
+    source: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     config=Depends(get_config),
 ):
     """Run a fresh scrape against every enabled scene indexer
     and return the resulting release list. Idempotent — runs
     against the same indexers + same title each time and
-    upserts on (source, source_url)."""
+    upserts on (source, source_url). Pass ``?source=…`` to
+    limit the scrape to a single indexer (UI uses this when
+    the operator clicks "Scan" inside one tab)."""
     from app.services.magazine_release_service import (
         scan_magazine_releases,
         serialise_release,
@@ -603,7 +611,9 @@ async def scan_releases(
     magazine = await magazine_service.get_magazine(db, magazine_id)
     if magazine is None:
         raise HTTPException(404, "Magazine not found")
-    releases = await scan_magazine_releases(magazine, config, db)
+    releases = await scan_magazine_releases(
+        magazine, config, db, source=source
+    )
     return [serialise_release(r) for r in releases]
 
 

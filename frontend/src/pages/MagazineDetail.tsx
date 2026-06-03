@@ -64,7 +64,10 @@ import {
   downloadFromIA,
   searchAnnasArchive,
   downloadFromAA,
+  scanMagazineSceneReleases,
+  grabMagazineSceneRelease,
   type SearchResult,
+  type MagazineRelease,
 } from '@/api/search'
 import { getProfiles } from '@/api/quality'
 import { getRootFolders } from '@/api/system'
@@ -214,6 +217,12 @@ export default function MagazineDetail() {
   const [manualSearchPage, setManualSearchPage] = useState(1)
   const [manualSearchSourceFilter, setManualSearchSourceFilter] = useState('')
   const [manualSearchDateSort, setManualSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
+  // Scene magazine indexer state (Bookys + tm.org). Distinct
+  // from the SearchResult-shaped tabs above because the row
+  // model is different (hoster_links array, status lifecycle,
+  // dispatched via JD2 folder-watch instead of qBit / nzbget).
+  const [sceneResults, setSceneResults] = useState<MagazineRelease[]>([])
+  const [sceneGrabbing, setSceneGrabbing] = useState<Set<number>>(new Set())
   const [searchPage, setSearchPage] = useState(1)
   const [searchSourceFilter, setSearchSourceFilter] = useState('')
   const [searchDateSort, setSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
@@ -752,27 +761,78 @@ export default function MagazineDetail() {
 
   async function handleManualSearch(tab?: string) {
     const activeTab = tab || manualSearchTab
-    if (!manualSearchQuery.trim()) return
+    if (!manualSearchQuery.trim() && !isSceneTab(activeTab)) return
     setManualSearching(true)
     setManualSearchResults([])
+    setSceneResults([])
     setManualSearchPage(1)
     setManualSearchSourceFilter('')
     setManualSearchDateSort('')
     try {
-      let results: SearchResult[] = []
       if (activeTab === 'annasarchive') {
-        results = await searchAnnasArchive(manualSearchQuery, magazineId)
+        setManualSearchResults(
+          await searchAnnasArchive(manualSearchQuery, magazineId),
+        )
       } else if (activeTab === 'internetarchive') {
-        results = await searchInternetArchive(manualSearchQuery, magazineId)
+        setManualSearchResults(
+          await searchInternetArchive(manualSearchQuery, magazineId),
+        )
       } else if (activeTab === 'indexers') {
-        results = await searchIndexers(manualSearchQuery, magazineId)
+        setManualSearchResults(
+          await searchIndexers(manualSearchQuery, magazineId),
+        )
+      } else if (isSceneTab(activeTab)) {
+        // Scene tabs scrape pressarr's own indexer (Bookys /
+        // tm.org) using the magazine's stored title + aliases
+        // — the operator-typed query is ignored on purpose so
+        // the orchestrator keeps full control over the
+        // search-string fan-out.
+        setSceneResults(
+          await scanMagazineSceneReleases(magazineId, activeTab),
+        )
       }
-      setManualSearchResults(results)
     } catch {
       toast.error(t('issues.searchError'))
     } finally {
       setManualSearching(false)
     }
+  }
+
+  function isSceneTab(tab: string): tab is 'bookys' | 'telecharger_magazines' {
+    return tab === 'bookys' || tab === 'telecharger_magazines'
+  }
+
+  async function handleSceneGrab(release: MagazineRelease) {
+    setSceneGrabbing((s) => new Set(s).add(release.id))
+    try {
+      const updated = await grabMagazineSceneRelease(magazineId, release.id)
+      // Replace the row in-place so the status chip flips
+      // ``available → grabbed`` without a re-fetch.
+      setSceneResults((rows) =>
+        rows.map((r) => (r.id === updated.id ? updated : r)),
+      )
+      toast.success(t('issues.grabbed'))
+    } catch {
+      toast.error(t('issues.grabError'))
+    } finally {
+      setSceneGrabbing((s) => {
+        const next = new Set(s)
+        next.delete(release.id)
+        return next
+      })
+    }
+  }
+
+  function formatSize(bytes?: number | null): string | null {
+    if (!bytes || bytes < 1024) return null
+    const units = ['B', 'KB', 'MB', 'GB']
+    let i = 0
+    let value = bytes
+    while (value >= 1024 && i < units.length - 1) {
+      value /= 1024
+      i++
+    }
+    return `${value.toFixed(1)} ${units[i]}`
   }
 
   // Search
@@ -1441,34 +1501,184 @@ export default function MagazineDetail() {
               <TabsTrigger value="indexers">
                 {t('magazineDetail.tabIndexers')}
               </TabsTrigger>
+              <TabsTrigger value="bookys">Bookys</TabsTrigger>
+              <TabsTrigger value="telecharger_magazines">
+                tm.org
+              </TabsTrigger>
             </TabsList>
 
-            {/* Search bar (shared across tabs) */}
-            <div className="flex gap-2 mt-3">
-              <Input
-                value={manualSearchQuery}
-                onChange={(e) => setManualSearchQuery(e.target.value)}
-                placeholder={t('magazineDetail.searchPlaceholder')}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleManualSearch()
-                }}
-              />
-              <Button
-                onClick={() => handleManualSearch()}
-                disabled={manualSearching || !manualSearchQuery.trim()}
-              >
-                {manualSearching ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Search className="size-4" />
-                )}
-                {t('common.search')}
-              </Button>
-            </div>
+            {/* Search bar — only meaningful on the three
+                free-text tabs. Scene-indexer tabs always scrape
+                with the magazine's stored title (+ aliases) so
+                the orchestrator stays in charge of the
+                search-string fan-out; their button just says
+                "Scan". */}
+            {!isSceneTab(manualSearchTab) ? (
+              <div className="flex gap-2 mt-3">
+                <Input
+                  value={manualSearchQuery}
+                  onChange={(e) => setManualSearchQuery(e.target.value)}
+                  placeholder={t('magazineDetail.searchPlaceholder')}
+                  className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleManualSearch()
+                  }}
+                />
+                <Button
+                  onClick={() => handleManualSearch()}
+                  disabled={manualSearching || !manualSearchQuery.trim()}
+                >
+                  {manualSearching ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Search className="size-4" />
+                  )}
+                  {t('common.search')}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2 mt-3">
+                <div className="flex-1 text-xs text-zinc-400 self-center">
+                  Scrapes pressarr's configured{' '}
+                  {manualSearchTab === 'bookys'
+                    ? 'Bookys'
+                    : 'telecharger-magazines.org'}{' '}
+                  indexer for this magazine's title + aliases.
+                </div>
+                <Button
+                  onClick={() => handleManualSearch()}
+                  disabled={manualSearching}
+                >
+                  {manualSearching ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Search className="size-4" />
+                  )}
+                  Scan
+                </Button>
+              </div>
+            )}
 
-            {/* Results area (same for all tabs) */}
-            {(() => {
+            {/* Scene-tab results — separate render path because
+                the row model (hoster_links, status lifecycle)
+                doesn't fit the SearchResult-shaped table the
+                three free-text tabs share. */}
+            {isSceneTab(manualSearchTab) && (
+              <div className="mt-3 flex-1 overflow-y-auto">
+                {sceneResults.length === 0 ? (
+                  <div className="rounded border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
+                    {manualSearching
+                      ? 'Scraping…'
+                      : 'No releases yet. Click "Scan" to query the indexer.'}
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {sceneResults.map((r) => {
+                      const size = formatSize(r.sizeBytes)
+                      const isGrabbing = sceneGrabbing.has(r.id)
+                      const canGrab =
+                        r.status === 'available' || r.status === 'failed'
+                      return (
+                        <li
+                          key={r.id}
+                          className="rounded-md border border-zinc-700 bg-zinc-900/40 p-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold text-zinc-100">
+                                {r.title}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                                <Badge
+                                  variant={
+                                    r.status === 'imported'
+                                      ? 'default'
+                                      : r.status === 'grabbed'
+                                        ? 'secondary'
+                                        : r.status === 'failed'
+                                          ? 'destructive'
+                                          : 'outline'
+                                  }
+                                  className="text-[10px] uppercase tracking-wider"
+                                >
+                                  {r.status}
+                                </Badge>
+                                {r.issueLabel && (
+                                  <span className="rounded bg-zinc-700/60 px-1.5 py-0.5 font-mono text-zinc-200">
+                                    {r.issueLabel}
+                                  </span>
+                                )}
+                                {r.year && (
+                                  <span className="text-zinc-400">
+                                    {r.year}
+                                  </span>
+                                )}
+                                {r.fileFormat && (
+                                  <span className="uppercase text-zinc-400">
+                                    {r.fileFormat}
+                                  </span>
+                                )}
+                                {size && (
+                                  <span className="text-zinc-400">{size}</span>
+                                )}
+                              </div>
+                              {r.hosterLinks.length > 0 && (
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                  {r.hosterLinks.map((h) => (
+                                    <span
+                                      key={h.url}
+                                      className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-mono uppercase text-indigo-200 ring-1 ring-indigo-500/30"
+                                      title={h.url}
+                                    >
+                                      {h.hoster}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {r.statusMessage && r.status === 'failed' && (
+                                <p className="mt-1 text-xs text-red-300">
+                                  {r.statusMessage}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-shrink-0 items-center gap-2">
+                              <a
+                                href={r.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs text-indigo-400 hover:text-indigo-300"
+                              >
+                                Open source →
+                              </a>
+                              {canGrab && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSceneGrab(r)}
+                                  disabled={isGrabbing}
+                                >
+                                  {isGrabbing ? (
+                                    <Loader2 className="size-3 animate-spin" />
+                                  ) : (
+                                    <Download className="size-3" />
+                                  )}
+                                  Grab
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Results area (the existing SearchResult render
+                path — only renders on the 3 free-text tabs;
+                scene tabs handle their own list above). */}
+            {!isSceneTab(manualSearchTab) &&
+              (() => {
               const sources = [...new Set(manualSearchResults.map((r) => r.source || r.indexer).filter(Boolean))]
               const bySource = manualSearchSourceFilter
                 ? manualSearchResults.filter((r) => (r.source || r.indexer) === manualSearchSourceFilter)
@@ -1656,6 +1866,8 @@ export default function MagazineDetail() {
             <TabsContent value="annasarchive" className="hidden" />
             <TabsContent value="internetarchive" className="hidden" />
             <TabsContent value="indexers" className="hidden" />
+            <TabsContent value="bookys" className="hidden" />
+            <TabsContent value="telecharger_magazines" className="hidden" />
           </Tabs>
         </DialogContent>
       </Dialog>
