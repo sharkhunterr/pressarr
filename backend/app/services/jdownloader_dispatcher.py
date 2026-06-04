@@ -67,19 +67,59 @@ def _slug(value: str, max_len: int = 80) -> str:
     return (s or "release")[:max_len]
 
 
-def _hoster_urls(release: MagazineRelease) -> list[str]:
+#: Preference order when a release exposes the same file on
+#: multiple hosters. JD2 treats every URL in ``text=`` as a
+#: separate download, so writing all 3 mirrors triples the
+#: bandwidth + free-tier wait timers; we keep one URL and
+#: drop the rest. Hosters higher in the list are tried first
+#: (premium-friendly + reliable first, free-only mirrors last).
+_HOSTER_PREFERENCE: tuple[str, ...] = (
+    "1fichier.com",
+    "rapidgator.net",
+    "rapidgator.asia",
+    "nitroflare.com",
+    "uploaded.net",
+    "uploaded.to",
+    "ul.to",
+    "katfile.com",
+    "ddownload.com",
+    "fikper.com",
+    "k2s.cc",
+    "keep2share.cc",
+    "turbobit.net",
+    "turb.cc",
+    "mega.nz",
+    "frdl.io",
+    "upfiles.com",
+    "uploady.io",
+    "dailyuploads.net",
+    "filespayouts.com",
+)
+
+
+def _pick_best_hoster_url(release: MagazineRelease) -> str | None:
+    """Pick the single best hoster URL for ``release`` according
+    to ``_HOSTER_PREFERENCE``. Returns None when the release
+    has no hosters at all. The dispatcher writes only this URL
+    into the .crawljob so JD2 doesn't download the same file
+    once per mirror."""
     try:
         data = json.loads(release.hoster_links or "[]")
     except Exception:
-        return []
-    out: list[str] = []
-    seen: set[str] = set()
+        return None
+    entries: list[tuple[str, str]] = []
     for entry in data:
         url = (entry or {}).get("url")
-        if isinstance(url, str) and url not in seen:
-            seen.add(url)
-            out.append(url)
-    return out
+        hoster = ((entry or {}).get("hoster") or "").lower()
+        if isinstance(url, str) and url:
+            entries.append((hoster, url))
+    if not entries:
+        return None
+    rank: dict[str, int] = {
+        h: i for i, h in enumerate(_HOSTER_PREFERENCE)
+    }
+    entries.sort(key=lambda e: rank.get(e[0], len(_HOSTER_PREFERENCE)))
+    return entries[0][1]
 
 
 def _build_crawljob(
@@ -140,11 +180,12 @@ def dispatch_release(
             "jdownloader_output_path is not configured"
         )
 
-    urls = _hoster_urls(release)
-    if not urls:
+    best_url = _pick_best_hoster_url(release)
+    if not best_url:
         raise JDownloaderDispatchError(
             "Release has no hoster URLs to dispatch"
         )
+    urls = [best_url]
 
     folder = Path(folderwatch)
     try:
