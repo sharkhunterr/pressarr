@@ -74,6 +74,7 @@ def _slug(value: str, max_len: int = 80) -> str:
 #: drop the rest. Hosters higher in the list are tried first
 #: (premium-friendly + reliable first, free-only mirrors last).
 _HOSTER_PREFERENCE: tuple[str, ...] = (
+    # Premium-friendly, well-supported by JD2 first.
     "1fichier.com",
     "rapidgator.net",
     "rapidgator.asia",
@@ -89,11 +90,17 @@ _HOSTER_PREFERENCE: tuple[str, ...] = (
     "turbobit.net",
     "turb.cc",
     "mega.nz",
-    "frdl.io",
+    # Free / less-reliable last. ``frdl.io`` (= freedl.ink) was
+    # the operator's first choice initially but in practice it
+    # often returns OFFLINE because the uploader removes the
+    # file after a few days. Demote it below ``upfiles.com`` and
+    # ``dailyuploads.net`` which tend to outlive frdl.io for the
+    # tm.org French magazine catalogue.
     "upfiles.com",
-    "uploady.io",
     "dailyuploads.net",
+    "uploady.io",
     "filespayouts.com",
+    "frdl.io",
 )
 
 
@@ -137,17 +144,21 @@ def _build_crawljob(
     filename = _slug(
         f"{release.id}-{release.issue_label or release.title}"
     )
+    # JD2's CrawlJobStorable parses values via Boolean.parseBoolean
+    # which is case-insensitive for "true". In practice some older
+    # FolderWatch versions appeared to be fussier about case, so
+    # we emit lowercase to be safe.
     lines = [
         f"text={text_urls}",
         f"filename={filename}",
         f"packageName={package_name}",
         f"downloadFolder={output_path}",
-        "autoConfirm=TRUE",
-        "autoStart=TRUE",
-        "forcedStart=TRUE",
-        "enabled=TRUE",
-        "overwritePackagizerEnabled=TRUE",
-        "extractAfterDownload=FALSE",
+        "autoConfirm=true",
+        "autoStart=true",
+        "forcedStart=true",
+        "enabled=true",
+        "overwritePackagizerEnabled=true",
+        "extractAfterDownload=false",
         f"comment=pressarr:release={release.id}",
     ]
     return "\n".join(lines) + "\n"
