@@ -21,7 +21,6 @@ import DownloadClients from './pages/Settings/DownloadClients'
 import RootFolders from './pages/Settings/RootFolders'
 import NamingTemplate from './pages/Settings/NamingTemplate'
 import Metadata from './pages/Settings/Metadata'
-import SceneIndexers from './pages/Settings/SceneIndexers'
 import General from './pages/Settings/General'
 import System from './pages/Settings/System'
 import Notifications from './pages/Settings/Notifications'
@@ -133,7 +132,6 @@ function App() {
             <Route path="/settings/naming" element={<NamingTemplate />} />
             <Route path="/settings/root-folders" element={<RootFolders />} />
             <Route path="/settings/metadata" element={<Metadata />} />
-            <Route path="/settings/scene-indexers" element={<SceneIndexers />} />
             <Route path="/settings/system" element={<System />} />
           </Routes>
         </PageLayout>

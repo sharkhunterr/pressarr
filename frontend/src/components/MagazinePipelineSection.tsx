@@ -16,16 +16,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
-// Settings page for the two scene magazine indexers (Bookys,
-// telecharger-magazines.org) + the bypass (FlareSolverr) and
-// download client (JDownloader 2 folder-watch) they depend on.
-// All four resources are grouped here because the operator
-// configures them as a unit — Bookys needs FlareSolverr to be
-// reachable, JD2 needs an output path the importer can poll.
+// Reusable "magazine pipeline" config block — Bookys + tm.org
+// + FlareSolverr (bypass) + JDownloader 2 (folder-watch). The
+// four resources are grouped because operators configure them
+// as a unit: Bookys needs FlareSolverr to reach the site, JD2
+// needs a folderwatch path the importer can poll.
+//
+// Mounted at the top of the Indexers settings page so it lives
+// alongside the Prowlarr indexer list (per operator review —
+// "the Indexers page is good, just put scene indexers there").
 
 const PWD_PLACEHOLDER = '***'
 
-export default function SceneIndexers() {
+export default function MagazinePipelineSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
@@ -130,12 +133,12 @@ export default function SceneIndexers() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-100">
-          {t('sceneIndexers.heading') || 'Magazine indexers'}
-        </h1>
+        <h2 className="text-lg font-semibold text-zinc-100">
+          {t('sceneIndexers.heading') || 'Magazine pipeline (scene)'}
+        </h2>
         <p className="mt-1 text-sm text-zinc-400">
           {t('sceneIndexers.description') ||
-            'Scrapers for French magazine scene sites. Both feed the auto-grab scheduler; their releases land in JDownloader 2 via the folder-watch dispatcher.'}
+            'French magazine scene scrapers (Bookys, telecharger-magazines.org) + the bypass + download client they depend on. Releases feed the auto-grab scheduler.'}
         </p>
       </div>
 

@@ -23,7 +23,6 @@ import {
   Wrench,
   ScrollText,
   Package,
-  Newspaper,
 } from 'lucide-react'
 
 const MAIN_NAV = [
@@ -46,7 +45,6 @@ const SETTINGS_NAV = [
   { path: '/settings/root-folders', labelKey: 'nav.settingsRootFolders', icon: FolderOpen },
   { path: '/settings/naming', labelKey: 'nav.settingsNaming', icon: FileText },
   { path: '/settings/metadata', labelKey: 'nav.settingsMetadata', icon: Database },
-  { path: '/settings/scene-indexers', labelKey: 'nav.settingsSceneIndexers', icon: Newspaper },
   { path: '/settings/system', labelKey: 'nav.settingsSystem', icon: Monitor },
 ]
 

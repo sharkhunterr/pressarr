@@ -14,6 +14,7 @@ import {
   type IndexerOverrideEntry,
   type ProwlarrIndexerInfo,
 } from '@/api/downloads'
+import MagazinePipelineSection from '@/components/MagazinePipelineSection'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -266,16 +267,29 @@ export default function Indexers() {
   }
 
   return (
-    <div className="p-4 lg:p-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-zinc-100">
-          {t('indexers.title')}
-        </h1>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" />
-          {t('common.add')}
-        </Button>
-      </div>
+    <div className="p-4 lg:p-8 space-y-10">
+      {/* Magazine scene pipeline (Bookys / tm.org / FlareSolverr
+          / JD2). Lives at the top because operators configure
+          it once then rarely touch it — the Prowlarr list below
+          is the day-to-day editing target. */}
+      <MagazinePipelineSection />
+
+      <div>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-100">
+              {t('indexers.title')}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Prowlarr-style indexers (torznab / nzbab) for movies, books,
+              comics, magazines via standard torrent / usenet flows.
+            </p>
+          </div>
+          <Button onClick={openCreate}>
+            <Plus className="size-4" />
+            {t('common.add')}
+          </Button>
+        </div>
 
       <div className="grid gap-4">
         {indexers.map((indexer) => (
@@ -312,6 +326,7 @@ export default function Indexers() {
             {t('indexers.noIndexers')}
           </p>
         )}
+      </div>
       </div>
 
       {/* Create / Edit Dialog */}
