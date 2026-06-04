@@ -654,17 +654,56 @@ async def grab_release(
         raise HTTPException(404, "Release not found for this magazine")
 
     try:
-        dispatch_release(release=release, magazine=magazine, config=config)
+        crawljob_path = dispatch_release(
+            release=release, magazine=magazine, config=config
+        )
     except JDownloaderDispatchError as e:
         # Persist the failure on the row so the UI can show
         # *why* it didn't dispatch, then surface 502 so the
-        # caller knows the action was not retried.
+        # caller knows the action was not retried. Also emit
+        # a history event so the operator sees the attempt in
+        # the activity log instead of a silent click.
         release.status = "failed"
         release.status_message = str(e)
+        from app.services.history_service import create_event as _h
+
+        await _h(
+            db,
+            event_type="error",
+            magazine_id=magazine.id,
+            details=f"Scene grab failed: {e!s}",
+            data={
+                "release_id": release.id,
+                "release_title": release.title,
+                "source": release.source,
+                "reason": str(e),
+            },
+        )
         await db.commit()
         await db.refresh(release)
         raise HTTPException(status_code=502, detail=str(e)) from e
 
+    # Successful dispatch — record a "grab" event so it shows
+    # up in the magazine's history alongside Prowlarr grabs.
+    from app.services.history_service import create_event as _h
+
+    await _h(
+        db,
+        event_type="grab",
+        magazine_id=magazine.id,
+        details=f"Grabbed (scene): {release.title}",
+        data={
+            "release_id": release.id,
+            "release_title": release.title,
+            "source": release.source,
+            "source_url": release.source_url,
+            "crawljob": crawljob_path.name,
+            "hosters": [
+                h.get("hoster")
+                for h in (release.hoster_links and __import__("json").loads(release.hoster_links) or [])
+            ],
+        },
+    )
     await db.commit()
     await db.refresh(release)
     return serialise_release(release)

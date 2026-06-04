@@ -208,6 +208,26 @@ async def _import_magazine_folder(
         release.status = "imported"
         release.status_message = f"Imported as {dest.name}"
         release.grabbed_at = release.grabbed_at or datetime.utcnow()
+        try:
+            from app.services.history_service import create_event
+
+            await create_event(
+                db,
+                event_type="imported",
+                magazine_id=magazine.id,
+                details=f"Imported (scene): {dest.name}",
+                data={
+                    "release_id": release.id,
+                    "release_title": release.title,
+                    "source": release.source,
+                    "library_path": str(dest),
+                    "source_file": file_path.name,
+                },
+            )
+        except Exception:
+            logger.debug(
+                "Scene import: history event write failed", exc_info=True
+            )
         await db.commit()
         imported += 1
         logger.info(

@@ -220,13 +220,34 @@ async def _process_magazine(
             if _release_after_watch_date(r, magazine.monitoring_start_date)
         ]
 
+    from app.services.history_service import create_event
+
     grabbed = 0
     for release in picks:
         try:
-            dispatch_release(
+            crawljob_path = dispatch_release(
                 release=release, magazine=magazine, config=config
             )
             grabbed += 1
+            try:
+                await create_event(
+                    db,
+                    event_type="grab",
+                    magazine_id=magazine.id,
+                    details=f"Grabbed (scene auto): {release.title}",
+                    data={
+                        "release_id": release.id,
+                        "release_title": release.title,
+                        "source": release.source,
+                        "source_url": release.source_url,
+                        "crawljob": crawljob_path.name,
+                        "auto": True,
+                    },
+                )
+            except Exception:
+                logger.debug(
+                    "Auto-grab: history event write failed", exc_info=True
+                )
         except JDownloaderDispatchError as e:
             release.status = "failed"
             release.status_message = str(e)
@@ -234,6 +255,25 @@ async def _process_magazine(
                 "Auto-grab dispatch failed for release id=%s: %s",
                 release.id, e,
             )
+            try:
+                await create_event(
+                    db,
+                    event_type="error",
+                    magazine_id=magazine.id,
+                    details=f"Scene grab failed: {e!s}",
+                    data={
+                        "release_id": release.id,
+                        "release_title": release.title,
+                        "source": release.source,
+                        "reason": str(e),
+                        "auto": True,
+                    },
+                )
+            except Exception:
+                logger.debug(
+                    "Auto-grab: history error event write failed",
+                    exc_info=True,
+                )
 
     if grabbed:
         await db.commit()
