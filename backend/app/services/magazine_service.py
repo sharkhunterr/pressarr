@@ -197,7 +197,28 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
     db.add(magazine)
     await db.flush()
     # Re-fetch with eager-loaded relationships to avoid lazy-load errors
-    return await get_magazine(db, magazine.id)  # type: ignore[return-value]
+    fresh = await get_magazine(db, magazine.id)  # type: ignore[assignment]
+
+    # Kick off a scene auto-grab pass for this single magazine so a
+    # newly-added title with ``monitoring_start_date`` in the past
+    # immediately fetches its back-catalogue (one_shot grabs its
+    # specific issue) — operator doesn't have to wait 6h for the
+    # scheduled tick. Fire-and-forget: failures don't block
+    # creation, they surface in the per-release ``status_message``.
+    if fresh is not None and fresh.monitored:
+        try:
+            from app.dependencies import get_config
+            from app.services.auto_grab_service import _process_magazine
+
+            await _process_magazine(fresh, db, get_config())
+        except Exception:
+            logger.warning(
+                "create_magazine: immediate scene auto-grab failed for %r",
+                fresh.title,
+                exc_info=True,
+            )
+
+    return fresh
 
 
 def _categories_to_csv(value) -> str | None:

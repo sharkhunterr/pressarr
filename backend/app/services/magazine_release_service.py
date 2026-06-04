@@ -84,18 +84,49 @@ def _queries_for_magazine(magazine: Magazine) -> list[str]:
     encodes operator overrides ("60 Millions consommateurs",
     "60millions"); we keep the canonical title as the first
     query so the indexer's own relevance sort doesn't get
-    confused by exotic aliases."""
+    confused by exotic aliases.
+
+    Auto-expansion: when the title contains ``&``, an
+    ``"… et …"`` variant is added because WordPress search on
+    tm.org silently drops ``&`` (so "Science & Vie" → 0 hits
+    while "Science et Vie" → 20). Same for accents — some
+    sites normalise away on indexing.
+    """
+    import unicodedata as _ud
+
+    def _expand(term: str) -> list[str]:
+        """Return ``term`` plus the obvious variants that scene
+        sites tend to treat as different but the operator
+        means as one."""
+        out = [term]
+        if "&" in term:
+            out.append(term.replace(" & ", " et ").replace("&", "et"))
+        # Accent-stripped fallback ("L'Equipe" vs "L'Équipe").
+        stripped = "".join(
+            c
+            for c in _ud.normalize("NFD", term)
+            if _ud.category(c) != "Mn"
+        )
+        if stripped != term:
+            out.append(stripped)
+        return out
+
     queries: list[str] = []
     if magazine.title:
-        queries.append(magazine.title.strip())
+        for v in _expand(magazine.title.strip()):
+            if v not in queries:
+                queries.append(v)
     raw_terms = (magazine.search_terms or "").strip()
     if raw_terms:
         # Operator entries are line- or comma-separated.
         for part in raw_terms.replace(",", "\n").splitlines():
             t = part.strip()
-            if t and t not in queries:
-                queries.append(t)
-    return queries[:4]  # cap fan-out per indexer
+            if not t:
+                continue
+            for v in _expand(t):
+                if v not in queries:
+                    queries.append(v)
+    return queries[:6]  # cap fan-out per indexer
 
 
 async def scan_magazine_releases(
