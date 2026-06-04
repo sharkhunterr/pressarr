@@ -283,10 +283,29 @@ class TelechargerMagazinesIndexer(MagazineSceneIndexerBase):
     async def test_connection(self) -> tuple[bool, str]:
         try:
             resp = await self._client.get(self.base_url)
-            resp.raise_for_status()
-            return True, "telecharger-magazines.org: reachable"
         except Exception as e:
-            return False, f"telecharger-magazines.org: probe failed ({e!s})"
+            return (
+                False,
+                f"telecharger-magazines.org: can't reach the site ({e!s})",
+            )
+        status = resp.status_code
+        if status == 200:
+            return True, "telecharger-magazines.org: reachable"
+        # 5xx coming from Cloudflare means the upstream origin is
+        # down — surface a short, operator-friendly hint instead
+        # of dumping the Cloudflare error page back to the UI.
+        server = (resp.headers.get("server") or "").lower()
+        if status in (502, 503, 504) and "cloudflare" in server:
+            return (
+                False,
+                "telecharger-magazines.org is currently down "
+                "(Cloudflare reports the origin is unavailable). "
+                "Try again later.",
+            )
+        return (
+            False,
+            f"telecharger-magazines.org returned HTTP {status}",
+        )
 
     # ------------------------------------------------------------------
     # Helpers
