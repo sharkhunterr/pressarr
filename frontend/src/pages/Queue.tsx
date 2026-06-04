@@ -6,10 +6,12 @@ import { toast } from 'sonner'
 
 import { removeFromQueue, bulkRemove, triggerImport } from '@/api/queue'
 import { useQueue } from '@/hooks/useQueue'
+import JDownloaderPanel from '@/components/JDownloaderPanel'
 import { QueueItem } from '@/components/QueueItem'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -132,7 +134,19 @@ export default function Queue() {
     <div className="p-4 lg:p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-zinc-100">{t('queue.title')}</h1>
+      </div>
 
+      <Tabs defaultValue="downloads" className="space-y-4">
+        <TabsList className="bg-zinc-900 border-zinc-800">
+          <TabsTrigger value="downloads">Torrent / NZB queue</TabsTrigger>
+          <TabsTrigger value="jdownloader">JDownloader 2</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="jdownloader">
+          <JDownloaderPanel />
+        </TabsContent>
+
+        <TabsContent value="downloads" className="space-y-4">
         {queue.length > 0 && (
           <div className="flex items-center gap-2">
             <input
@@ -144,7 +158,6 @@ export default function Queue() {
             <span className="text-sm text-zinc-400">{t('queue.selectAll')}</span>
           </div>
         )}
-      </div>
 
       {/* Bulk actions */}
       {selectedIds.size > 0 && (
@@ -195,6 +208,8 @@ export default function Queue() {
           ))}
         </div>
       )}
+        </TabsContent>
+      </Tabs>
 
       {/* Remove Confirmation Dialog */}
       <Dialog open={removeDialog.open} onOpenChange={(open) => {

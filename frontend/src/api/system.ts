@@ -177,6 +177,64 @@ export const testFlaresolverr = () =>
     { method: 'POST' },
   )
 
+// ---------------------------------------------------------------------------
+// JDownloader 2 queue inspection — pressarr-side view of what JD2 is doing
+// (no JD2 RPC required, reads/writes the shared folderwatch + output paths).
+// ---------------------------------------------------------------------------
+
+export interface CrawljobItem {
+  filename: string
+  packageName: string | null
+  downloadFolder: string | null
+  textUrlCount: number
+  primaryUrl: string | null
+  releaseId: number | null
+  writtenAtMs: number
+}
+
+export interface CompletedFile {
+  name: string
+  sizeBytes: number
+  isPart: boolean
+}
+
+export interface CompletedFolder {
+  folderName: string
+  fileCount: number
+  totalSizeBytes: number
+  files: CompletedFile[]
+}
+
+export interface JDownloaderState {
+  enabled: boolean
+  folderwatchPath: string
+  outputPath: string
+  folderwatchExists: boolean
+  outputExists: boolean
+  pendingJobs: CrawljobItem[]
+  completedFolders: CompletedFolder[]
+}
+
+export const getJDownloaderState = () =>
+  apiFetch<JDownloaderState>('/jdownloader/state')
+
+export const deleteCrawljob = (filename: string) =>
+  apiFetch<{ deleted: string }>(
+    `/jdownloader/folderwatch/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' },
+  )
+
+export const clearAllCrawljobs = () =>
+  apiFetch<{ deleted: number }>('/jdownloader/folderwatch/clear', {
+    method: 'POST',
+  })
+
+export const deleteCompletedFolder = (folderName: string) =>
+  apiFetch<{ deleted: string }>(
+    `/jdownloader/output/${encodeURIComponent(folderName)}`,
+    { method: 'DELETE' },
+  )
+
 // Commands
 export interface CommandResource {
   id: number

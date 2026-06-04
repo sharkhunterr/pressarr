@@ -284,6 +284,7 @@ def create_app() -> FastAPI:
     from app.api.v1.history import router as history_router
     from app.api.v1.indexer import router as indexer_router
     from app.api.v1.issue import router as issue_router
+    from app.api.v1.jdownloader import router as jdownloader_router
     from app.api.v1.magazine import router as magazine_router
     from app.api.v1.notification import router as notification_router
     from app.api.v1.pack import router as pack_router
@@ -306,6 +307,7 @@ def create_app() -> FastAPI:
     app.include_router(blocklist_router)
     app.include_router(ws_router)
     app.include_router(magazine_router)
+    app.include_router(jdownloader_router)
     app.include_router(pack_router)
     app.include_router(issue_router)
     app.include_router(search_router)
