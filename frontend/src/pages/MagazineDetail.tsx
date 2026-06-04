@@ -1576,8 +1576,15 @@ export default function MagazineDetail() {
                     {sceneResults.map((r) => {
                       const size = formatSize(r.sizeBytes)
                       const isGrabbing = sceneGrabbing.has(r.id)
-                      const canGrab =
-                        r.status === 'available' || r.status === 'failed'
+                      // Allow re-grab on ``grabbed`` too so the
+                      // operator can re-dispatch when JD2 didn't
+                      // pick up the previous crawljob (e.g. Folder
+                      // Watch was off). Only ``imported`` hides
+                      // the button — by then the file is in the
+                      // library and there's nothing left to do.
+                      const canGrab = r.status !== 'imported'
+                      const grabLabel =
+                        r.status === 'grabbed' ? 'Re-grab' : 'Grab'
                       return (
                         <li
                           key={r.id}
@@ -1661,7 +1668,7 @@ export default function MagazineDetail() {
                                   ) : (
                                     <Download className="size-3" />
                                   )}
-                                  Grab
+                                  {grabLabel}
                                 </Button>
                               )}
                             </div>
