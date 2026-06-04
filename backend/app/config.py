@@ -87,6 +87,15 @@ class Config:
         # (the importer polls this dir to mark releases as
         # ``imported``).
         self.jdownloader_output_path: str = "/downloads/jd2/complete"
+        # JD2's *internal* view of the same output dir. The
+        # ``.crawljob`` ``downloadFolder=`` field is read by JD2
+        # which lives in its own container with its own mounts.
+        # Default matches the upstream ``jlesage/jdownloader-2``
+        # image where downloads land at ``/jdownloader/downloads``.
+        # If the operator runs a different JD2 image they adjust
+        # this; the dispatcher writes this value verbatim into the
+        # crawljob so the path is whatever JD2 expects.
+        self.jdownloader_output_path_in_jd2: str = "/jdownloader/downloads"
 
         # Import mode: copy, move, or copy_delete
         self.import_mode: str = "copy"
@@ -158,6 +167,9 @@ class Config:
         )
         self.jdownloader_output_path = jd.get(
             "output_path", self.jdownloader_output_path
+        )
+        self.jdownloader_output_path_in_jd2 = jd.get(
+            "output_path_in_jd2", self.jdownloader_output_path_in_jd2
         )
 
         self.import_mode = data.get("import_mode", self.import_mode)
@@ -247,6 +259,7 @@ class Config:
                     "enabled": self.jdownloader_enabled,
                     "folderwatch": self.jdownloader_folderwatch,
                     "output_path": self.jdownloader_output_path,
+                    "output_path_in_jd2": self.jdownloader_output_path_in_jd2,
                 },
             },
             "scheduler": {

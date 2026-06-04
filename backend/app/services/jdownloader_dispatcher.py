@@ -179,6 +179,15 @@ def dispatch_release(
         raise JDownloaderDispatchError(
             "jdownloader_output_path is not configured"
         )
+    # JD2 lives in its own container and sees the shared output
+    # dir at a different in-container path. The ``.crawljob``
+    # ``downloadFolder=`` must be the path JD2 will resolve, not
+    # pressarr's view — otherwise JD2 silently fails to write
+    # the file because the directory it was told to use doesn't
+    # exist inside its filesystem.
+    output_path_in_jd2 = (
+        getattr(config, "jdownloader_output_path_in_jd2", "") or output_path
+    ).strip()
 
     best_url = _pick_best_hoster_url(release)
     if not best_url:
@@ -198,7 +207,7 @@ def dispatch_release(
     payload = _build_crawljob(
         release=release,
         magazine_title=magazine.title,
-        output_path=output_path,
+        output_path=output_path_in_jd2,
         urls=urls,
     )
     crawljob_path = folder / f"{_slug(magazine.title)}-{release.id}.crawljob"
