@@ -1,0 +1,59 @@
+# Pressarr - Docker Compose for Unraid
+# Place this file in /boot/config/plugins/compose.manager/projects/pressarr/
+# Or use it with: docker-compose -f docker-compose.unraid.yml up -d
+
+services:
+  pressarr:
+    image: sharkhunterr/pressarr:latest
+    container_name: pressarr
+    ports:
+      - "8585:8585"
+    environment:
+      - TZ=Europe/Paris
+      - PRESSARR__LOG_LEVEL=info
+    volumes:
+      # Persistent data storage in appdata
+      - /mnt/user/appdata/pressarr/config:/config
+      # Magazine library (adjust to your media share)
+      - /mnt/user/media/magazines:/magazines
+      # Downloads directory (adjust to your download share)
+      - /mnt/user/downloads/pressarr:/downloads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "net.unraid.docker.icon=https://raw.githubusercontent.com/sharkhunterr/pressarr/main/assets/logo.png"
+      - "net.unraid.docker.webui=http://[IP]:[PORT:8585]/"
+      - "net.unraid.docker.managed=compose"
+
+# =============================================================================
+# PORTS REFERENCE
+# =============================================================================
+# 8585 - Web UI + API (unified)
+#
+# =============================================================================
+# VOLUMES REFERENCE
+# =============================================================================
+# /mnt/user/appdata/pressarr/config - SQLite database, YAML config, API key
+# /mnt/user/media/magazines         - Organized magazine library
+# /mnt/user/downloads/pressarr      - Temporary download directory
+#
+# =============================================================================
+# USAGE
+# =============================================================================
+# 1. Create directory: mkdir -p /mnt/user/appdata/pressarr/config
+# 2. Start: docker-compose -f docker-compose.unraid.yml up -d
+# 3. Access: http://YOUR_UNRAID_IP:8585
+#
+# =============================================================================
+# INTEGRATION
+# =============================================================================
+# Configure Prowlarr: Settings > Indexers > Add
+# Configure download clients: Settings > Download Clients > Add
+# Add magazines: Search for titles and start monitoring
+#
+# =============================================================================

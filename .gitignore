@@ -13,7 +13,12 @@ dist/
 # Node.js / Frontend
 node_modules/
 frontend/dist/
+frontend/.vite/
 *.log
+
+# Coverage
+coverage/
+.coverage
 
 # Environment
 .env*
@@ -29,9 +34,34 @@ frontend/dist/
 Thumbs.db
 
 # Pressarr runtime
-**/config/pressarr.db*
+*.db
+*.db-wal
+*.db-shm
 **/config/pressarr.yml
 **/config/logs/
+.dev-config/
+.dev-magazines/
+# Per-operator runtime data created by the docker-compose stack
+# (DB + registry JSONs + cover cache + magazine library). Never
+# source — keeping them out of git so release scripts see a
+# clean working tree.
+/config/
+/data/
+docker-compose.override.yml
 
 # Build artifacts
 *.tsbuildinfo
+
+# Node.js root (release scripts)
+package-lock.json
+
+# Reports
+reports/
+htmlcov/
+junit.xml
+coverage.xml
+ruff-report.*
+eslint-report.*
+
+# Example folder
+exemple/

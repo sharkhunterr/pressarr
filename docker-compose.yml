@@ -1,0 +1,19 @@
+version: "3.8"
+services:
+  pressarr:
+    build: .
+    container_name: pressarr
+    ports:
+      - "8585:8585"
+    volumes:
+      - ./config:/config
+      - ./magazines:/magazines
+      - ./downloads:/downloads
+    environment:
+      - TZ=Europe/Paris
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

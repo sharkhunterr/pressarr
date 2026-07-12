@@ -1,0 +1,274 @@
+"""Application configuration with YAML file + environment variable override."""
+
+import os
+import secrets
+from pathlib import Path
+
+import yaml
+
+
+class Config:
+    """Configuration loaded from YAML with PRESSARR__* env overrides."""
+
+    def __init__(self) -> None:
+        self.config_path = Path(
+            os.environ.get("PRESSARR__CONFIG_PATH", "/config/pressarr.yml")
+        )
+        self.db_path = Path(
+            os.environ.get("PRESSARR__DB_PATH", "/config/pressarr.db")
+        )
+        self.port: int = 8585
+        self.log_level: str = "info"
+        self.api_key: str = ""
+        self.auth_enabled: bool = False
+
+        # Scheduler intervals (seconds)
+        self.rss_sync_interval: int = 1800  # 30 minutes
+        self.download_check_interval: int = 30
+        self.history_purge_interval: int = 86400  # 24 hours
+        self.forecast_refresh_interval: int = 86400
+        self.metadata_refresh_interval: int = 86400
+        self.history_retention_days: int = 365
+
+        # Naming template
+        self.naming_template: str = (
+            "{magazine_title}/{magazine_title} - {number} ({year}-{month:02d}).{format}"
+        )
+
+        # Metadata sources
+        self.google_books_api_key: str = ""
+        self.internet_archive_enabled: bool = True
+        self.annas_archive_enabled: bool = False
+        self.annas_archive_mirror: str = "annas-archive.li"
+
+        # FlareSolverr-compatible bypass endpoint (default of
+        # ``http://flaresolverr:8191/v1`` matches grabarr's
+        # docker-compose so a single sidecar serves both apps).
+        # When set + reachable, scrapers that hit anti-bot walls
+        # (Bookys is behind CHEQ AI; future French scene sites
+        # often hide behind Cloudflare) route their HTTP through
+        # this endpoint instead of httpx. Empty string disables
+        # bypass — those scrapers then fail gracefully.
+        self.flaresolverr_url: str = "http://flaresolverr:8191/v1"
+        self.flaresolverr_timeout_ms: int = 60000
+
+        # Scene magazine indexers. These scrape HTML — no public
+        # API exists — so they're disabled by default; operators
+        # turn them on explicitly. Credentials are stored in
+        # plaintext, same pattern as other provider settings;
+        # pressarr can grow a real secrets store later without
+        # touching this file's contract.
+        self.bookys_enabled: bool = False
+        # Bookys defaults to bookys-gratuit.com; some operators
+        # use a mirror so it stays configurable. Trailing slash
+        # is stripped at load time so the rest of the code can
+        # concatenate paths freely.
+        self.bookys_url: str = "https://www6.bookys-ebooks.com"
+        self.bookys_username: str = ""
+        self.bookys_password: str = ""
+        self.telecharger_magazines_enabled: bool = False
+        self.telecharger_magazines_url: str = (
+            "https://www.telecharger-magazines.org"
+        )
+
+        # JDownloader 2 folder-watch dispatcher. When enabled,
+        # ``POST /api/v1/magazine/{id}/releases/{rid}/grab``
+        # writes a ``.crawljob`` file (JD2's native batch format,
+        # plain text key=value) into ``jdownloader_folderwatch``
+        # and JD2 — running side-by-side with pressarr in
+        # docker-compose — picks it up via its Folder Watch
+        # extension. No HTTP API call needed; far more robust
+        # than the My JDownloader cloud client and friendlier
+        # to self-hosters.
+        self.jdownloader_enabled: bool = False
+        self.jdownloader_folderwatch: str = "/downloads/jd2/folderwatch"
+        # Where finished downloads land. Used by both JD2 (final
+        # ``downloaddir`` of every dispatched job) and pressarr
+        # (the importer polls this dir to mark releases as
+        # ``imported``).
+        self.jdownloader_output_path: str = "/downloads/jd2/complete"
+        # JD2's *internal* view of the same output dir. The
+        # ``.crawljob`` ``downloadFolder=`` field is read by JD2
+        # which lives in its own container with its own mounts.
+        # Default matches the upstream ``jlesage/jdownloader-2``
+        # image where downloads land at ``/jdownloader/downloads``.
+        # If the operator runs a different JD2 image they adjust
+        # this; the dispatcher writes this value verbatim into the
+        # crawljob so the path is whatever JD2 expects.
+        self.jdownloader_output_path_in_jd2: str = "/jdownloader/downloads"
+
+        # Import mode: copy, move, or copy_delete
+        self.import_mode: str = "copy"
+
+        # Download path for IA direct downloads
+        self.download_path: str = "/tmp/pressarr_downloads"
+
+        self._load_yaml()
+        self._apply_env_overrides()
+
+    def _load_yaml(self) -> None:
+        """Load configuration from YAML file if it exists."""
+        if not self.config_path.exists():
+            return
+
+        with open(self.config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+        self.port = data.get("port", self.port)
+        self.log_level = data.get("log_level", self.log_level)
+        self.api_key = data.get("api_key", self.api_key)
+        self.auth_enabled = data.get("auth_enabled", self.auth_enabled)
+        self.db_path = Path(data.get("db_path", str(self.db_path)))
+        self.naming_template = data.get("naming_template", self.naming_template)
+
+        metadata = data.get("metadata", {})
+        self.google_books_api_key = metadata.get(
+            "google_books_api_key", self.google_books_api_key
+        )
+        self.internet_archive_enabled = metadata.get(
+            "internet_archive_enabled", self.internet_archive_enabled
+        )
+        self.annas_archive_enabled = metadata.get(
+            "annas_archive_enabled", self.annas_archive_enabled
+        )
+        self.annas_archive_mirror = metadata.get(
+            "annas_archive_mirror", self.annas_archive_mirror
+        )
+
+        bypass = data.get("bypass", {})
+        self.flaresolverr_url = bypass.get(
+            "flaresolverr_url", self.flaresolverr_url
+        )
+        self.flaresolverr_timeout_ms = bypass.get(
+            "flaresolverr_timeout_ms", self.flaresolverr_timeout_ms
+        )
+
+        indexers = data.get("indexers", {})
+        bookys = indexers.get("bookys", {})
+        self.bookys_enabled = bookys.get("enabled", self.bookys_enabled)
+        self.bookys_url = bookys.get("url", self.bookys_url).rstrip("/")
+        self.bookys_username = bookys.get("username", self.bookys_username)
+        self.bookys_password = bookys.get("password", self.bookys_password)
+        tm = indexers.get("telecharger_magazines", {})
+        self.telecharger_magazines_enabled = tm.get(
+            "enabled", self.telecharger_magazines_enabled
+        )
+        self.telecharger_magazines_url = tm.get(
+            "url", self.telecharger_magazines_url
+        ).rstrip("/")
+
+        download_clients = data.get("download_clients", {})
+        jd = download_clients.get("jdownloader", {})
+        self.jdownloader_enabled = jd.get(
+            "enabled", self.jdownloader_enabled
+        )
+        self.jdownloader_folderwatch = jd.get(
+            "folderwatch", self.jdownloader_folderwatch
+        )
+        self.jdownloader_output_path = jd.get(
+            "output_path", self.jdownloader_output_path
+        )
+        self.jdownloader_output_path_in_jd2 = jd.get(
+            "output_path_in_jd2", self.jdownloader_output_path_in_jd2
+        )
+
+        self.import_mode = data.get("import_mode", self.import_mode)
+        self.download_path = data.get("download_path", self.download_path)
+
+        scheduler = data.get("scheduler", {})
+        self.rss_sync_interval = scheduler.get(
+            "rss_sync_interval", self.rss_sync_interval
+        )
+        self.download_check_interval = scheduler.get(
+            "download_check_interval", self.download_check_interval
+        )
+        self.history_purge_interval = scheduler.get(
+            "history_purge_interval", self.history_purge_interval
+        )
+        self.forecast_refresh_interval = scheduler.get(
+            "forecast_refresh_interval", self.forecast_refresh_interval
+        )
+        self.history_retention_days = scheduler.get(
+            "history_retention_days", self.history_retention_days
+        )
+
+    def _apply_env_overrides(self) -> None:
+        """Override config with PRESSARR__* environment variables."""
+        prefix = "PRESSARR__"
+        for key, value in os.environ.items():
+            if not key.startswith(prefix):
+                continue
+            config_key = key[len(prefix):].lower()
+            if config_key == "port":
+                self.port = int(value)
+            elif config_key == "log_level":
+                self.log_level = value
+            elif config_key == "api_key":
+                self.api_key = value
+            elif config_key == "auth_enabled":
+                self.auth_enabled = value.lower() in ("true", "1", "yes")
+            elif config_key == "db_path":
+                self.db_path = Path(value)
+            elif config_key == "config_path":
+                pass  # Already handled in __init__
+            elif config_key == "naming_template":
+                self.naming_template = value
+
+    def generate_api_key(self) -> str:
+        """Generate a new API key and persist it to config."""
+        self.api_key = secrets.token_hex(16)
+        self.save()
+        return self.api_key
+
+    def save(self) -> None:
+        """Save current configuration to YAML file."""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "port": self.port,
+            "log_level": self.log_level,
+            "api_key": self.api_key,
+            "auth_enabled": self.auth_enabled,
+            "db_path": str(self.db_path),
+            "naming_template": self.naming_template,
+            "import_mode": self.import_mode,
+            "download_path": self.download_path,
+            "metadata": {
+                "google_books_api_key": self.google_books_api_key,
+                "internet_archive_enabled": self.internet_archive_enabled,
+                "annas_archive_enabled": self.annas_archive_enabled,
+                "annas_archive_mirror": self.annas_archive_mirror,
+            },
+            "bypass": {
+                "flaresolverr_url": self.flaresolverr_url,
+                "flaresolverr_timeout_ms": self.flaresolverr_timeout_ms,
+            },
+            "indexers": {
+                "bookys": {
+                    "enabled": self.bookys_enabled,
+                    "url": self.bookys_url,
+                    "username": self.bookys_username,
+                    "password": self.bookys_password,
+                },
+                "telecharger_magazines": {
+                    "enabled": self.telecharger_magazines_enabled,
+                    "url": self.telecharger_magazines_url,
+                },
+            },
+            "download_clients": {
+                "jdownloader": {
+                    "enabled": self.jdownloader_enabled,
+                    "folderwatch": self.jdownloader_folderwatch,
+                    "output_path": self.jdownloader_output_path,
+                    "output_path_in_jd2": self.jdownloader_output_path_in_jd2,
+                },
+            },
+            "scheduler": {
+                "rss_sync_interval": self.rss_sync_interval,
+                "download_check_interval": self.download_check_interval,
+                "history_purge_interval": self.history_purge_interval,
+                "forecast_refresh_interval": self.forecast_refresh_interval,
+                "history_retention_days": self.history_retention_days,
+            },
+        }
+        with open(self.config_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)

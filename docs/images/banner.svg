@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" fill="none">
+  <defs>
+    <linearGradient id="logobg" x1="60" y1="50" x2="260" y2="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="1200" height="300" rx="24" fill="#18181B"/>
+  <!-- Logo icon -->
+  <rect x="60" y="50" width="200" height="200" rx="40" fill="url(#logobg)"/>
+  <!-- Open magazine — left page -->
+  <path d="M160 105 C148 107.5, 108 111, 96 112.2 L96 195.2 C108 194, 148 190.5, 160 188 Z" fill="white" opacity="0.95"/>
+  <!-- Open magazine — right page -->
+  <path d="M160 105 C172 107.5, 212 111, 224 112.2 L224 195.2 C212 194, 172 190.5, 160 188 Z" fill="white" opacity="0.85"/>
+  <!-- Text lines left -->
+  <line x1="108" y1="130" x2="150" y2="127" stroke="#7C3AED" stroke-width="3" stroke-linecap="round" opacity="0.45"/>
+  <line x1="110" y1="140" x2="152" y2="137" stroke="#7C3AED" stroke-width="3" stroke-linecap="round" opacity="0.3"/>
+  <!-- Text lines right -->
+  <line x1="170" y1="127" x2="212" y2="130" stroke="#7C3AED" stroke-width="3" stroke-linecap="round" opacity="0.45"/>
+  <line x1="168" y1="137" x2="210" y2="140" stroke="#7C3AED" stroke-width="3" stroke-linecap="round" opacity="0.3"/>
+  <!-- App name -->
+  <text x="310" y="170" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="80" font-weight="700" fill="white">Pressarr</text>
+  <!-- Tagline -->
+  <text x="312" y="210" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="24" font-weight="400" fill="#A1A1AA">Automated Magazine Collection Manager</text>
+</svg>

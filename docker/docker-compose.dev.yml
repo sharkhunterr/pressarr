@@ -1,0 +1,70 @@
+# Development configuration with hot-reload
+# Uses separate containers for backend and frontend to enable volume mounting
+
+services:
+  # Override pressarr service - disable it in dev
+  pressarr:
+    profiles:
+      - disabled
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend.dev.Dockerfile
+    container_name: pressarr-backend-dev
+    ports:
+      - "8585:8585"
+    environment:
+      - PRESSARR__CONFIG_PATH=/config/pressarr.yml
+      - PRESSARR__DB_PATH=/config/pressarr.db
+      - PRESSARR__LOG_LEVEL=debug
+    volumes:
+      - ../backend:/app
+      - /app/.venv
+      - pressarr-config:/config
+      - pressarr-magazines:/magazines
+      - pressarr-downloads:/downloads
+    networks:
+      - pressarr-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8585 --reload
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/frontend.dev.Dockerfile
+    container_name: pressarr-frontend-dev
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:8585
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    networks:
+      - pressarr-network
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+
+  # Development-only database viewer
+  adminer:
+    image: adminer
+    container_name: pressarr-adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - pressarr-network
+    environment:
+      - ADMINER_DESIGN=pepa-linha
+
+networks:
+  pressarr-network:
+    name: pressarr-network
+    driver: bridge
+
+volumes:
+  pressarr-config:
+    driver: local
+  pressarr-magazines:
+    driver: local
+  pressarr-downloads:
+    driver: local

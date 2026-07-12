@@ -1,0 +1,7 @@
+# Production configuration
+# Uses pre-built image from Docker Hub
+
+services:
+  pressarr:
+    image: sharkhunterr/pressarr:latest
+    build: !reset null

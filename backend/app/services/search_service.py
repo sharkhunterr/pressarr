@@ -1,0 +1,533 @@
+"""Search and scoring service."""
+import json
+import logging
+import math
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models.issue import Issue
+from app.models.magazine import Magazine
+from app.models.quality_profile import QualityProfileItem
+from app.parser.magazine_parser import (
+    _LANGUAGE_MAP,
+    fuzzy_match_title,
+    parse_magazine_filename,
+)
+
+
+def _resolve_language(raw_language: str | None, parsed_language: str) -> str:
+    """Trust the indexer's torznab ``language`` attr over filename parsing.
+
+    The filename regex matches ``\\bde\\b`` as a standalone word and
+    French titles like "60 Millions de Consommateurs" or "Tribune de
+    Genève" trip it into ``german``. The torznab attr (when present)
+    is the indexer's authoritative tag — Grabarr ships ``fr`` for
+    every Bookys hit, so the right thing is to honour it.
+
+    Order:
+      1. ``raw.language`` from Prowlarr (mapped through ``_LANGUAGE_MAP``
+         so "fr" / "FR" / "french" / "French" / "fr-FR" all collapse
+         to ``french``). Returned when present + recognised.
+      2. ``parsed.language`` (filename heuristic) when it actually
+         resolved (``!= "unknown"``).
+      3. ``"unknown"``.
+    """
+    if raw_language:
+        key = raw_language.strip().lower()
+        mapped = _LANGUAGE_MAP.get(key)
+        if mapped:
+            return mapped
+    if parsed_language and parsed_language != "unknown":
+        return parsed_language
+    return "unknown"
+from app.schemas.search import SearchResultResource
+from app.services.history_service import create_event, is_blocklisted
+from app.services.quality_service import QUALITY_ORDER
+
+logger = logging.getLogger(__name__)
+
+# Build a dict mapping quality name -> index for scoring purposes.
+_QUALITY_INDEX: dict[str, int] = {q: i for i, q in enumerate(QUALITY_ORDER)}
+
+
+def parse_indexer_overrides(raw: str) -> dict:
+    """Parse indexer_overrides JSON text into a dict."""
+    try:
+        return json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def get_enabled_indexer_ids(overrides: dict) -> list[int] | None:
+    """Return list of enabled Prowlarr indexer IDs from overrides.
+
+    Returns None if no overrides exist (use all indexers).
+    If overrides exist, returns only IDs where enabled=True (or not set).
+    If any indexer is explicitly disabled, we must filter.
+    """
+    if not overrides:
+        return None
+    has_disabled = any(
+        not entry.get("enabled", True) for entry in overrides.values()
+    )
+    if not has_disabled:
+        return None
+    enabled = [
+        int(k)
+        for k, v in overrides.items()
+        if v.get("enabled", True)
+    ]
+    return enabled if enabled else None
+
+
+def get_search_groups(
+    overrides: dict, global_cats: list[int],
+) -> list[tuple[list[int], list[int] | None]]:
+    """Group enabled indexers by their effective categories.
+
+    Returns list of (categories, indexer_ids) for Prowlarr API calls.
+    indexer_ids is None when no filtering is needed.
+    """
+    if not overrides:
+        return [(global_cats, None)]
+
+    has_disabled = any(
+        not entry.get("enabled", True) for entry in overrides.values()
+    )
+    has_cat_overrides = any(
+        entry.get("categories") for entry in overrides.values()
+        if entry.get("enabled", True)
+    )
+
+    # Simple case: no category overrides — just filter by enabled IDs
+    if not has_cat_overrides:
+        return [(global_cats, get_enabled_indexer_ids(overrides))]
+
+    # Group enabled indexers by their effective categories
+    global_key = tuple(sorted(global_cats))
+    groups: dict[tuple[int, ...], list[int]] = {}
+
+    for pid_str, entry in overrides.items():
+        if not entry.get("enabled", True):
+            continue
+        cats_str = entry.get("categories")
+        if cats_str:
+            cats = tuple(sorted(
+                int(c) for c in cats_str.split(",") if c.strip().isdigit()
+            ))
+        else:
+            cats = global_key
+        if cats:
+            groups.setdefault(cats, []).append(int(pid_str))
+
+    if not groups:
+        return [(global_cats, None)]
+
+    # If all enabled indexers use global cats and none are disabled,
+    # we can skip filtering
+    if (
+        not has_disabled
+        and len(groups) == 1
+        and global_key in groups
+    ):
+        return [(global_cats, None)]
+
+    return [(list(cats), ids) for cats, ids in groups.items()]
+
+
+def _serialize_top_results(results: list[SearchResultResource], limit: int = 10) -> list[dict]:
+    """Serialize the top N search results for history storage."""
+    return [
+        {
+            "title": r.title,
+            "indexer": r.indexer,
+            "size": r.size,
+            "seeders": r.seeders,
+            "quality": r.quality,
+            "language": r.language,
+            "protocol": r.protocol,
+            "score": round(r.score, 1),
+            "age": r.age,
+        }
+        for r in results[:limit]
+    ]
+
+
+async def search_issue(
+    db: AsyncSession, issue_id: int, config
+) -> list[SearchResultResource]:
+    result = await db.execute(
+        select(Issue)
+        .options(selectinload(Issue.magazine))
+        .where(Issue.id == issue_id)
+    )
+    issue = result.scalars().first()
+    if not issue:
+        return []
+
+    magazine = issue.magazine
+    query = _build_query(magazine, issue)
+
+    # Get quality profile items
+    profile_items = await _get_quality_items(db, magazine.quality_profile_id)
+
+    # Search via Prowlarr
+    from app.indexers.prowlarr import ProwlarrClient
+    from app.models.indexer_config import IndexerConfig
+
+    indexer_result = await db.execute(
+        select(IndexerConfig).where(IndexerConfig.enabled.is_(True))
+    )
+    indexers = indexer_result.scalars().all()
+
+    all_results: list[SearchResultResource] = []
+    for indexer in indexers:
+        try:
+            client = ProwlarrClient(
+                url=indexer.url,
+                api_key=indexer.api_key,
+            )
+            global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
+            overrides = parse_indexer_overrides(indexer.indexer_overrides)
+            search_groups = get_search_groups(overrides, global_cats)
+            raw_results = []
+            for cats, indexer_ids in search_groups:
+                raw_results.extend(await client.search(query, categories=cats, indexer_ids=indexer_ids))
+            for raw in raw_results:
+                parsed = parse_magazine_filename(raw.title)
+                quality = parsed.quality if parsed.quality != "unknown" else "unknown"
+                language = _resolve_language(raw.language, parsed.language)
+
+                blocked = await is_blocklisted(db, raw.title)
+
+                score = score_release(
+                    title=raw.title,
+                    quality=quality,
+                    size=raw.size,
+                    seeders=raw.seeders,
+                    age_days=raw.age,
+                    magazine_title=magazine.title,
+                    profile_items=profile_items,
+                )
+
+                all_results.append(SearchResultResource(
+                    guid=raw.guid,
+                    title=raw.title,
+                    indexer=indexer.name,
+                    source=raw.indexer,
+                    size=raw.size,
+                    age=raw.age,
+                    protocol=raw.protocol,
+                    seeders=raw.seeders,
+                    quality=quality,
+                    language=language,
+                    score=score,
+                    is_blocklisted=blocked,
+                    download_url=raw.download_url or "",
+                    publish_date=raw.publish_date,
+                ))
+        except Exception:
+            logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
+
+    all_results.sort(key=lambda r: r.score, reverse=True)
+
+    indexer_names = list({r.indexer for r in all_results})
+    await create_event(
+        db,
+        event_type="searched",
+        magazine_id=magazine.id,
+        issue_id=issue.id,
+        details=f"Manual search: {query} ({len(all_results)} results)",
+        data={
+            "search_type": "manual",
+            "query": query,
+            "result_count": len(all_results),
+            "magazine_title": magazine.title,
+            "issue_number": issue.number,
+            "indexers": indexer_names,
+            "top_results": _serialize_top_results(all_results),
+        },
+    )
+
+    return all_results
+
+
+async def search_free(
+    db: AsyncSession, query: str, config, magazine_id: int | None = None
+) -> list[SearchResultResource]:
+    """Free-text search across all enabled indexers (Prowlarr)."""
+    from app.indexers.prowlarr import ProwlarrClient
+    from app.models.indexer_config import IndexerConfig
+
+    indexer_result = await db.execute(
+        select(IndexerConfig).where(IndexerConfig.enabled.is_(True))
+    )
+    indexers = indexer_result.scalars().all()
+
+    all_results: list[SearchResultResource] = []
+    for indexer in indexers:
+        try:
+            client = ProwlarrClient(
+                url=indexer.url,
+                api_key=indexer.api_key,
+            )
+            global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
+            overrides = parse_indexer_overrides(indexer.indexer_overrides)
+            search_groups = get_search_groups(overrides, global_cats)
+            raw_results = []
+            for cats, indexer_ids in search_groups:
+                raw_results.extend(await client.search(query, categories=cats, indexer_ids=indexer_ids))
+            for raw in raw_results:
+                parsed = parse_magazine_filename(raw.title)
+                quality = parsed.quality if parsed.quality != "unknown" else "unknown"
+                language = _resolve_language(raw.language, parsed.language)
+
+                blocked = await is_blocklisted(db, raw.title)
+
+                all_results.append(SearchResultResource(
+                    guid=raw.guid,
+                    title=raw.title,
+                    indexer=indexer.name,
+                    source=raw.indexer,
+                    size=raw.size,
+                    age=raw.age,
+                    protocol=raw.protocol,
+                    seeders=raw.seeders,
+                    quality=quality,
+                    language=language,
+                    score=0.0,
+                    is_blocklisted=blocked,
+                    download_url=raw.download_url or "",
+                    publish_date=raw.publish_date,
+                ))
+        except Exception:
+            logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
+
+    indexer_names = list({r.indexer for r in all_results})
+    await create_event(
+        db,
+        event_type="searched",
+        magazine_id=magazine_id,
+        details=f"Free search: '{query}' ({len(all_results)} results)",
+        data={
+            "search_type": "free",
+            "query": query,
+            "result_count": len(all_results),
+            "indexers": indexer_names,
+            "top_results": _serialize_top_results(all_results),
+        },
+    )
+
+    return all_results
+
+
+async def search_magazine_missing(
+    db: AsyncSession, magazine_id: int, config
+) -> dict[int, list[SearchResultResource]]:
+    result = await db.execute(
+        select(Issue).where(
+            Issue.magazine_id == magazine_id,
+            Issue.status.in_(["wanted"]),
+            Issue.monitored.is_(True),
+        )
+    )
+    wanted_issues = result.scalars().all()
+
+    results_by_issue: dict[int, list[SearchResultResource]] = {}
+    for issue in wanted_issues:
+        results = await search_issue(db, issue.id, config)
+        if results:
+            results_by_issue[issue.id] = results
+
+    total_results = sum(len(r) for r in results_by_issue.values())
+    # Collect top result per issue for the history detail
+    issues_with_results = []
+    for iss in wanted_issues:
+        iss_results = results_by_issue.get(iss.id, [])
+        entry: dict = {"issue_id": iss.id, "issue_number": iss.number, "result_count": len(iss_results)}
+        if iss_results:
+            best = iss_results[0]
+            entry["best_result"] = best.title
+            entry["best_score"] = round(best.score, 1)
+        issues_with_results.append(entry)
+
+    await create_event(
+        db,
+        event_type="searched",
+        magazine_id=magazine_id,
+        details=f"Missing issues search: {len(wanted_issues)} issues, {total_results} results",
+        data={
+            "search_type": "missing",
+            "wanted_count": len(wanted_issues),
+            "result_count": total_results,
+            "issues_searched": len(wanted_issues),
+            "issues_with_results": len(results_by_issue),
+            "issues_detail": issues_with_results[:20],
+        },
+    )
+
+    return results_by_issue
+
+
+def score_release(
+    title: str,
+    quality: str,
+    size: int,
+    seeders: int | None,
+    age_days: int,
+    magazine_title: str,
+    profile_items: list[dict],
+) -> float:
+    score = 0.0
+
+    # Title match (50 pts max)
+    match = fuzzy_match_title(
+        title,
+        [magazine_title],
+        threshold=50.0,
+    )
+    if match:
+        _, match_score = match
+        score += (match_score / 100.0) * 50.0
+
+    # Quality vs profile (30 pts max)
+    quality_rank = _QUALITY_INDEX.get(quality, 0)
+    cutoff_rank = max(
+        (
+            _QUALITY_INDEX.get(item["quality"], 0)
+            for item in profile_items
+            if item.get("cutoff")
+        ),
+        default=3,
+    )
+    if cutoff_rank > 0:
+        ratio = min(quality_rank / cutoff_rank, 1.0)
+        score += ratio * 30.0
+
+    # Size preference (10 pts max) - prefer 10-200MB
+    size_mb = size / (1024 * 1024) if size > 0 else 0
+    if 10 <= size_mb <= 200:
+        score += 10.0
+    elif 1 <= size_mb < 10:
+        score += 5.0
+    elif 200 < size_mb <= 500:
+        score += 5.0
+    elif size_mb > 500:
+        score += 2.0
+
+    # Seeds bonus (10 pts max)
+    if seeders is not None and seeders > 0:
+        score += min(math.log2(seeders + 1) * 2, 10.0)
+
+    # Age bonus (newer = better, 10 pts max)
+    age_penalty = min(age_days / 30.0, 10.0)
+    score += 10.0 - age_penalty
+
+    return round(score, 1)
+
+
+def _build_query(magazine: Magazine, issue: Issue) -> str:
+    terms = magazine.search_terms or magazine.title
+    if issue.number is not None:
+        return f"{terms} N{issue.number}"
+    if issue.year and issue.month:
+        return f"{terms} {issue.year} {issue.month:02d}"
+    return terms
+
+
+async def match_ia_results(
+    db: AsyncSession,
+    results: list[SearchResultResource],
+    magazine_id: int,
+) -> list[SearchResultResource]:
+    """Compare IA results against wanted issues.
+
+    Match by normalized title + date/number.
+    Results that match a wanted issue get a score boost; non-matching results
+    are kept but scored lower.
+    """
+    # Load magazine
+    mag_result = await db.execute(
+        select(Magazine).where(Magazine.id == magazine_id)
+    )
+    magazine = mag_result.scalars().first()
+    if not magazine:
+        return results
+
+    # Load wanted issues for this magazine
+    issue_result = await db.execute(
+        select(Issue).where(
+            Issue.magazine_id == magazine_id,
+            Issue.status.in_(["wanted", "missing"]),
+            Issue.monitored.is_(True),
+        )
+    )
+    wanted_issues = issue_result.scalars().all()
+    if not wanted_issues:
+        return results
+
+    scored: list[SearchResultResource] = []
+    for result in results:
+        parsed = parse_magazine_filename(result.title)
+        match_score = 0.0
+
+        # Check title similarity
+        title_match = fuzzy_match_title(
+            parsed.title, [magazine.title], threshold=60.0
+        )
+        if title_match:
+            _, t_score = title_match
+            match_score += (t_score / 100.0) * 50.0
+
+        # Check if this matches a specific wanted issue
+        for issue in wanted_issues:
+            issue_matched = False
+
+            # Match by number
+            if (
+                parsed.number is not None
+                and issue.number is not None
+                and parsed.number == issue.number
+            ):
+                issue_matched = True
+
+            # Match by year + month
+            if (
+                not issue_matched
+                and parsed.year is not None
+                and parsed.month is not None
+                and issue.year == parsed.year
+                and issue.month == parsed.month
+            ):
+                issue_matched = True
+
+            if issue_matched:
+                match_score += 50.0
+                break
+
+        result.score = round(match_score, 1)
+        scored.append(result)
+
+    scored.sort(key=lambda r: r.score, reverse=True)
+    return scored
+
+
+async def _get_quality_items(db: AsyncSession, profile_id: int | None) -> list[dict]:
+    if profile_id is None:
+        return []
+    result = await db.execute(
+        select(QualityProfileItem).where(
+            QualityProfileItem.quality_profile_id == profile_id
+        )
+    )
+    items = result.scalars().all()
+    return [
+        {
+            "quality": item.quality,
+            "allowed": item.allowed,
+            "sort_order": item.sort_order,
+        }
+        for item in items
+    ]

@@ -1,0 +1,490 @@
+# GitLab CI/CD Pipeline
+# Pressarr - Automated Magazine Collection Manager
+
+# =============================================================================
+# Variables globales
+# =============================================================================
+variables:
+  # Configuration du projet
+  PROJECT_TYPE: "fullstack"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+
+  # Activation des fonctionnalités
+  ENABLE_BACKEND_TESTS: "true"
+  ENABLE_FRONTEND_TESTS: "true"
+  ENABLE_DOCKER_BUILD: "true"
+  ENABLE_GITLAB_REGISTRY: "false"
+
+  # Déploiement
+  DOCKER_HUB_ENABLED: "true"           # Publier sur Docker Hub (sur les tags)
+  GITHUB_DEPLOY_ENABLED: "true"       # Synchroniser avec GitHub (sur les tags)
+
+  # Docker
+  DOCKER_IMAGE: $CI_PROJECT_NAME
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_HOST: tcp://docker:2375
+
+# =============================================================================
+# Workflow - évite les pipelines en double
+# =============================================================================
+workflow:
+  rules:
+    - if: '$CI_COMMIT_TAG'                    # Exécuter uniquement sur les tags
+
+# =============================================================================
+# Stages du pipeline
+# =============================================================================
+stages:
+  - validate
+  - test
+  - build
+  - publish
+  - deploy
+  - release
+  - verify
+
+# =============================================================================
+# Templates réutilisables
+# =============================================================================
+.python_template: &python_template
+  image: python:${PYTHON_VERSION}-slim
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-backend
+    paths:
+      - backend/.venv/
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends libmupdf-dev && rm -rf /var/lib/apt/lists/*
+    - cd backend
+    - pip install --upgrade pip
+    - python -m venv .venv
+    - . .venv/bin/activate
+    - pip install -r requirements.txt
+    - pip install -r requirements-dev.txt
+
+.node_template: &node_template
+  image: node:${NODE_VERSION}-alpine
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-frontend
+    paths:
+      - frontend/node_modules/
+  before_script:
+    - cd frontend
+    - npm ci
+
+.docker_template: &docker_template
+  image: docker:24-cli
+  services:
+    - name: docker:24-dind
+      alias: docker
+      command: ["--tls=false"]
+  before_script:
+    - until docker info; do sleep 1; done
+
+# =============================================================================
+# Stage: Validate
+# =============================================================================
+
+# Job optionnel pour appliquer les corrections automatiquement
+auto-fix:
+  stage: validate
+  image: python:${PYTHON_VERSION}-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git nodejs npm libmupdf-dev && rm -rf /var/lib/apt/lists/*
+    - cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pip install -r requirements-dev.txt && cd ..
+    - cd frontend && npm ci && cd ..
+  script:
+    - chmod +x scripts/ci-auto-fix.sh
+    - AUTO_COMMIT=true scripts/ci-auto-fix.sh
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /\[auto-fix\]/'
+      when: always
+    - if: '$AUTO_FIX_ENABLED == "true"'
+      when: always
+    - when: manual
+  allow_failure: true
+
+validate:backend:
+  stage: validate
+  <<: *python_template
+  script:
+    - echo "Validation du backend Python..."
+    - . .venv/bin/activate
+    # Génération des rapports de linting
+    - ruff check app/ --output-format=json > ruff-report.json || true
+    - ruff check app/ --output-format=text > ruff-report.txt || true
+    # Auto-fix des erreurs (safe fixes seulement)
+    - ruff check app/ --fix
+    # Vérification finale après les corrections
+    - echo "Vérification après auto-fix..."
+    - ruff check app/ || echo "⚠️ Des erreurs subsistent après auto-fix"
+    - ruff format --check app/ || echo "⚠️ Des erreurs de formatage subsistent"
+  artifacts:
+    when: always
+    paths:
+      - backend/ruff-report.json
+      - backend/ruff-report.txt
+    reports:
+      codequality: backend/ruff-report.json
+    expire_in: 1 week
+  allow_failure: true
+
+validate:frontend:
+  stage: validate
+  <<: *node_template
+  script:
+    - echo "Validation du frontend..."
+    # Génération des rapports de linting
+    - npm run lint -- --format json --output-file eslint-report.json || true
+    - npm run lint -- --format stylish > eslint-report.txt || true
+    # Auto-fix des erreurs ESLint
+    - npm run lint -- --fix || echo "⚠️ Auto-fix appliqué, vérification..."
+    # Vérification finale
+    - npm run lint || echo "⚠️ Des erreurs de linting subsistent"
+  artifacts:
+    when: always
+    paths:
+      - frontend/eslint-report.json
+      - frontend/eslint-report.txt
+    expire_in: 1 week
+  allow_failure: true
+
+# =============================================================================
+# Stage: Test
+# =============================================================================
+test:backend:
+  stage: test
+  <<: *python_template
+  script:
+    - echo "Exécution des tests backend..."
+    - . .venv/bin/activate
+    - pytest --cov=app --cov-report=xml --cov-report=html --junitxml=junit.xml
+  coverage: '/TOTAL.*\s+(\d+%)/'
+  artifacts:
+    when: always
+    reports:
+      junit: backend/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage.xml
+    paths:
+      - backend/htmlcov/
+    expire_in: 1 week
+  rules:
+    - if: '$ENABLE_BACKEND_TESTS == "true"'
+
+test:frontend:
+  stage: test
+  <<: *node_template
+  script:
+    - echo "Exécution des tests frontend..."
+    - npm run build
+  artifacts:
+    when: always
+    paths:
+      - frontend/dist/
+    expire_in: 1 week
+  rules:
+    - if: '$ENABLE_FRONTEND_TESTS == "true"'
+
+# =============================================================================
+# Stage: Build Docker
+# =============================================================================
+build:docker:
+  stage: build
+  <<: *docker_template
+  variables:
+    DOCKER_BUILDKIT: 1
+  script:
+    - echo "Construction de l'image Docker Pressarr..."
+    - |
+      docker build \
+        --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+        --build-arg VCS_REF=${CI_COMMIT_SHA} \
+        --build-arg VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA} \
+        --tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} \
+        --tag ${DOCKER_IMAGE}:${CI_COMMIT_REF_SLUG} \
+        --file docker/Dockerfile \
+        .
+    - echo "Image construite avec succès"
+  rules:
+    - if: '$CI_COMMIT_TAG && $ENABLE_DOCKER_BUILD == "true"'
+
+# =============================================================================
+# Stage: Publish
+# =============================================================================
+publish:gitlab-registry:
+  stage: publish
+  <<: *docker_template
+  script:
+    - docker load < image.tar
+    - echo "Publication sur GitLab Registry..."
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+    - docker tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} ${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}
+    - docker push ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+    - docker push ${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} ${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}
+        docker tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} ${CI_REGISTRY_IMAGE}:latest
+        docker push ${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}
+        docker push ${CI_REGISTRY_IMAGE}:latest
+      fi
+  rules:
+    - if: '$ENABLE_GITLAB_REGISTRY == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$ENABLE_GITLAB_REGISTRY == "true" && $CI_COMMIT_TAG'
+
+deploy:
+  stage: deploy
+  image: docker:24-cli
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_BUILDKIT: 1
+    GIT_DEPTH: 0  # Full clone required for GitHub push
+  before_script:
+    - apk add --no-cache git curl jq
+    - git fetch --unshallow || true  # Ensure complete history
+    - until docker info; do sleep 1; done
+  script:
+    # Construction et Publication Docker Hub
+    - |
+      if [ "$DOCKER_HUB_ENABLED" = "true" ]; then
+        echo "Construction de l'image Docker..."
+        docker build \
+          --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+          --build-arg VCS_REF=${CI_COMMIT_SHA} \
+          --build-arg VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA} \
+          --tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} \
+          --file docker/Dockerfile \
+          .
+        echo "Publication sur Docker Hub..."
+        echo "$DOCKER_HUB_TOKEN" | docker login -u "$DOCKER_HUB_USER" --password-stdin
+
+        DOCKER_HUB_IMAGE="${DOCKER_HUB_USER}/${CI_PROJECT_NAME}"
+        docker tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} ${DOCKER_HUB_IMAGE}:${CI_COMMIT_TAG:-latest}
+        docker push ${DOCKER_HUB_IMAGE}:${CI_COMMIT_TAG:-latest}
+
+        if [ -n "$CI_COMMIT_TAG" ]; then
+          docker tag ${DOCKER_IMAGE}:${CI_COMMIT_SHA} ${DOCKER_HUB_IMAGE}:latest
+          docker push ${DOCKER_HUB_IMAGE}:latest
+        fi
+
+        # Mise à jour du README Docker Hub via docker-pushrm
+        if [ -f "docker/DOCKERHUB.md" ]; then
+          echo "Mise à jour du README Docker Hub..."
+          wget -q https://github.com/christian-korneck/docker-pushrm/releases/download/v1.9.0/docker-pushrm_linux_amd64 -O /usr/local/bin/docker-pushrm
+          chmod +x /usr/local/bin/docker-pushrm
+          docker-pushrm --file docker/DOCKERHUB.md --short "$CI_PROJECT_TITLE" "${DOCKER_HUB_IMAGE}" || echo "⚠️ Impossible de mettre à jour le README Docker Hub"
+        fi
+      fi
+    # Synchronisation GitHub
+    - |
+      if [ "$GITHUB_DEPLOY_ENABLED" = "true" ]; then
+        echo "Synchronisation avec GitHub..."
+        git remote add github https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git || true
+        if [ -n "$CI_COMMIT_TAG" ]; then
+          git push github HEAD:refs/heads/${CI_DEFAULT_BRANCH} --force
+          git push github refs/tags/${CI_COMMIT_TAG}:refs/tags/${CI_COMMIT_TAG} --force
+        else
+          git push github HEAD:refs/heads/${CI_COMMIT_REF_NAME} --force
+        fi
+      fi
+  rules:
+    - if: '$CI_COMMIT_TAG && $DEPLOY == "true"'
+
+# =============================================================================
+# Stage: Release (GitLab + GitHub releases)
+# =============================================================================
+release:gitlab:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  before_script:
+    - apk add --no-cache sed gawk
+  script:
+    - echo "Extraction des notes de release depuis GITHUB_RELEASES.md..."
+    - |
+      # Essayer d'abord GITHUB_RELEASES.md
+      if [ -f GITHUB_RELEASES.md ]; then
+        # Extraction de la première release (entre premier ## et prochain # vX.Y.Z)
+        NOTES=$(awk '/^## /{if(found==0){found=1; p=1; next}} /^# v[0-9]/{if(found==1 && p==1){exit}} p{print}' GITHUB_RELEASES.md | sed 's/^---$//' | sed '/^$/N;/^\n$/D')
+
+        if [ -z "$NOTES" ]; then
+          echo "⚠️ Aucune note trouvée dans GITHUB_RELEASES.md, utilisation du CHANGELOG"
+          VERSION="${CI_COMMIT_TAG#v}"
+          NOTES=$(awk "/^## \\[${VERSION}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${CI_COMMIT_TAG}"
+          fi
+        fi
+      else
+        echo "⚠️ GITHUB_RELEASES.md non trouvé, utilisation du CHANGELOG"
+        VERSION="${CI_COMMIT_TAG#v}"
+        if [ -f CHANGELOG.md ]; then
+          NOTES=$(awk "/^## \\[${VERSION}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${CI_COMMIT_TAG}"
+          fi
+        else
+          NOTES="Release ${CI_COMMIT_TAG}"
+        fi
+      fi
+      echo "Notes extraites:"
+      echo "$NOTES"
+      echo "$NOTES" > /tmp/release_notes.txt
+    - |
+      echo "" >> /tmp/release_notes.txt
+      echo "---" >> /tmp/release_notes.txt
+      echo "[Voir le CHANGELOG complet](${CI_PROJECT_URL}/-/blob/${CI_COMMIT_TAG}/CHANGELOG.md)" >> /tmp/release_notes.txt
+      release-cli create \
+        --name "Release ${CI_COMMIT_TAG}" \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --description "$(cat /tmp/release_notes.txt)"
+  rules:
+    - if: '$CI_COMMIT_TAG'
+
+release:github:
+  stage: release
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - echo "Création de la release GitHub ${CI_COMMIT_TAG}..."
+    - |
+      # Extraire la première section de version de GITHUB_RELEASES.md
+      if [ -f GITHUB_RELEASES.md ]; then
+        # Extraction de la première release (entre premier ## et prochain # vX.Y.Z)
+        # Nettoyer les séparateurs --- en fin de section
+        NOTES=$(awk '/^## /{if(found==0){found=1; p=1; next}} /^# v[0-9]/{if(found==1 && p==1){exit}} p{print}' GITHUB_RELEASES.md | sed 's/^---$//' | sed '/^$/N;/^\n$/D')
+
+        if [ -z "$NOTES" ]; then
+          echo "⚠️ Aucune note trouvée dans GITHUB_RELEASES.md, utilisation du CHANGELOG"
+          VERSION="${CI_COMMIT_TAG#v}"
+          NOTES=$(awk "/^## \\[${VERSION}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${CI_COMMIT_TAG}"
+          fi
+        fi
+      else
+        echo "⚠️ GITHUB_RELEASES.md non trouvé, utilisation du CHANGELOG"
+        VERSION="${CI_COMMIT_TAG#v}"
+        NOTES=$(awk "/^## \\[${VERSION}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md)
+        if [ -z "$NOTES" ]; then
+          NOTES="Release ${CI_COMMIT_TAG}"
+        fi
+      fi
+
+      echo "Notes de release:"
+      echo "$NOTES"
+
+      # Créer la release GitHub via API
+      RESPONSE=$(curl -X POST \
+        -H "Authorization: token ${GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github.v3+json" \
+        -H "Content-Type: application/json" \
+        -s -w "\n%{http_code}" \
+        "https://api.github.com/repos/${GITHUB_REPO}/releases" \
+        -d "$(jq -n \
+          --arg tag "${CI_COMMIT_TAG}" \
+          --arg name "Release ${CI_COMMIT_TAG}" \
+          --arg body "$NOTES" \
+          '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}')")
+
+      HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+      BODY=$(echo "$RESPONSE" | sed '$d')
+
+      if [ "$HTTP_CODE" -eq 201 ]; then
+        echo "✅ Release GitHub créée avec succès"
+        echo "$BODY" | jq -r '.html_url'
+      else
+        echo "❌ Erreur lors de la création de la release GitHub (HTTP $HTTP_CODE)"
+        echo "$BODY" | jq '.' || echo "$BODY"
+        exit 1
+      fi
+  rules:
+    - if: '$CI_COMMIT_TAG && $DEPLOY == "true" && $GITHUB_DEPLOY_ENABLED == "true"'
+
+# =============================================================================
+# Stage: Verify (vérification post-deploy)
+# =============================================================================
+verify:
+  stage: verify
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - echo "Vérification du déploiement..."
+    # Vérifier Docker Hub (avec retries pour laisser le temps à la propagation)
+    - |
+      if [ "$DOCKER_HUB_ENABLED" = "true" ] && [ "$DEPLOY" = "true" ]; then
+        echo "Vérification Docker Hub..."
+        DOCKER_HUB_IMAGE="${DOCKER_HUB_USER}/${CI_PROJECT_NAME}"
+        TAG="${CI_COMMIT_TAG:-latest}"
+        MAX_RETRIES=5
+        RETRY_DELAY=15
+        FOUND=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_HUB_IMAGE}/tags/${TAG}")
+          if echo "$RESPONSE" | jq -e '.name' > /dev/null 2>&1; then
+            echo "✅ Image Docker Hub ${DOCKER_HUB_IMAGE}:${TAG} trouvée"
+            FOUND=true
+            break
+          fi
+          echo "⏳ Image non trouvée, tentative $i/$MAX_RETRIES... (attente ${RETRY_DELAY}s)"
+          sleep $RETRY_DELAY
+        done
+        if [ "$FOUND" = "false" ]; then
+          echo "❌ Image Docker Hub ${DOCKER_HUB_IMAGE}:${TAG} non trouvée après ${MAX_RETRIES} tentatives"
+          echo "Réponse API: $RESPONSE"
+          exit 1
+        fi
+      fi
+    # Vérifier GitHub (avec retries)
+    - |
+      if [ "$GITHUB_DEPLOY_ENABLED" = "true" ] && [ "$DEPLOY" = "true" ]; then
+        echo "Vérification GitHub tag..."
+        MAX_RETRIES=5
+        RETRY_DELAY=10
+        FOUND=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPO}/git/refs/tags/${CI_COMMIT_TAG}")
+          if echo "$RESPONSE" | jq -e '.ref' > /dev/null 2>&1; then
+            echo "✅ Tag ${CI_COMMIT_TAG} trouvé sur GitHub"
+            FOUND=true
+            break
+          fi
+          echo "⏳ Tag non trouvé, tentative $i/$MAX_RETRIES... (attente ${RETRY_DELAY}s)"
+          sleep $RETRY_DELAY
+        done
+        if [ "$FOUND" = "false" ]; then
+          echo "❌ Tag ${CI_COMMIT_TAG} non trouvé sur GitHub après ${MAX_RETRIES} tentatives"
+          echo "Réponse API: $RESPONSE"
+          exit 1
+        fi
+
+        echo "Vérification GitHub release..."
+        FOUND=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${CI_COMMIT_TAG}")
+          if echo "$RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+            RELEASE_URL=$(echo "$RESPONSE" | jq -r '.html_url')
+            echo "✅ Release ${CI_COMMIT_TAG} trouvée sur GitHub: ${RELEASE_URL}"
+            FOUND=true
+            break
+          fi
+          echo "⏳ Release non trouvée, tentative $i/$MAX_RETRIES... (attente ${RETRY_DELAY}s)"
+          sleep $RETRY_DELAY
+        done
+        if [ "$FOUND" = "false" ]; then
+          echo "⚠️ Release ${CI_COMMIT_TAG} non trouvée sur GitHub après ${MAX_RETRIES} tentatives"
+        fi
+      fi
+    - echo "✅ Vérification terminée avec succès"
+  rules:
+    - if: '$CI_COMMIT_TAG && $DEPLOY == "true"'
