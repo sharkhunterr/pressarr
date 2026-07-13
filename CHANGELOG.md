@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.46](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.45...v0.1.46) (2026-07-13)
+
+
+### Features
+
+* **dispatch:** JDownloader 2 folder-watch grab path ([f11e790](https://github.com/sharkhunterr/pressarr/-/commit/f11e790105610024752ad6f0af63268c2e0fb9bb))
+* **jdownloader:** inspect + manage JD2 queue directly from pressarr UI ([b1587c4](https://github.com/sharkhunterr/pressarr/-/commit/b1587c427a2ebd1f88d2e61563b91f9d069c703a))
+* **magazine:** back-fill cascade enrichment on createMagazine ([fad3bf9](https://github.com/sharkhunterr/pressarr/-/commit/fad3bf95383ff31dfc8c4737d8c24cd477bf49c0))
+* **magazine:** BnF MARC 326 frequency + verified-only filter ([c8a0dee](https://github.com/sharkhunterr/pressarr/-/commit/c8a0dee245ef2a0b50cb6691886e79be113998c0))
+* **magazine:** Bookys + telecharger-magazines.org tabs in manual search modal ([251763d](https://github.com/sharkhunterr/pressarr/-/commit/251763d8db5fc2e3f493fbb403e23644327c5360))
+* **magazine:** expose coverIsLogo + multi-ISSN filter on search ([fff3a25](https://github.com/sharkhunterr/pressarr/-/commit/fff3a2536159d0e59a256b545a3d89eaf93a14e0))
+* **magazine:** expose full ISSN-L sibling list (print + online + CD-ROM) on identity ([bf52482](https://github.com/sharkhunterr/pressarr/-/commit/bf524823e799d9d7390c23b4d0770f3b98031469))
+* **magazine:** ISSN Portal provider + Wikidata related publications + aggressive root-slug dedup ([f87a88f](https://github.com/sharkhunterr/pressarr/-/commit/f87a88fc6c1feac86d0e27dde4f80a741b512840))
+* **magazine:** ongoing-first ranking + status filter + frequency from Wikidata P2241/P31 ([5e2c581](https://github.com/sharkhunterr/pressarr/-/commit/5e2c581394eb84d29345281897d15f9b680f6a22))
+* **magazine:** persist ISSN-first cascade enrichment on Magazine rows ([c548a0e](https://github.com/sharkhunterr/pressarr/-/commit/c548a0e441d12be703f4cc56592db1fc2cc89e88))
+* **magazine:** rank-first, canonical boost, drop IA noise ([e185b98](https://github.com/sharkhunterr/pressarr/-/commit/e185b986015d60ceb8344af32a348013509886e8))
+* **magazine:** scene auto-grab scheduler honouring subscription / one-shot ([8b6f11c](https://github.com/sharkhunterr/pressarr/-/commit/8b6f11c70cdddc3f4bbf982a13fe2fc95e9fe5bf)), closes [#594](https://github.com/sharkhunterr/pressarr/-/issues/594)
+* **magazine:** scene importer — JD2 output → library, release status flip ([b937c18](https://github.com/sharkhunterr/pressarr/-/commit/b937c18fda1a2fd7bca04923308de3452a8cf12f)), closes [#594](https://github.com/sharkhunterr/pressarr/-/issues/594) [#3986](https://github.com/sharkhunterr/pressarr/-/issues/3986)
+* **magazine:** subscription vs one-shot request type on Magazine ([518471e](https://github.com/sharkhunterr/pressarr/-/commit/518471ef9e0cb602088f1e85131c236d4dd6a511))
+* **magazine:** wire ISSN cascade into search + add ISSN-lookup endpoint ([04ccec1](https://github.com/sharkhunterr/pressarr/-/commit/04ccec130895eba18ffdb2b140754cbd7a2a85f2))
+* **metadata:** add BnF (French press authority) to the cascade ([6c11445](https://github.com/sharkhunterr/pressarr/-/commit/6c1144596fd48dea5afe800fdfe8af8e35b9f37d))
+* **metadata:** scene-indexer cover fallback in the cascade ([cea4640](https://github.com/sharkhunterr/pressarr/-/commit/cea4640a9a7670b0157cc8ed39c93ae257089d1a)), closes [#0](https://github.com/sharkhunterr/pressarr/-/issues/0)
+* **metadata:** ZDB + Wikidata providers + ISSN-first cascade orchestrator ([6ffaf78](https://github.com/sharkhunterr/pressarr/-/commit/6ffaf782bd4b6929bc84c7cf54ef7e734ced4303))
+* **scene-indexers:** Bookys + telecharger-magazines.org scrapers + release table ([c3f1a75](https://github.com/sharkhunterr/pressarr/-/commit/c3f1a75551dd8b12ecabebe8c50c0f51898823f2))
+* **scene-indexers:** FlareSolverr-backed Bookys scraper (Cloudflare bypass) ([0e5547c](https://github.com/sharkhunterr/pressarr/-/commit/0e5547c4453ceef4d83bcd9ce92dd4938a3578cb))
+* **settings:** magazine-indexer settings page in pressarr UI ([dbf1c4c](https://github.com/sharkhunterr/pressarr/-/commit/dbf1c4cc9a42e836299246db775a86f33b412fe7))
+
+
+### Bug Fixes
+
+* **dispatcher:** lowercase booleans + demote frdl.io in hoster preference ([95f3f52](https://github.com/sharkhunterr/pressarr/-/commit/95f3f52d7ded9171e50d31dca998d8949bac4aa4))
+* **dispatcher:** write one hoster URL per .crawljob, not all mirrors ([8a31490](https://github.com/sharkhunterr/pressarr/-/commit/8a314900bc9ab98438ac70301029b38bf248be99))
+* **jd2:** write the JD2-side path in .crawljob's downloadFolder ([414fe27](https://github.com/sharkhunterr/pressarr/-/commit/414fe27b4dd96103c3079b04d4b26e4b9d8ab1d6))
+* **magazine-detail:** show Re-grab button when scene release is already grabbed ([b56d6bd](https://github.com/sharkhunterr/pressarr/-/commit/b56d6bda8268938bf5ac1e4c1481829c3bd962c4))
+* **magazine:** cross-reference cascade hits via Wikidata identity + soft timeouts ([d6665a6](https://github.com/sharkhunterr/pressarr/-/commit/d6665a673c1e7c60c692b9e3278b0ab6dd902d38))
+* **magazine:** emit history events on scene grab / auto-grab / import ([b7e2088](https://github.com/sharkhunterr/pressarr/-/commit/b7e2088cf2cf1f9df276674ac017cc8379f56cb5))
+* **magazine:** parallelize Wikidata related-publications + bump cascade timeout ([4da6d80](https://github.com/sharkhunterr/pressarr/-/commit/4da6d80966f1047bd5a79b283d641dbfdcdd727c)), closes [#0](https://github.com/sharkhunterr/pressarr/-/issues/0)
+* **magazine:** prefer Wikidata P154 logo over P18 image as cover ([9557f88](https://github.com/sharkhunterr/pressarr/-/commit/9557f88e6374c008084cb9b3cdd863cbd06ff3b5))
+* **magazine:** rank ISSN-less catalogue noise below real magazines ([7c9a85b](https://github.com/sharkhunterr/pressarr/-/commit/7c9a85b64e5a6284bfa7a34013ef3dfa9bb94301))
+* **magazine:** scene query normalisation + immediate back-catalogue grab on add ([030cdfe](https://github.com/sharkhunterr/pressarr/-/commit/030cdfe19a66abfc52f55b3d7a01a0bc09615ded))
+* **scene-indexers:** rewrite tm.org scraper for the WordPress + liens-direct flow ([4e67e96](https://github.com/sharkhunterr/pressarr/-/commit/4e67e96d4264f86a6b531481ab57240a0e210ec1))
+* **tm.org:** friendlier message when Cloudflare reports an origin outage ([2df2ba1](https://github.com/sharkhunterr/pressarr/-/commit/2df2ba19a1e88804c7b8ba74558008e4beec0ed4))
+
 ### [0.1.45](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.44...v0.1.45) (2026-05-29)
 
 
