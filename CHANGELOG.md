@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.47](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.46...v0.1.47) (2026-07-13)
+
+
+### Bug Fixes
+
+* **tests:** align dedup test with the ISSN-first cascade refactor ([b2bb052](https://github.com/sharkhunterr/pressarr/-/commit/b2bb0522a27e4b30ba8eab45f90c0bece2277ab1))
+
 ### [0.1.46](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.45...v0.1.46) (2026-07-13)
 
 
