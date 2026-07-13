@@ -230,7 +230,15 @@ class TestDeduplication:
 
     @pytest.mark.asyncio
     async def test_deduplicate_across_providers(self):
-        """Results with the same normalized title should be deduplicated."""
+        """Results with the same normalized title should be deduplicated.
+
+        Note: since the ISSN-first cascade refactor, ``search_metadata``
+        fans out on ``search_cascade`` (ZDB + Wikidata + BnF + ISSN
+        Portal) and ``GoogleBooksProvider`` — Internet Archive was
+        dropped (see comment in ``magazine_service.search_metadata``).
+        We mock both current surfaces so the test is deterministic and
+        doesn't leak to real endpoints.
+        """
         from unittest.mock import AsyncMock, patch
 
         from app.services.magazine_service import search_metadata
@@ -249,54 +257,62 @@ class TestDeduplication:
             })(),
         ]
 
-        archive_results = [
-            type("MetadataResult", (), {
-                "provider": "internet_archive",
-                "provider_id": "ia-natgeo",
-                "title": "national geographic",  # same title, different case
+        # Cascade returns identity records with a richer shape than
+        # legacy MetadataResult — must expose ``sources``, ``issns``,
+        # ``wikidata_qid``, ``zdb_id`` etc.
+        def _cascade_identity(title: str, provider: str = "wikidata"):
+            return type("CascadeIdentity", (), {
+                "title": title,
                 "publisher": None,
                 "country": None,
                 "description": None,
                 "cover_url": None,
+                "cover_is_logo": False,
                 "issn": None,
+                "issns": [],
                 "frequency": None,
-            })(),
-            type("MetadataResult", (), {
-                "provider": "internet_archive",
-                "provider_id": "ia-time",
-                "title": "Time Magazine",
-                "publisher": None,
-                "country": None,
-                "description": None,
-                "cover_url": None,
-                "issn": None,
-                "frequency": None,
-            })(),
+                "sources": [provider],
+                "language": None,
+                "wikidata_qid": None,
+                "zdb_id": None,
+                "wikipedia_url": None,
+                "categories": [],
+                "first_issued": None,
+                "ceased_at": None,
+            })()
+
+        cascade_results = [
+            _cascade_identity("national geographic"),   # dup w/ google → merges
+            _cascade_identity("Time Magazine", "zdb"),  # distinct → survives
         ]
 
+        # ``search_metadata`` imports both symbols LOCALLY inside the
+        # function body, so we patch them at their source modules.
         with (
             patch(
                 "app.metadata.google_books.GoogleBooksProvider"
             ) as mock_google_cls,
             patch(
-                "app.metadata.internet_archive.InternetArchiveProvider"
-            ) as mock_ia_cls,
+                "app.metadata.cascade.search_cascade",
+                new_callable=AsyncMock,
+            ) as mock_cascade,
         ):
             mock_google = AsyncMock()
             mock_google.search.return_value = google_results
             mock_google_cls.return_value = mock_google
 
-            mock_ia = AsyncMock()
-            mock_ia.search.return_value = archive_results
-            mock_ia_cls.return_value = mock_ia
+            mock_cascade.return_value = cascade_results
 
             # config stub
             config = type("Config", (), {"google_books_api_key": None})()
             results = await search_metadata("national geographic", config)
 
-        # "National Geographic" from google and "national geographic" from IA
-        # should deduplicate to one entry; "Time Magazine" should remain.
+        # "National Geographic" from google and "national geographic" from
+        # the cascade should deduplicate to one entry; "Time Magazine"
+        # should remain. The cascade seeds first (canonical identity),
+        # so its casing wins on the merged entry — assert case-insensitive.
         titles = [r.title for r in results]
-        assert len(titles) == 2
-        assert "National Geographic" in titles
-        assert "Time Magazine" in titles
+        assert len(titles) == 2, titles
+        titles_lower = [t.lower() for t in titles]
+        assert "national geographic" in titles_lower
+        assert "time magazine" in titles_lower
