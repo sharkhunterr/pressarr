@@ -69,6 +69,62 @@ export interface PackDispatchPreview {
   unmatchedFiles: number
 }
 
+// ─── Post-hoc reimport (fichiers d'un pack déjà téléchargé) ────
+export interface PackPendingFile {
+  filename: string
+  parsed_title: string | null
+  parsed_number: string | null
+  matched_magazine_id: number | null
+  matched_magazine_title: string | null
+  match_score: number
+  excluded: boolean
+  exclude_reason: string | null
+}
+
+export interface PackPendingFilesResponse {
+  downloadId: string | null
+  savePath?: string
+  files: PackPendingFile[]
+}
+
+export const getPackPendingFiles = (packId: number, downloadId?: string) => {
+  const q = downloadId ? `?download_id=${encodeURIComponent(downloadId)}` : ''
+  return apiFetch<PackPendingFilesResponse>(`/pack/${packId}/pending-files${q}`)
+}
+
+export interface PackReimportBody {
+  downloadId: string
+  filename: string
+  /** ID d'un magazine existant. Prioritaire sur createMagazine. */
+  magazineId?: number
+  /** Créer un magazine à la volée. root_folder + quality hérités du pack. */
+  createMagazine?: {
+    title: string
+    frequency?: string
+    publisher?: string
+    country?: string
+    language?: string
+    monitored?: boolean
+  }
+}
+
+export interface PackReimportResult {
+  success: boolean
+  magazine_id: number | null
+  result: {
+    filename: string
+    success?: boolean
+    message?: string
+    issue_id?: number | null
+  } | null
+}
+
+export const reimportPackFile = (packId: number, body: PackReimportBody) =>
+  apiFetch<PackReimportResult>(`/pack/${packId}/reimport`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
 // CRUD
 export const getPacks = () =>
   apiFetch<Pack[]>('/pack')

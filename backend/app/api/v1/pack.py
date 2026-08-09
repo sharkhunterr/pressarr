@@ -367,3 +367,161 @@ async def execute_dispatch(
         pass
 
     return {"results": results, "imported": imported, "total": len(results)}
+
+
+# ─── Reimport post-hoc (fichier skippé/échoué) ────────────────────────
+# Le user visualise ses fichiers via GET /history?packId=… (onglet
+# Fichiers). Pour chaque ligne en erreur, il peut relancer un import
+# avec :
+#   - un magazine EXISTANT (magazineId) → routing direct
+#   - un magazine à créer (createMagazine: {title, ...}) → magazine
+#     créé à la volée avec les root_folder + quality_profile du pack,
+#     puis fichier processé.
+# L'issue est créée automatiquement par process_downloaded_file si
+# elle n'existe pas déjà (parse_magazine_filename → issue_number/date).
+@router.post("/{pack_id}/reimport")
+async def reimport_pack_file(
+    pack_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Re-process un fichier d'un pack téléchargé sous un magazine
+    choisi (existant OU créé à la volée)."""
+    pack = await pack_service.get_pack(db, pack_id)
+    if pack is None:
+        raise HTTPException(404, "Pack not found")
+
+    download_id = body.get("downloadId", "")
+    filename = body.get("filename", "")
+    magazine_id = body.get("magazineId")
+    create_magazine_data = body.get("createMagazine")
+
+    if not filename:
+        raise HTTPException(400, "filename required")
+    if not magazine_id and not create_magazine_data:
+        raise HTTPException(400, "magazineId OR createMagazine required")
+
+    # Résout le fichier physique via le download_client.
+    from app.services import magazine_service
+    from app.services.download_service import _resolve_download_path
+
+    save_path = await _resolve_download_path(db, download_id)
+    if not save_path:
+        raise HTTPException(
+            404,
+            f"Download {download_id} unavailable — le torrent a peut-être "
+            f"été supprimé du client, ou le fichier n'existe plus sur disque.",
+        )
+
+    files = pack_service.collect_pack_files(save_path)
+    file_paths_by_name = {f.name: f for f in files}
+    if filename not in file_paths_by_name:
+        raise HTTPException(
+            404,
+            f"Fichier '{filename}' introuvable dans {save_path}. "
+            f"Il a peut-être déjà été importé ailleurs.",
+        )
+
+    # Crée le magazine si demandé, hérite root_folder/quality du pack.
+    if create_magazine_data and not magazine_id:
+        try:
+            create_data = {
+                **create_magazine_data,
+                "root_folder_id": pack.root_folder_id,
+                "quality_profile_id": pack.quality_profile_id,
+            }
+            new_mag = await magazine_service.create_magazine(db, create_data)
+            magazine_id = new_mag.id
+            await db.commit()
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+
+    # Dispatch simple : 1 assignment.
+    results = await pack_service.dispatch_files(
+        db,
+        [{"filename": filename, "magazine_id": magazine_id, "skip": False}],
+        file_paths_by_name,
+        config,
+    )
+    await db.commit()
+
+    from app.services.history_service import create_event
+
+    imported = sum(1 for r in results if r.get("success"))
+    await create_event(
+        db,
+        event_type="import" if imported else "unmatched",
+        pack_id=pack_id,
+        magazine_id=magazine_id,
+        details=f"Reimport manuel: {filename}",
+        data={
+            "pack_name": pack.name,
+            "reimport": True,
+            "results": results,
+        },
+    )
+    await db.commit()
+
+    try:
+        from app.api.v1.websocket import manager as ws_manager
+        await ws_manager.broadcast("library:updated", {})
+    except Exception:
+        pass
+
+    return {
+        "success": bool(imported),
+        "magazine_id": magazine_id,
+        "result": results[0] if results else None,
+    }
+
+
+# ─── Pending files (fichiers du pack encore sur disque) ────────────
+# Ré-scan le save_path du dernier download pour lister ce qui n'a pas
+# été importé (utile après un auto_import silencieux qui a skip la
+# majorité des fichiers < fuzzy threshold).
+@router.get("/{pack_id}/pending-files")
+async def list_pending_files(
+    pack_id: int,
+    download_id: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    """Liste les fichiers du pack encore présents sur disque (pas
+    importés). Utilisé par PackFilesTab pour proposer un reimport
+    ciblé.
+
+    Si `download_id` est omis, on cherche le dernier download connu
+    du pack via _grab_registry.
+    """
+    pack = await pack_service.get_pack(db, pack_id)
+    if pack is None:
+        raise HTTPException(404, "Pack not found")
+
+    from app.services.download_service import (
+        _grab_registry,
+        _resolve_download_path,
+        ensure_registry_loaded,
+    )
+
+    ensure_registry_loaded()
+    if not download_id:
+        # Prend le download_id le plus récent qui correspond à ce pack.
+        candidates = [
+            did for did, info in _grab_registry.items()
+            if info.pack_id == pack_id
+        ]
+        if not candidates:
+            return {"downloadId": None, "files": []}
+        download_id = candidates[-1]  # ordre insertion, dernier = plus récent
+
+    save_path = await _resolve_download_path(db, download_id)
+    if not save_path:
+        return {"downloadId": download_id, "files": []}
+
+    files = pack_service.collect_pack_files(save_path)
+    files_preview = await pack_service.preview_dispatch(db, pack_id, files, pack.rules)
+    return {
+        "downloadId": download_id,
+        "savePath": str(save_path),
+        "files": files_preview,
+    }
