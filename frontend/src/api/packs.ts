@@ -57,6 +57,9 @@ export interface PackDispatchFile {
 
 export interface PackDispatchPreview {
   packId: number
+  /** Populé uniquement par le broadcast WebSocket (rendre le nom du
+   *  pack dispo dans le toast/modal sans re-fetch). */
+  packName?: string
   downloadId: string
   torrentName: string
   files: PackDispatchFile[]

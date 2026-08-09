@@ -24,6 +24,7 @@ import Metadata from './pages/Settings/Metadata'
 import General from './pages/Settings/General'
 import System from './pages/Settings/System'
 import Notifications from './pages/Settings/Notifications'
+import { PackDispatchWatcher } from './components/PackDispatchWatcher'
 import {
   isApiKeyPromptVisible,
   onApiKeyPromptResult,
@@ -136,6 +137,10 @@ function App() {
           </Routes>
         </PageLayout>
         <ApiKeyPrompt />
+        {/* Écoute globalement le WS pack:dispatch_ready et ouvre le
+            modal de review dès qu'un pack termine son download (avec
+            auto_import=false). Sans ça le event partait dans le vide. */}
+        <PackDispatchWatcher />
         <Toaster
           theme="dark"
           position="bottom-right"

@@ -37,6 +37,7 @@ import {
   type SearchResult,
 } from '@/api/search'
 import { HistoryModal } from '@/components/HistoryModal'
+import { PackFilesTab } from '@/components/PackFilesTab'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -224,6 +225,7 @@ export default function PackDetail() {
           <TabsTrigger value="search">{t('packs.tabSearch')}</TabsTrigger>
           <TabsTrigger value="patterns">{t('packs.tabPatterns')}</TabsTrigger>
           <TabsTrigger value="rules">{t('packs.tabRules')}</TabsTrigger>
+          <TabsTrigger value="files">{t('packs.tabFiles', 'Fichiers')}</TabsTrigger>
           <TabsTrigger value="history">{t('packs.tabHistory')}</TabsTrigger>
         </TabsList>
 
@@ -241,6 +243,10 @@ export default function PackDetail() {
 
         <TabsContent value="rules">
           <RulesTab pack={pack} packId={packId} />
+        </TabsContent>
+
+        <TabsContent value="files">
+          <PackFilesTab packId={packId} />
         </TabsContent>
 
         <TabsContent value="history">

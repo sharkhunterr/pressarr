@@ -702,18 +702,31 @@ async def _process_pack_download(
         excluded = sum(1 for f in preview if f["excluded"])
         try:
             from app.api.v1.websocket import manager as ws_manager
+            # camelCase keys pour aligner sur le rest de l'API HTTP
+            # (CamelModel converti automatiquement, mais ici on écrit
+            # un dict brut) — le FE `PackDispatchPreview` attend camel.
+            # Sans conversion, le PackDispatchWatcher recevait les
+            # snake_case et Zod-alike sur types => plusieurs champs
+            # `undefined` dans le modal (packId, matchedFiles, etc.).
+            def _snake_to_camel(k: str) -> str:
+                parts = k.split("_")
+                return parts[0] + "".join(w.capitalize() for w in parts[1:])
+            def _rekey(d: dict) -> dict:
+                return {_snake_to_camel(k): v for k, v in d.items()}
             await ws_manager.broadcast(
                 "pack:dispatch_ready",
                 {
-                    "pack_id": pack_id,
-                    "pack_name": pack.name,
-                    "download_id": item.download_id,
-                    "torrent_name": item.name or "",
-                    "total_files": len(preview),
-                    "matched_files": matched,
-                    "excluded_files": excluded,
-                    "unmatched_files": len(preview) - matched - excluded,
-                    "files": preview,
+                    "packId": pack_id,
+                    "packName": pack.name,
+                    "downloadId": item.download_id,
+                    "torrentName": item.name or "",
+                    "totalFiles": len(preview),
+                    "matchedFiles": matched,
+                    "excludedFiles": excluded,
+                    "unmatchedFiles": len(preview) - matched - excluded,
+                    # Les files gardent leur shape original mais camelCase
+                    # pour matcher PackDispatchFile côté FE.
+                    "files": [_rekey(f) for f in preview],
                 },
             )
         except Exception:
