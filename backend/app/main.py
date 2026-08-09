@@ -130,7 +130,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def _migrate_add_columns(connection) -> None:
-    """Add new columns to existing tables (safe for SQLite)."""
+    """Add new columns to existing tables (safe for SQLite).
+
+    Mise à jour de la liste dès qu'un modèle SQLAlchemy ajoute une colonne
+    (ou bien on lit la migration Alembic pertinente et on la re-formule ici).
+    Les installs anciennes qui n'ont jamais fait tourner Alembic dépendent
+    entièrement de cette fonction pour être healed — sinon les SELECT
+    lèvent `no such column: magazine.<col>` et l'UI Library retourne
+    500 sur GET /api/v1/magazine (symptôme user : 0 magazines dans l'UI
+    mais /system/status.magazineCount > 0).
+    """
     import sqlalchemy as sa
     migrations = [
         ("download_client", "remote_path", "VARCHAR(500)"),
@@ -139,6 +148,19 @@ def _migrate_add_columns(connection) -> None:
         ("history", "pack_id", "INTEGER REFERENCES pack(id) ON DELETE SET NULL"),
         ("indexer_config", "indexer_overrides", "TEXT NOT NULL DEFAULT '{}'"),
         ("issue_file", "magazine_id", "INTEGER REFERENCES magazine(id) ON DELETE CASCADE"),
+        # d4e5f6a7b8c9_add_magazine_enrichment_fields.py
+        ("magazine", "language", "VARCHAR(2)"),
+        ("magazine", "wikidata_qid", "VARCHAR(32)"),
+        ("magazine", "zdb_id", "VARCHAR(32)"),
+        ("magazine", "wikipedia_url", "VARCHAR(500)"),
+        ("magazine", "categories", "VARCHAR(500)"),
+        ("magazine", "first_issued", "VARCHAR(10)"),
+        ("magazine", "ceased_at", "VARCHAR(10)"),
+        ("magazine", "enrichment_status", "VARCHAR(16) NOT NULL DEFAULT 'pending'"),
+        # f6a7b8c9d0e1_add_magazine_request_type.py
+        ("magazine", "request_type", "VARCHAR(16) NOT NULL DEFAULT 'subscription'"),
+        ("magazine", "target_issue_label", "VARCHAR(255)"),
+        ("magazine", "target_issue_date", "VARCHAR(10)"),
     ]
     for table, column, col_type in migrations:
         try:
