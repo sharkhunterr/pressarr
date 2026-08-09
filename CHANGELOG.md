@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.48](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.47...v0.1.48) (2026-08-09)
+
+
+### Features
+
+* **system:** version-check GitHub + folder browser sur Root Folders ([9ea3441](https://github.com/sharkhunterr/pressarr/-/commit/9ea3441152d0538783b598457726c3137192f65d))
+
+
+### Bug Fixes
+
+* **migrations:** heal-at-boot pour magazine.request_type + enrichment fields ([806c456](https://github.com/sharkhunterr/pressarr/-/commit/806c45603d1bf18bbd77ed3b8d6909daa5798f43))
+
 ### [0.1.47](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.46...v0.1.47) (2026-07-13)
 
 
