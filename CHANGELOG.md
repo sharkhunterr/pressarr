@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.50](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.49...v0.1.50) (2026-08-09)
+
+
+### Features
+
+* **packs:** review avant import + onglet Fichiers post-hoc ([6d7dd0b](https://github.com/sharkhunterr/pressarr/-/commit/6d7dd0bda0d191c17eed400325a34d83dc7760c9))
+
+
+### Bug Fixes
+
+* **download:** _select_client priorise is_default (tie-break sur priority) ([31564d4](https://github.com/sharkhunterr/pressarr/-/commit/31564d437ef4a432a77927d5bc3bb0dde6e7a701))
+
 ### [0.1.49](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.48...v0.1.49) (2026-08-09)
 
 
