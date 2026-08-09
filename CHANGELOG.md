@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.49](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.48...v0.1.49) (2026-08-09)
+
+
+### Bug Fixes
+
+* **rootfolders:** drop unused Input import (CI TS6133) ([6dbdbda](https://github.com/sharkhunterr/pressarr/-/commit/6dbdbda69dba04f11586fc62c67b67d69967ae75))
+
 ### [0.1.48](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.47...v0.1.48) (2026-08-09)
 
 
