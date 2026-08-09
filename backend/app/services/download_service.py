@@ -324,10 +324,21 @@ async def grab_pack_release(
 
 
 async def _select_client(db: AsyncSession, protocol: str) -> DownloadClient | None:
+    # Tri : d'abord `is_default` (True gagne), puis priority asc, puis id asc
+    # pour un fallback déterministe. Sans le tri sur `is_default`, deux
+    # clients à priority égale (cas typique après setup UI où le user coche
+    # « Default » sur le nouveau mais oublie de baisser la priority de
+    # l'ancien) tombent en ordre indéfini → le grab se retrouve routé au
+    # hasard. Ex. observé : Deluge (isDefault=false, priority=1) choisi
+    # à la place de qBittorrent (isDefault=true, priority=1) → timeout.
     result = await db.execute(
         select(DownloadClient).where(
             DownloadClient.protocol == protocol,
-        ).order_by(DownloadClient.priority.asc())
+        ).order_by(
+            DownloadClient.is_default.desc(),
+            DownloadClient.priority.asc(),
+            DownloadClient.id.asc(),
+        )
     )
     return result.scalars().first()
 
