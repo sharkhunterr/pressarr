@@ -315,6 +315,7 @@ def create_app() -> FastAPI:
     from app.api.v1.queue import router as queue_router
     from app.api.v1.root_folder import router as root_folder_router
     from app.api.v1.search import router as search_router
+    from app.api.v1.file import router as file_router
     from app.api.v1.filesystem import router as filesystem_router
     from app.api.v1.settings import router as settings_router
     from app.api.v1.system import router as system_router
@@ -339,6 +340,7 @@ def create_app() -> FastAPI:
     app.include_router(queue_router)
     app.include_router(settings_router)
     app.include_router(filesystem_router)
+    app.include_router(file_router)
 
     # Serve frontend static files (after all API routes)
     static_dir = os.path.join(os.path.dirname(__file__), "static")

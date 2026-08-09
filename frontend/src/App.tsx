@@ -15,6 +15,7 @@ import Logs from './pages/Logs'
 import Packs from './pages/Packs'
 import AddPack from './pages/AddPack'
 import PackDetail from './pages/PackDetail'
+import Files from './pages/Files'
 import QualityProfiles from './pages/Settings/QualityProfiles'
 import Indexers from './pages/Settings/Indexers'
 import DownloadClients from './pages/Settings/DownloadClients'
@@ -120,6 +121,7 @@ function App() {
             <Route path="/packs" element={<Packs />} />
             <Route path="/packs/add" element={<AddPack />} />
             <Route path="/pack/:id" element={<PackDetail />} />
+            <Route path="/files" element={<Files />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/queue" element={<Queue />} />
             <Route path="/history" element={<History />} />
