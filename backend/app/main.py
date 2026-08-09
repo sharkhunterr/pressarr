@@ -276,9 +276,10 @@ tags_metadata = [
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    from app.version import __version__
     app = FastAPI(
         title="Pressarr API",
-        version="0.1.0",
+        version=__version__,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
         openapi_url="/openapi.json",
@@ -314,6 +315,7 @@ def create_app() -> FastAPI:
     from app.api.v1.queue import router as queue_router
     from app.api.v1.root_folder import router as root_folder_router
     from app.api.v1.search import router as search_router
+    from app.api.v1.filesystem import router as filesystem_router
     from app.api.v1.settings import router as settings_router
     from app.api.v1.system import router as system_router
     from app.api.v1.websocket import router as ws_router
@@ -336,6 +338,7 @@ def create_app() -> FastAPI:
     app.include_router(calendar_router)
     app.include_router(queue_router)
     app.include_router(settings_router)
+    app.include_router(filesystem_router)
 
     # Serve frontend static files (after all API routes)
     static_dir = os.path.join(os.path.dirname(__file__), "static")

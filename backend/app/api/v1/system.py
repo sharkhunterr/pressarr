@@ -5,9 +5,11 @@ import time
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.version_check import check_latest_release
 from app.dependencies import get_config, get_db
 from app.models.issue import Issue
 from app.models.magazine import Magazine
@@ -16,6 +18,11 @@ from app.schemas.system import (
     HealthCheckResource,
     SystemStatusResource,
 )
+from app.version import __version__
+
+# Repo GitHub d'où on tire les releases (`owner/repo`). Overridable
+# via env `PRESSARR_GITHUB_REPO` si un fork veut cibler son propre repo.
+_DEFAULT_GITHUB_REPO = "jeremied/pressarr"
 
 router = APIRouter(prefix="/api/v1/system", tags=["System"])
 
@@ -65,7 +72,10 @@ async def get_status(db: AsyncSession = Depends(get_db)):
             pass
 
     return SystemStatusResource(
-        version=config.version if hasattr(config, "version") else "0.1.0",
+        # Source unique : app/version.py — évite le drift historique où
+        # `status.version` retournait "0.1.0" hard-codé alors que le
+        # container tournait déjà en 0.1.47.
+        version=__version__,
         start_time=datetime.fromtimestamp(_start_time, tz=UTC),
         uptime_seconds=time.time() - _start_time,
         magazine_count=mag_count,
@@ -115,3 +125,45 @@ async def get_logs(
         }
         for e in entries
     ]
+
+
+# ─── Version check (GitHub releases) ─────────────────────────────
+
+
+class VersionCheckResource(BaseModel):
+    current: str
+    latest: str | None
+    update_available: bool = Field(alias="updateAvailable")
+    release_url: str | None = Field(alias="releaseUrl")
+    published_at: str | None = Field(alias="publishedAt")
+    error: str | None
+    repo: str
+
+    model_config = {"populate_by_name": True}
+
+
+@router.get("/version-check", response_model=VersionCheckResource)
+async def version_check(force: bool = Query(default=False)) -> VersionCheckResource:
+    """Vérifie GitHub `releases/latest` et compare à la version courante.
+
+    Cache 1h côté serveur (in-process). Force via `?force=true` pour
+    court-circuiter le cache (bouton « Vérifier maintenant » côté UI).
+    Toute erreur reseau/github est capturée dans `error` — l'appel
+    n'échoue jamais côté HTTP.
+    """
+    import os
+    repo = os.environ.get("PRESSARR_GITHUB_REPO") or _DEFAULT_GITHUB_REPO
+    info = await check_latest_release(
+        current_version=__version__,
+        github_repo=repo,
+        force=force,
+    )
+    return VersionCheckResource(
+        current=info.current,
+        latest=info.latest,
+        update_available=info.update_available,
+        release_url=info.release_url,
+        published_at=info.published_at,
+        error=info.error,
+        repo=repo,
+    )

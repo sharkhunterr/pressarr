@@ -251,3 +251,38 @@ export const executeCommand = (name: string, body?: Record<string, unknown>) =>
     method: 'POST',
     body: JSON.stringify({ name, body }),
   })
+
+// ─── Version check (GitHub releases) ─────────────────────────
+export interface VersionCheck {
+  current: string
+  latest: string | null
+  updateAvailable: boolean
+  releaseUrl: string | null
+  publishedAt: string | null
+  error: string | null
+  repo: string
+}
+
+export const getVersionCheck = (force = false) =>
+  apiFetch<VersionCheck>(`/system/version-check${force ? '?force=true' : ''}`)
+
+// ─── Filesystem browser ───────────────────────────────────────
+export interface FsEntry {
+  name: string
+  path: string
+  isDir: boolean
+  isMount: boolean
+  childCount: number | null
+  isWritable: boolean
+}
+
+export interface FsListing {
+  path: string
+  parent: string | null
+  entries: FsEntry[]
+}
+
+export const browseFilesystem = (path = '/') =>
+  apiFetch<FsListing>(
+    `/system/filesystem?path=${encodeURIComponent(path)}`,
+  )

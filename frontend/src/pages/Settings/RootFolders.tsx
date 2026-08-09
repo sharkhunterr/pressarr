@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { PathPicker } from '@/components/PathPicker'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -185,11 +186,14 @@ export default function RootFolders() {
               <label className="text-sm font-medium text-zinc-300">
                 {t('rootFolders.path')}
               </label>
-              <Input
+              {/* PathPicker : navigation dossiers + saisie manuelle en
+                  fallback. Chaque dossier affiche son nombre d'items +
+                  badges mount/RO pour choisir en connaissance de cause. */}
+              <PathPicker
                 value={newPath}
-                onChange={(e) => setNewPath(e.target.value)}
+                onChange={setNewPath}
+                disabled={createMutation.isPending}
                 placeholder={t('rootFolders.pathPlaceholder')}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono"
               />
             </div>
           </div>

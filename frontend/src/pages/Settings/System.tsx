@@ -5,6 +5,7 @@ import { Activity, Database, HardDrive, Clock, Server } from 'lucide-react'
 import { getStatus, getHealth, getRootFolders } from '@/api/system'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SystemVersionCard } from '@/components/SystemVersionCard'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -95,6 +96,10 @@ export default function System() {
         </div>
       ) : (
         <div className="grid gap-6">
+          {/* Update checker (GitHub release vs installed) — placé en
+              premier pour être la première info scannée par l'oeil. */}
+          <SystemVersionCard />
+
           {/* Version & Uptime */}
           <Card className="bg-zinc-950 border-zinc-800">
             <CardHeader>
