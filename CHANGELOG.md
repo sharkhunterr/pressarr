@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.51](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.50...v0.1.51) (2026-08-09)
+
+
+### Features
+
+* **files:** File Manager global (/files) — list + filters + assign + delete ([467ad17](https://github.com/sharkhunterr/pressarr/-/commit/467ad177e7d24342dced3dd501e86ea206a53dbc))
+* **packs:** reimport post-hoc + fichiers en attente + dialog magazine ([aa89912](https://github.com/sharkhunterr/pressarr/-/commit/aa899124c9888881e155f0257facd4031b72dea0))
+
 ### [0.1.50](https://github.com/sharkhunterr/pressarr/-/compare/v0.1.49...v0.1.50) (2026-08-09)
 
 
