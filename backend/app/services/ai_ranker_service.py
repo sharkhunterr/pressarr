@@ -552,4 +552,40 @@ class AIRankerService:
             row.status = status
             row.model_used = model_used
             row.completed_at = datetime.utcnow()
+
+            # History event — best-effort, ne bloque pas si FK échoue.
+            try:
+                from app.services.history_service import create_event
+                await create_event(
+                    session,
+                    event_type="ai_ranker",
+                    magazine_id=row.magazine_id,
+                    details=(
+                        f"IA ranker · {status} · "
+                        f"ai_pick={ai_picked_index} conf={confidence} · "
+                        f"{len(batches)} batch(es) · {elapsed_ms}ms"
+                    ),
+                    data={
+                        "run_id": run_id,
+                        "status": status,
+                        "applied_mode": applied_mode,
+                        "model_used": model_used,
+                        "scorer_top_index": scorer_top_index,
+                        "ai_picked_index": ai_picked_index,
+                        "confidence": confidence,
+                        "reason": reason,
+                        "batches": batches,
+                        "final": final,
+                        "total_elapsed_ms": elapsed_ms,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "History event for ranker run %s failed: %s", run_id, exc
+                )
+                try:
+                    await session.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+
             await session.commit()

@@ -427,6 +427,71 @@ class AIEnrichmentService:
             row.status = status
             row.error_message = error_message
             row.completed_at = datetime.utcnow()
+
+            # History event so the run is visible in the timeline. Best-
+            # effort — a FK violation on magazine_id/issue_id must not
+            # break the run save.
+            try:
+                from app.services.history_service import create_event
+                # Summarise the run for the history UI : keep only the
+                # non-null fields from `final` + per-step statuses.
+                summary_fields = {
+                    k: v for k, v in (final or {}).items()
+                    if v is not None and v != "" and v != []
+                }
+                step_summary = [
+                    {
+                        "step": s.get("step"),
+                        "model": s.get("model"),
+                        "page": s.get("page"),
+                        "error": s.get("error"),
+                        "output": s.get("output"),
+                        "elapsed_ms": s.get("elapsed_ms"),
+                    }
+                    for s in (steps or [])
+                ]
+                await create_event(
+                    session,
+                    event_type="ai_enrichment",
+                    magazine_id=row.magazine_id,
+                    issue_id=row.issue_id,
+                    details=(
+                        f"IA enrichissement · {status} · "
+                        f"{len(step_summary)} étape(s) · {elapsed_ms}ms"
+                    ),
+                    data={
+                        "run_id": run_id,
+                        "trigger": row.trigger,
+                        "status": status,
+                        "applied_mode": applied_mode,
+                        "final": summary_fields,
+                        "steps": step_summary,
+                        "error_message": error_message,
+                        "total_elapsed_ms": elapsed_ms,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "History event for AI run %s failed: %s", run_id, exc
+                )
+                try:
+                    await session.rollback()
+                    # Retry the AI run save without the history event.
+                    row = (
+                        await session.execute(
+                            select(AIEnrichmentRun).where(AIEnrichmentRun.id == run_id)
+                        )
+                    ).scalars().first()
+                    if row:
+                        row.steps_json = json.dumps(steps, ensure_ascii=False)
+                        row.final_json = json.dumps(final, ensure_ascii=False)
+                        row.applied_mode = applied_mode
+                        row.total_elapsed_ms = elapsed_ms
+                        row.status = status
+                        row.error_message = error_message
+                        row.completed_at = datetime.utcnow()
+                except Exception:  # noqa: BLE001
+                    pass
             await session.commit()
 
     async def _finalize_skip(
