@@ -11,9 +11,15 @@ export default defineConfig({
     },
   },
   server: {
+    // Accessible sur le réseau local — les tests depuis mobile/autre
+    // machine passent par cette adresse au lieu de localhost.
+    host: '0.0.0.0',
     proxy: {
-      '/api': 'http://localhost:7273',
-      '/ws': { target: 'ws://localhost:7273', ws: true }
+      // Aligné sur le port par défaut du backend (`npm run dev:backend`
+      // utilise 8585 via ${BACKEND_PORT:-8585}). Override côté frontend
+      // avec la var d'env `VITE_API_PORT` si besoin.
+      '/api': `http://localhost:${process.env.VITE_API_PORT || 8585}`,
+      '/ws': { target: `ws://localhost:${process.env.VITE_API_PORT || 8585}`, ws: true }
     }
   }
 })

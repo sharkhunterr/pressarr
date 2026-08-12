@@ -93,8 +93,10 @@ export const saveAISettings = (data: Partial<AISettings>) =>
     body: JSON.stringify(data),
   })
 
-export const probeOllamaModels = () =>
-  apiFetch<OllamaModelsProbe>('/ai/ollama/models')
+export const probeOllamaModels = (url?: string) => {
+  const qs = url ? `?url=${encodeURIComponent(url)}` : ''
+  return apiFetch<OllamaModelsProbe>(`/ai/ollama/models${qs}`)
+}
 
 export const reanalyzeMagazine = (
   magazineId: number,

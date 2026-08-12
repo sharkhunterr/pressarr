@@ -154,9 +154,19 @@ class OllamaModelsResource(CamelModel):
 
 
 @router.get("/ollama/models", response_model=OllamaModelsResource)
-async def list_ollama_models(config=Depends(get_config)):
-    """Probe the configured Ollama server. Populates the UI dropdowns."""
-    adapter = OllamaAdapter(config.ai_ollama_url, timeout_s=10)
+async def list_ollama_models(
+    url: str | None = None,
+    config=Depends(get_config),
+):
+    """Probe an Ollama server. Populates UI dropdowns.
+
+    ``url`` : optional query param — pass the currently-edited URL
+    (before save) so the "Test" button in the settings UI probes the
+    field's live value instead of the persisted config. Falls back
+    to ``config.ai_ollama_url`` when not provided.
+    """
+    target = url or config.ai_ollama_url
+    adapter = OllamaAdapter(target, timeout_s=10)
     try:
         models = await adapter.list_models()
         return OllamaModelsResource(
