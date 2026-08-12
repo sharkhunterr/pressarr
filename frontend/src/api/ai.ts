@@ -116,6 +116,8 @@ export interface BatchRefreshItemResult {
   message: string | null
   runId: number | null
   final: Record<string, unknown> | null
+  elapsedMs: number
+  fromCache: boolean
 }
 
 export interface BatchRefreshResponse {
@@ -133,6 +135,7 @@ export const refreshBatch = (
     includeAiText?: boolean
     includeAiVision?: boolean
     applyResult?: boolean
+    force?: boolean
   },
 ) =>
   apiFetch<BatchRefreshResponse>(`/ai/refresh-batch/${magazineId}`, {
@@ -143,6 +146,7 @@ export const refreshBatch = (
       includeAiText: body.includeAiText ?? true,
       includeAiVision: body.includeAiVision ?? true,
       applyResult: body.applyResult ?? true,
+      force: body.force ?? true,
     }),
   })
 

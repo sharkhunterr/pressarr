@@ -216,6 +216,9 @@ class BatchRefreshRequest(CamelModel):
     include_ai_text: bool = True
     include_ai_vision: bool = True
     apply_result: bool = True
+    # Défaut True : le user a explicitement cliqué « Refresh IA »,
+    # il attend une vraie re-run, pas un cache hit silencieux.
+    force: bool = True
 
 
 class BatchRefreshItemResult(CamelModel):
@@ -224,6 +227,8 @@ class BatchRefreshItemResult(CamelModel):
     message: str | None = None
     run_id: int | None = None
     final: dict | None = None
+    elapsed_ms: int = 0
+    from_cache: bool = False
 
 
 class BatchRefreshResponse(CamelModel):
@@ -289,6 +294,8 @@ async def reanalyze_magazine(
         magazine_id=magazine_id,
         issue_id=issue_id,
         trigger="reanalyze",
+        # User a explicitement cliqué le bouton — pas de cache silencieux.
+        force=True,
     )
 
     # Optionally apply to the issue directly (bypass propose mode).
@@ -414,6 +421,7 @@ async def refresh_batch(
                         magazine_id=magazine_id,
                         issue_id=issue.id,
                         trigger="reanalyze",
+                        force=body.force,
                     )
                     # Apply the result to the issue if requested and
                     # something was extracted.
@@ -433,6 +441,8 @@ async def refresh_batch(
                         status="success",
                         run_id=res.run_id,
                         final=res.final,
+                        elapsed_ms=res.total_elapsed_ms,
+                        from_cache=(res.applied_mode == "cache_hit"),
                     ))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(

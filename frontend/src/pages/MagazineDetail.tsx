@@ -729,7 +729,7 @@ export default function MagazineDetail() {
     // Le user sait qu'Ollama peut prendre 30-60s (surtout la vision) —
     // toast persistant tant que la promise n'est pas résolue.
     setReanalyzingAI(true)
-    const tid = toast.loading('Analyse IA en cours (peut prendre 30-60s)…')
+    const tid = toast.loading('Analyse IA en cours (1-3 min avec vision)…')
     try {
       const { reanalyzeMagazine } = await import('@/api/ai')
       const res = await reanalyzeMagazine(magazineId, { applyResult: true })
@@ -739,9 +739,11 @@ export default function MagazineDetail() {
         .filter(([, v]) => v !== null && v !== undefined && v !== '')
         .map(([k, v]) => `${k}=${v}`)
         .join(', ')
+      const isCache = res.appliedMode === 'cache_hit'
+      const prefix = isCache ? '⚡ Cache hit (~0s)' : `✓ IA terminée en ${(res.totalElapsedMs / 1000).toFixed(1)}s`
       toast.success(
-        `IA terminée en ${(res.totalElapsedMs / 1000).toFixed(1)}s — ${fields || 'aucun champ extrait'}`,
-        { id: tid },
+        `${prefix} — ${fields || 'aucun champ extrait'}`,
+        { id: tid, duration: 8000 },
       )
     } catch (e) {
       toast.error(`IA échouée : ${(e as Error).message}`, { id: tid })

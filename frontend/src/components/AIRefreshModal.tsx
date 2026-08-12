@@ -43,6 +43,7 @@ export function AIRefreshModal({
   const [includeAiText, setIncludeAiText] = useState(true)
   const [includeAiVision, setIncludeAiVision] = useState(true)
   const [applyResult, setApplyResult] = useState(true)
+  const [force, setForce] = useState(true)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   // Only offer issues that have a file — text-only enrichment CAN
@@ -78,13 +79,19 @@ export function AIRefreshModal({
         includeAiText,
         includeAiVision,
         applyResult,
+        force,
       }),
     onSuccess: (res) => {
-      const ok = res.results.filter((r) => r.status === 'success').length
+      const ok = res.results.filter((r) => r.status === 'success')
+      const cache = ok.filter((r) => r.fromCache).length
+      const real = ok.length - cache
       const skip = res.results.filter((r) => r.status === 'skipped').length
       const err = res.results.filter((r) => r.status === 'error').length
+      const totalMs = ok.reduce((a, r) => a + (r.elapsedMs || 0), 0)
+      const avgS = ok.length ? (totalMs / ok.length / 1000).toFixed(1) : '0'
       toast.success(
-        `${ok} succès · ${skip} sauté(es) · ${err} erreur(s) sur ${res.total} issue(s)`,
+        `${real} run(s) réelle(s) · ${cache} cache · ${skip} sauté · ${err} erreur — moy ${avgS}s / issue`,
+        { duration: 8000 },
       )
       onDone?.()
       onClose()
@@ -133,9 +140,9 @@ export function AIRefreshModal({
             />
           </div>
 
-          {/* --- Autorité ---------------------------------------- */}
-          <div>
-            <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+          {/* --- Autorité + cache -------------------------------- */}
+          <div className="space-y-2">
+            <div className="text-xs uppercase tracking-wide text-zinc-500">
               Autorité
             </div>
             <SourceRow
@@ -143,6 +150,12 @@ export function AIRefreshModal({
               hint="Sinon : dry-run — les runs sont archivés mais rien n'est écrit sur les issues"
               checked={applyResult}
               onChange={setApplyResult}
+            />
+            <SourceRow
+              label="Forcer une nouvelle analyse (bypass cache)"
+              hint="Sinon : si un run identique existe, le résultat est réutilisé (~0s au lieu de 3min)"
+              checked={force}
+              onChange={setForce}
             />
           </div>
 

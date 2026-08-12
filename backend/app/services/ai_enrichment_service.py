@@ -134,6 +134,7 @@ class AIEnrichmentService:
         issue_id: int | None,
         trigger: str,
         progress_cb: ProgressCb | None = None,
+        force: bool = False,
     ) -> EnrichmentResult:
         """Run the full pipeline. Never raises — degrades to fallback.
 
@@ -154,16 +155,20 @@ class AIEnrichmentService:
         steps: list[dict[str, Any]] = []
 
         # --- 0. Cache check --------------------------------------
-        cached = await self._lookup_cache(magazine_id, pdfhash)
-        if cached is not None:
-            cb("cache", "hit — utilisation du dernier résultat validé")
-            return EnrichmentResult(
-                final=cached["final"],
-                applied_mode=cached["applied_mode"],
-                run_id=cached["id"],
-                steps=cached["steps"],
-                total_elapsed_ms=cached["total_elapsed_ms"],
-            )
+        # `force=True` bypasse le cache — utilisé quand l'user relance
+        # explicitement (bouton « Refresh IA… »). Sinon on retourne
+        # le dernier run success identique instantanément.
+        if not force:
+            cached = await self._lookup_cache(magazine_id, pdfhash)
+            if cached is not None:
+                cb("cache", "hit — utilisation du dernier résultat validé")
+                return EnrichmentResult(
+                    final=cached["final"],
+                    applied_mode="cache_hit",
+                    run_id=cached["id"],
+                    steps=cached["steps"],
+                    total_elapsed_ms=cached["total_elapsed_ms"],
+                )
 
         # --- Create the run row up-front so the UI can poll ------
         run_id = await self._create_run_row(
