@@ -233,23 +233,34 @@ async def search_issue(
 
     all_results.sort(key=lambda r: r.score, reverse=True)
 
+    # Best-effort history — jamais bloquant pour le return.
     indexer_names = list({r.indexer for r in all_results})
-    await create_event(
-        db,
-        event_type="searched",
-        magazine_id=magazine.id,
-        issue_id=issue.id,
-        details=f"Manual search: {query} ({len(all_results)} results)",
-        data={
-            "search_type": "manual",
-            "query": query,
-            "result_count": len(all_results),
-            "magazine_title": magazine.title,
-            "issue_number": issue.number,
-            "indexers": indexer_names,
-            "top_results": _serialize_top_results(all_results),
-        },
-    )
+    try:
+        await create_event(
+            db,
+            event_type="searched",
+            magazine_id=magazine.id,
+            issue_id=issue.id,
+            details=f"Manual search: {query} ({len(all_results)} results)",
+            data={
+                "search_type": "manual",
+                "query": query,
+                "result_count": len(all_results),
+                "magazine_title": magazine.title,
+                "issue_number": issue.number,
+                "indexers": indexer_names,
+                "top_results": _serialize_top_results(all_results),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "History event insert failed (results still returned): %s",
+            exc,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     return all_results
 
@@ -305,20 +316,36 @@ async def search_free(
         except Exception:
             logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
 
+    # History event best-effort : un FK violation (magazine_id ne
+    # référence rien) ou tout autre INSERT error ne doit PAS jeter
+    # les 400+ résultats qu'on vient de récupérer de Prowlarr.
     indexer_names = list({r.indexer for r in all_results})
-    await create_event(
-        db,
-        event_type="searched",
-        magazine_id=magazine_id,
-        details=f"Free search: '{query}' ({len(all_results)} results)",
-        data={
-            "search_type": "free",
-            "query": query,
-            "result_count": len(all_results),
-            "indexers": indexer_names,
-            "top_results": _serialize_top_results(all_results),
-        },
-    )
+    try:
+        await create_event(
+            db,
+            event_type="searched",
+            magazine_id=magazine_id,
+            details=f"Free search: '{query}' ({len(all_results)} results)",
+            data={
+                "search_type": "free",
+                "query": query,
+                "result_count": len(all_results),
+                "indexers": indexer_names,
+                "top_results": _serialize_top_results(all_results),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "History event insert failed (results still returned): %s",
+            exc,
+        )
+        # Rollback the failed insert so subsequent queries reuse the
+        # session cleanly (SQLAlchemy leaves the txn in "aborted"
+        # state otherwise → next query on this session errors out).
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     return all_results
 
