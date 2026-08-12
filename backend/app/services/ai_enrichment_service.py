@@ -62,6 +62,174 @@ class EnrichmentResult:
     total_elapsed_ms: int = 0
 
 
+def _arbitrate(
+    torrent: dict[str, Any],
+    vision_outputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Merge torrent (primary) + vision outputs (fill nulls only).
+
+    Rule set — strict, deterministic, no LLM :
+      - Chaque champ du torrent non-null gagne, PÉRIODE. On ne remplace
+        jamais une valeur torrent par une valeur vision (évite les
+        hallucinations vision de venir polluer un torrent bien parsé).
+      - Si `title` est null côté torrent → prend le title vision.
+        Normalisation légère : `L'ÉQUIPE` (all caps vision) → `L'Équipe`
+        (title case) pour matcher les magazines en DB.
+      - Si `issue_number` est null → prend celui de la première vision
+        output qui en fournit un.
+      - Date : si year/month/day sont tous non-null côté torrent, on
+        garde tout. Sinon on parse `date_text` vision (best-effort,
+        formats français courants) et on remplit UNIQUEMENT les
+        champs manquants.
+      - `is_hs` : garde la valeur torrent (bool, jamais null).
+      - `series_number` : garde la valeur torrent.
+      - `confidence` : moyenne pondérée (torrent 0.7, vision 0.3)
+        basée sur le ratio de champs non-null.
+    """
+    out: dict[str, Any] = {
+        "title": torrent.get("title"),
+        "issue_number": torrent.get("issue_number"),
+        "year": torrent.get("year"),
+        "month": torrent.get("month"),
+        "day": torrent.get("day"),
+        "is_hs": bool(torrent.get("is_hs")),
+        "series_number": torrent.get("series_number"),
+    }
+
+    # Cherche la première vision output utile pour chaque champ.
+    for entry in vision_outputs:
+        vd = entry.get("data") if isinstance(entry, dict) else {}
+        if not isinstance(vd, dict):
+            continue
+        if out["title"] is None and vd.get("title"):
+            out["title"] = _normalise_title(str(vd["title"]))
+        if out["issue_number"] is None:
+            iv = vd.get("issue_number")
+            if isinstance(iv, int):
+                out["issue_number"] = iv
+            elif isinstance(iv, str):
+                # Extract les chiffres — la vision renvoie parfois
+                # « N° 26290 » ou « 26 290 » avec espace.
+                digits = "".join(ch for ch in iv if ch.isdigit())
+                if digits:
+                    try:
+                        out["issue_number"] = int(digits)
+                    except ValueError:
+                        pass
+        # Date : uniquement si torrent n'a pas TOUT.
+        if not all(out.get(k) is not None for k in ("year", "month", "day")):
+            date_text = vd.get("date_text")
+            if isinstance(date_text, str):
+                y, m, d = _parse_french_date(date_text)
+                if y and out.get("year") is None:
+                    out["year"] = y
+                if m and out.get("month") is None:
+                    out["month"] = m
+                if d and out.get("day") is None:
+                    out["day"] = d
+
+    # Confidence : ratio de champs non-null pondéré.
+    core_fields = ["title", "issue_number", "year", "month", "day"]
+    non_null = sum(1 for f in core_fields if out.get(f) is not None)
+    out["confidence"] = round(non_null / len(core_fields), 2)
+    return out
+
+
+_MONTHS_FR = {
+    "janvier": 1, "jan": 1,
+    "février": 2, "fevrier": 2, "fev": 2, "févr": 2,
+    "mars": 3, "mar": 3,
+    "avril": 4, "avr": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7, "juil": 7,
+    "août": 8, "aout": 8,
+    "septembre": 9, "sept": 9, "sep": 9,
+    "octobre": 10, "oct": 10,
+    "novembre": 11, "nov": 11,
+    "décembre": 12, "decembre": 12, "dec": 12, "déc": 12,
+}
+
+
+def _parse_french_date(text: str) -> tuple[int | None, int | None, int | None]:
+    """Best-effort parse d'une date FR — accepte plusieurs formats :
+
+    - « lundi 10 août 2026 »  → (2026, 8, 10)
+    - « 15 janvier 2025 »     → (2025, 1, 15)
+    - « Mars 2024 »           → (2024, 3, None)
+    - « 2016-04-23 »          → (2016, 4, 23)
+    - « 2016-4-23 »           → (2016, 4, 23)
+    - « 12/08/2026 »          → (2026, 8, 12)
+
+    Renvoie (year, month, day) avec des None quand introuvable.
+    Jamais raise — sortie tuple(None, None, None) en cas d'échec.
+    """
+    if not text:
+        return None, None, None
+    import re
+    txt = text.lower().strip()
+
+    # ISO-like : YYYY-M-D
+    m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", txt)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return y, mo, d
+
+    # DD/MM/YYYY
+    m = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", txt)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return y, mo, d
+
+    # « [DD] MONTHNAME YYYY »
+    year_m = re.search(r"\b(19\d{2}|20\d{2})\b", txt)
+    year = int(year_m.group(1)) if year_m else None
+    month = None
+    for name, num in _MONTHS_FR.items():
+        if name in txt:
+            month = num
+            break
+    day_m = re.search(r"\b(\d{1,2})\b", txt)
+    day = int(day_m.group(1)) if day_m and 1 <= int(day_m.group(1)) <= 31 else None
+
+    # Guard : si le jour "match" est en fait l'année tronquée, ignore.
+    if day and year and day == year % 100:
+        day = None
+    return year, month, day
+
+
+def _normalise_title(raw: str) -> str:
+    """Normalise a vision-extracted title.
+
+    Vision LLMs souvent renvoient en MAJUSCULES (`L'ÉQUIPE`). Le
+    matcher fuzzy est case-insensitive donc pas critique, mais pour
+    l'affichage on préfère `L'Équipe` façon éditeur.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return stripped
+    # Si TOUT en majuscules → title case avec conservation apostrophes/accents
+    if stripped == stripped.upper():
+        # `L'ÉQUIPE` → `L'Équipe` : capitalize chaque « mot » séparé par
+        # apostrophes ou espaces.
+        parts = []
+        buf = ""
+        for ch in stripped:
+            if ch in " '-":
+                if buf:
+                    parts.append(buf[0] + buf[1:].lower())
+                    buf = ""
+                parts.append(ch)
+            else:
+                buf += ch
+        if buf:
+            parts.append(buf[0] + buf[1:].lower())
+        return "".join(parts)
+    return stripped
+
+
 def pdf_hash(pdf_path: Path | None) -> str:
     """SHA-256 of the PDF binary, or empty string when no file.
 
@@ -255,23 +423,27 @@ class AIEnrichmentService:
             cb("switch", f"Rechargement modèle arbitre {cfg.ai_text_model}…")
             await self._ollama.unload_model(cfg.ai_vision_model)
 
-        # --- 5. Arbiter ------------------------------------------
-        # Only call the arbiter when we have vision data to reconcile.
-        # Text-only runs use the text output directly.
+        # --- 5. Arbitre : merge Python déterministe ---------------
+        # Historique : on faisait un 3e appel LLM pour merger torrent
+        # + vision. Le LLM (mistral:7b) ignorait sa propre règle
+        # « torrent primaire » et gardait des valeurs vision fausses
+        # (ex. year=2016 hallucinée par la vision au lieu de year=2026
+        # du torrent). Coût : +45s pour un résultat MOINS fiable.
+        # Fix : arbitrage en code. Règle stricte : torrent > vision.
+        # Vision ne remplit QUE les champs null du torrent. La date
+        # vision text (« lundi 10 août 2026 ») est parsée en year/
+        # month/day uniquement si tous les 3 sont null côté torrent.
         if vision_outputs:
-            cb("arbiter", f"Arbitrage avec {cfg.ai_text_model}")
-            arb_prompt = (
-                f"{cfg.ai_arbiter_prompt}\n\n---\n"
-                f"Torrent : {json.dumps(text_result or {}, ensure_ascii=False)}\n"
-                f"Vision : {json.dumps(vision_outputs, ensure_ascii=False)}"
-            )
-            arb_output, arb_step = await self._call_json(
-                model=cfg.ai_text_model,
-                prompt=arb_prompt,
-                step_name="arbiter",
-            )
-            steps.append(arb_step)
-            final = arb_output or text_result or {}
+            cb("arbiter", "Fusion déterministe (Python)")
+            arb_start = time.monotonic()
+            final = _arbitrate(text_result or {}, vision_outputs)
+            steps.append({
+                "step": "arbiter",
+                "model": "deterministic-python",
+                "output": final,
+                "error": None,
+                "elapsed_ms": int((time.monotonic() - arb_start) * 1000),
+            })
         else:
             final = text_result or {}
 
