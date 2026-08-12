@@ -17,6 +17,14 @@ export interface QueueEntry {
   eta: number | null
   added: string | null
   errorMessage: string | null
+  /** Optional live message for post-download activities
+   *  (« IA · OCR couverture — page 1/3 »). Non-null only for
+   *  the pressarr internal import tracker items. */
+  statusMessage: string | null
+  /** Ordered list of steps traversed by an import activity.
+   *  Each entry has {step, label, hint?, at}. Non-null only for
+   *  the internal import tracker items. */
+  steps: Array<{ step: string; label: string; hint?: string | null; at: string }> | null
 }
 
 export const getQueue = () =>

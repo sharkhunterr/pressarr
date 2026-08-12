@@ -292,6 +292,23 @@ async def process_downloaded_file(
         )
         return {"success": False, "issue_id": None, "message": "Unsupported file format"}
 
+    # Activity tracking (queue visibility) — un item par import qui
+    # accumule les steps AI + parse + copy + cover. Auto-cleanup 30 s
+    # après complete.
+    from app.services.import_activity_tracker import tracker as _act
+    activity_id = f"import:{file_path.name}:{int(_time.time() * 1000)}" if False else file_path.name
+    # Utilise le nom fichier comme id — évite les doublons pour le même
+    # download re-triggé, et cohérent avec le download_id logique.
+    import time as _time
+    activity_id = f"{file_path.name}"
+    _act.register(
+        activity_id=activity_id,
+        file_name=file_path.name,
+        magazine_id=magazine_id,
+        issue_id=issue_id,
+    )
+    _act.push_step(activity_id, "parse")
+
     # 1. Parse filename
     parsed = parse_magazine_filename(file_path.name)
 
@@ -314,12 +331,35 @@ async def process_downloaded_file(
                 else "grab_auto"
             )
             enrich_svc = AIEnrichmentService(config, async_session_factory)
+
+            # Progress callback : mapping stage → step_id du tracker.
+            # `stage` vient de AIEnrichmentService.enrich() : "text",
+            # "vision", "switch", "arbiter", "cache", "skip", "done".
+            def _ai_progress(stage: str, detail: str) -> None:
+                _stage_map = {
+                    "text": "ai_text",
+                    "vision": "ai_vision",
+                    "switch": (
+                        "ai_switch_vision" if "vision" in detail.lower()
+                        else "ai_switch_text"
+                    ),
+                    "arbiter": "ai_arbiter",
+                    "skip": "ai_skipped",
+                    "cache": "ai_skipped",  # cache-hit ≈ skip for UI purpose
+                }
+                _act.push_step(
+                    activity_id,
+                    _stage_map.get(stage, f"ai_{stage}"),
+                    hint=detail,
+                )
+
             enrich_result = await enrich_svc.enrich(
                 torrent_name=file_path.name,
                 pdf_path=file_path,
                 magazine_id=magazine_id,
                 issue_id=issue_id,
                 trigger=trigger,
+                progress_cb=_ai_progress,
             )
             parsed = merge_ai_into_parsed(
                 parsed, enrich_result.final, config.ai_enrichment_mode
@@ -392,6 +432,7 @@ async def process_downloaded_file(
                 logger.warning("Could not parse title from %s", file_path.name)
                 return {"success": False, "issue_id": None, "message": "Unparseable filename"}
 
+            _act.push_step(activity_id, "match")
             mag_result = await db.execute(select(Magazine))
             magazines = mag_result.scalars().all()
             known_titles = [m.title for m in magazines]
@@ -544,6 +585,7 @@ async def process_downloaded_file(
     root_folder = rf_result.scalars().first()
     library_path = Path(root_folder.path) if root_folder else Path("/magazines")
 
+    _act.push_step(activity_id, "copy")
     # 6. Apply naming template and move file
     # Prefer issue DB values over parsed filename values (the download
     # filename often lacks the issue number that forecasts already know)
@@ -635,6 +677,7 @@ async def process_downloaded_file(
     issue.status = "available"
     await db.flush()
 
+    _act.push_step(activity_id, "cover")
     # 10. Extract cover
     covers_dir = Path(getattr(config, "config_path", "/config")).parent / "covers"
     cover = await extract_cover(dest, covers_dir)
@@ -646,6 +689,7 @@ async def process_downloaded_file(
             logger.info("Set magazine cover from imported issue: %s", cover)
         await db.flush()
 
+    _act.push_step(activity_id, "notify")
     # 11. Create history event
     event_type = "upgrade" if existing_file else "import"
     await create_event(
@@ -688,6 +732,7 @@ async def process_downloaded_file(
     except Exception:
         logger.debug("Forecast reconciliation skipped", exc_info=True)
 
+    _act.mark_done(activity_id, hint=dest.name)
     return {"success": True, "issue_id": issue.id, "message": f"Imported to {dest}"}
 
 

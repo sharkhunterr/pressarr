@@ -38,9 +38,15 @@ export function QueueItem({
 }: QueueItemProps) {
   const { t } = useTranslation()
 
-  const progress = entry.size > 0
-    ? Math.round(((entry.size - entry.sizeLeft) / entry.size) * 100)
-    : 0
+  // Post-download import activities (protocol === 'import') don't
+  // have a byte-based size — use the progress field directly from the
+  // backend which counts completed steps.
+  const isImportActivity = entry.protocol === 'import'
+  const progress = isImportActivity
+    ? Math.round(entry.progress ?? 0)
+    : entry.size > 0
+      ? Math.round(((entry.size - entry.sizeLeft) / entry.size) * 100)
+      : 0
 
   return (
     <div className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950 px-4 py-3">
@@ -63,6 +69,11 @@ export function QueueItem({
           )}
         </div>
         <p className="text-xs text-zinc-500 truncate mt-0.5">{entry.title}</p>
+        {entry.statusMessage && (
+          <p className="text-xs text-violet-300 truncate mt-0.5">
+            {entry.statusMessage}
+          </p>
+        )}
         {entry.status === 'failed' && entry.errorMessage && (
           <p className="text-xs text-red-400 truncate mt-0.5">{entry.errorMessage}</p>
         )}
@@ -78,15 +89,24 @@ export function QueueItem({
           <span className="text-xs text-zinc-400 w-8 text-right">{progress}%</span>
         </div>
 
-        {/* Stats */}
+        {/* Stats — bytes hidden for import activities (no meaningful
+            size), replaced by step count. */}
         <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
-          <span>{formatBytes(entry.size - entry.sizeLeft)} / {formatBytes(entry.size)}</span>
-          <span className="text-zinc-700">|</span>
-          <span>{formatSpeed(entry.speed)}</span>
-          {entry.eta && (
+          {isImportActivity ? (
+            <span>
+              {entry.steps?.length ?? 0} étape(s) — depuis {entry.added ? new Date(entry.added).toLocaleTimeString('fr-FR') : '?'}
+            </span>
+          ) : (
             <>
+              <span>{formatBytes(entry.size - entry.sizeLeft)} / {formatBytes(entry.size)}</span>
               <span className="text-zinc-700">|</span>
-              <span>{t('queue.eta')}: {entry.eta}</span>
+              <span>{formatSpeed(entry.speed)}</span>
+              {entry.eta && (
+                <>
+                  <span className="text-zinc-700">|</span>
+                  <span>{t('queue.eta')}: {entry.eta}</span>
+                </>
+              )}
             </>
           )}
         </div>

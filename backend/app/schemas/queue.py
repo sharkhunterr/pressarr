@@ -25,6 +25,10 @@ class QueueItemResource(CamelModel):
     eta: int | None = None  # seconds
     added: datetime | None = None
     error_message: str | None = None
+    # Optional live message for post-download activities (« IA · OCR
+    # couverture — page 1/3 »). None pour les items download client.
+    status_message: str | None = None
+    steps: list[dict] | None = None
 
 
 class QueueBulkDeleteRequest(CamelModel):

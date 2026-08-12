@@ -100,6 +100,49 @@ async def _get_queue_items(db: AsyncSession) -> list[QueueItemResource]:
                 if issue.magazine:
                     resource.magazine_title = issue.magazine.title
 
+    # 3. Post-download import activities (AI + parse + copy + cover).
+    # Injectés en tête pour rester visibles pendant les 30 s post-import.
+    from app.services.import_activity_tracker import tracker as _act_tracker
+    _act_tracker.cleanup()
+    for act in _act_tracker.get_all():
+        item_id += 1
+        # Progression synthétique : compte les steps franchies /
+        # total attendu (~7 steps typiquement). Pas exact mais donne
+        # à l'UI une barre visuelle qui avance.
+        progress = min(100.0, len(act.steps) * (100 / 7))
+        if act.status == "success":
+            progress = 100.0
+            status = "completed"
+        elif act.status == "failed":
+            status = "failed"
+        else:
+            status = "importing"
+        # Message affiché sous le titre — combine step + hint.
+        msg = act.current_label
+        if act.hint:
+            msg = f"{act.current_label} — {act.hint}"
+        items.append(QueueItemResource(
+            id=item_id,
+            title=act.file_name,
+            status=status,
+            protocol="import",
+            download_client="pressarr (import)",
+            download_client_id=None,
+            download_id=act.activity_id,
+            size=0,
+            size_left=0,
+            progress=round(progress, 1),
+            speed=0,
+            eta=0,
+            magazine_id=act.magazine_id,
+            magazine_title=act.magazine_title,
+            issue_id=act.issue_id,
+            added=act.started_at,
+            error_message=act.error_message,
+            status_message=msg,
+            steps=act.steps,
+        ))
+
     # 2. Direct downloads (Internet Archive, Anna's Archive)
     for tracked in dd_tracker.get_all():
         s = tracked.status
