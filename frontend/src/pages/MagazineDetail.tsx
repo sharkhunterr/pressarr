@@ -76,6 +76,7 @@ import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { FileManagerModal } from '@/components/FileManagerModal'
+import { AIRefreshModal } from '@/components/AIRefreshModal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -199,6 +200,7 @@ export default function MagazineDetail() {
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingIssueId, setRefreshingIssueId] = useState<number | null>(null)
   const [reanalyzingAI, setReanalyzingAI] = useState(false)
+  const [aiRefreshOpen, setAiRefreshOpen] = useState(false)
   const [importingIssueId, setImportingIssueId] = useState<number | null>(null)
 
   // Viewer state
@@ -1044,10 +1046,19 @@ export default function MagazineDetail() {
                   size="sm"
                   onClick={handleReanalyzeAI}
                   disabled={reanalyzingAI}
-                  title="Ré-analyse les métadonnées via l'IA (Ollama)"
+                  title="Ré-analyse les métadonnées de la dernière issue via l'IA"
                 >
                   <Sparkles className={`size-3.5 ${reanalyzingAI ? 'animate-spin' : ''}`} />
                   Ré-analyser IA
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAiRefreshOpen(true)}
+                  title="Refresh multi-issues : métadonnées classiques + IA texte + IA vision"
+                >
+                  <Sparkles className="size-3.5 text-purple-400" />
+                  Refresh IA…
                 </Button>
                 <Button
                   variant="outline"
@@ -2536,6 +2547,19 @@ export default function MagazineDetail() {
         magazineId={magazineId}
         issues={issues}
         magazineTitle={magazine?.title ?? ''}
+      />
+
+      {/* Refresh IA batch modal */}
+      <AIRefreshModal
+        open={aiRefreshOpen}
+        onClose={() => setAiRefreshOpen(false)}
+        magazineId={magazineId}
+        magazineTitle={magazine?.title ?? ''}
+        issues={issues}
+        onDone={() => {
+          queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+          queryClient.invalidateQueries({ queryKey: ['issues', magazineId] })
+        }}
       />
 
     </div>

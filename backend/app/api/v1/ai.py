@@ -196,6 +196,43 @@ class ReanalyzeResponse(CamelModel):
     total_elapsed_ms: int
 
 
+class BatchRefreshRequest(CamelModel):
+    """Selector for the "refresh with AI" bulk operation.
+
+    Empty ``issue_ids`` → all issues of the magazine that have a file.
+    ``sources`` chooses which enrichment layers run per issue. Order
+    of execution :
+      1. `metadata` : classic providers refresh (Google Books,
+         Internet Archive, Anna's Archive — same as the existing
+         magazine refresh button)
+      2. `ai_text`  : text LLM on the original torrent name
+      3. `ai_vision`: vision LLM on the configured cover pages
+    Each toggle is independent — the user can pick, say, only AI
+    vision to re-OCR a bunch of covers without re-hitting TMDB.
+    """
+
+    issue_ids: list[int] = []
+    include_metadata: bool = True
+    include_ai_text: bool = True
+    include_ai_vision: bool = True
+    apply_result: bool = True
+
+
+class BatchRefreshItemResult(CamelModel):
+    issue_id: int
+    status: str  # "success" | "skipped" | "error"
+    message: str | None = None
+    run_id: int | None = None
+    final: dict | None = None
+
+
+class BatchRefreshResponse(CamelModel):
+    magazine_id: int
+    total: int
+    processed: int
+    results: list[BatchRefreshItemResult]
+
+
 @router.post("/reanalyze/{magazine_id}", response_model=ReanalyzeResponse)
 async def reanalyze_magazine(
     magazine_id: int,
@@ -284,6 +321,147 @@ async def reanalyze_magazine(
         final=result.final,
         steps=result.steps,
         total_elapsed_ms=result.total_elapsed_ms,
+    )
+
+
+@router.post(
+    "/refresh-batch/{magazine_id}",
+    response_model=BatchRefreshResponse,
+)
+async def refresh_batch(
+    magazine_id: int,
+    body: BatchRefreshRequest,
+    session: AsyncSession = Depends(get_session),
+    config=Depends(get_config),
+):
+    """Bulk refresh: classic metadata + AI text + AI vision, per issue.
+
+    Sequential : chaque issue est traitée l'une après l'autre pour
+    (a) respecter le switch model Ollama et (b) éviter de sursouscrire
+    la GPU/CPU. Un burst de 20 issues avec vision peut prendre 20 min
+    en CPU — le tracker Queue montre l'avancement.
+    """
+    mag = (
+        await session.execute(select(Magazine).where(Magazine.id == magazine_id))
+    ).scalars().first()
+    if not mag:
+        raise HTTPException(404, f"Magazine {magazine_id} not found")
+
+    # Resolve target issues : explicit list wins, else all with a file.
+    issues_q = select(Issue).where(Issue.magazine_id == magazine_id)
+    if body.issue_ids:
+        issues_q = issues_q.where(Issue.id.in_(body.issue_ids))
+    issues = (await session.execute(issues_q)).scalars().all()
+
+    # Preload each issue's file (may be None → issue has no downloaded PDF)
+    file_map: dict[int, IssueFile] = {}
+    if issues:
+        files = (
+            await session.execute(
+                select(IssueFile).where(
+                    IssueFile.issue_id.in_([i.id for i in issues])
+                )
+            )
+        ).scalars().all()
+        file_map = {f.issue_id: f for f in files}
+
+    from app.database import async_session_factory
+
+    results: list[BatchRefreshItemResult] = []
+    processed = 0
+
+    # 1. Classic metadata refresh — one call per magazine, not per
+    # issue. If the user asked for it, run once BEFORE the AI loop
+    # so downstream fields (TMDB collections, ratings) benefit the
+    # arbitration.
+    if body.include_metadata:
+        try:
+            from app.services.magazine_service import refresh_metadata
+
+            await refresh_metadata(session, magazine_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Classic metadata refresh failed: %s", exc)
+
+    # 2. Per-issue AI enrichment loop.
+    if body.include_ai_text or body.include_ai_vision:
+        # Toggle vision off in the runtime config for this batch when
+        # the user unchecked it — the service reads
+        # `ai_enrichment_vision_pages`; empty list disables vision.
+        original_pages = config.ai_enrichment_vision_pages
+        if not body.include_ai_vision:
+            config.ai_enrichment_vision_pages = []
+
+        try:
+            svc = AIEnrichmentService(config, async_session_factory)
+            for issue in issues:
+                f = file_map.get(issue.id)
+                if not f or not Path(f.path).exists():
+                    results.append(BatchRefreshItemResult(
+                        issue_id=issue.id,
+                        status="skipped",
+                        message="issue file missing on disk",
+                    ))
+                    continue
+                # AI text only mode = torrent name = the file name.
+                # AI vision needs the PDF path — only pass it when
+                # `include_ai_vision` is True.
+                pdf = Path(f.path) if body.include_ai_vision else None
+                torrent_name = f.original_filename or Path(f.path).name
+                try:
+                    res = await svc.enrich(
+                        torrent_name=torrent_name,
+                        pdf_path=pdf,
+                        magazine_id=magazine_id,
+                        issue_id=issue.id,
+                        trigger="reanalyze",
+                    )
+                    # Apply the result to the issue if requested and
+                    # something was extracted.
+                    if body.apply_result and res.final:
+                        for k_ai, k_iss in (
+                            ("issue_number", "number"),
+                            ("year", "year"),
+                            ("month", "month"),
+                            ("day", "day"),
+                        ):
+                            v = res.final.get(k_ai)
+                            if v is not None:
+                                setattr(issue, k_iss, v)
+                    processed += 1
+                    results.append(BatchRefreshItemResult(
+                        issue_id=issue.id,
+                        status="success",
+                        run_id=res.run_id,
+                        final=res.final,
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Batch enrich failed for issue %s: %s", issue.id, exc
+                    )
+                    results.append(BatchRefreshItemResult(
+                        issue_id=issue.id,
+                        status="error",
+                        message=str(exc),
+                    ))
+            await session.commit()
+        finally:
+            config.ai_enrichment_vision_pages = original_pages
+    else:
+        # metadata-only batch : count as processed to give the UI a
+        # meaningful summary.
+        for issue in issues:
+            results.append(BatchRefreshItemResult(
+                issue_id=issue.id,
+                status="success",
+                message="metadata refresh only (no AI)",
+            ))
+            processed += 1
+
+    return BatchRefreshResponse(
+        magazine_id=magazine_id,
+        total=len(issues),
+        processed=processed,
+        results=results,
     )
 
 

@@ -110,6 +110,42 @@ export const reanalyzeMagazine = (
     }),
   })
 
+export interface BatchRefreshItemResult {
+  issueId: number
+  status: 'success' | 'skipped' | 'error'
+  message: string | null
+  runId: number | null
+  final: Record<string, unknown> | null
+}
+
+export interface BatchRefreshResponse {
+  magazineId: number
+  total: number
+  processed: number
+  results: BatchRefreshItemResult[]
+}
+
+export const refreshBatch = (
+  magazineId: number,
+  body: {
+    issueIds?: number[]
+    includeMetadata?: boolean
+    includeAiText?: boolean
+    includeAiVision?: boolean
+    applyResult?: boolean
+  },
+) =>
+  apiFetch<BatchRefreshResponse>(`/ai/refresh-batch/${magazineId}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      issueIds: body.issueIds ?? [],
+      includeMetadata: body.includeMetadata ?? true,
+      includeAiText: body.includeAiText ?? true,
+      includeAiVision: body.includeAiVision ?? true,
+      applyResult: body.applyResult ?? true,
+    }),
+  })
+
 export const listEnrichmentRuns = (params?: {
   magazineId?: number
   limit?: number
