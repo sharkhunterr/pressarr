@@ -246,17 +246,15 @@ def pdf_hash(pdf_path: Path | None) -> str:
     return h.hexdigest()
 
 
-def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 350) -> bytes:
+def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 200) -> bytes:
     """Render a single PDF page to PNG bytes.
 
     ``page_index_1based`` : 1 = first page ; negative counts from the
-    end (-1 = last). ``dpi`` : 350 (« print quality ») — au-delà le
-    gain sur l'extraction OCR devient marginal alors que la taille de
-    l'image explose. À ce DPI un chiffre imprimé en 6pt fait ~24px
-    de haut, largement au-dessus du seuil de reconnaissance des
-    vision LLMs modernes. Coût : image PNG ~5× plus grosse qu'à 150
-    (upload base64 + inference sensiblement plus lents), acceptable
-    vu qu'on veut extraire des petits nombres type « N° 26 290 ».
+    end (-1 = last). ``dpi`` : 200 — compromis entre lisibilité OCR
+    et VRAM. À 350 le KV cache de qwen2.5vl:7b explosait (cudaMalloc
+    failed : 18 Go alloués sur 8 Go dispo). 200 DPI donne encore un
+    chiffre 6pt à ~17px de haut, largement au-dessus du seuil
+    vision moderne. Coût vs 150 : image ~1.8× plus grosse.
     Raises IndexError when the page doesn't exist.
     """
     import fitz  # PyMuPDF
@@ -502,12 +500,13 @@ class AIEnrichmentService:
         }
         if extra_step_fields:
             step.update(extra_step_fields)
-        # Vision calls (with images) need a much larger context : une
-        # image encodée à 350 DPI consomme facilement 3000-8000 tokens
-        # vision et le prompt+system peut ajouter 500-1000 tokens. Le
-        # défaut Ollama 4096 sature → HTTP 400 exceed_context_size_error.
-        # 16384 laisse assez de marge pour toutes les tailles typiques.
-        num_ctx = 16384 if images_b64 else None
+        # Vision calls (with images) : context ≥ 4096 sature vite car
+        # une image PDF encodée base64 mange 2000-4000 tokens vision.
+        # Compromis 8192 : assez pour une image 200 DPI + prompt + JSON
+        # sortie, sans faire exploser le KV cache VRAM (qwen2.5vl:7b
+        # + 16384 ctx demandait 18 Go, trop pour une 8 Go). Pour un
+        # modèle plus léger ou une VRAM plus grosse, remonter à 16384.
+        num_ctx = 8192 if images_b64 else None
         try:
             out = await self._ollama.generate_json(
                 model=model,
