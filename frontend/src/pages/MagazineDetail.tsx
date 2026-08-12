@@ -1117,6 +1117,25 @@ export default function MagazineDetail() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={handleReanalyzeAI}
+                disabled={reanalyzingAI}
+                title="Ré-analyse IA de la dernière issue"
+              >
+                <Sparkles className={`size-3.5 ${reanalyzingAI ? 'animate-spin' : ''}`} />
+                Ré-analyser IA
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAiRefreshOpen(true)}
+                title="Refresh multi-issues avec métadonnées + IA"
+              >
+                <Sparkles className="size-3.5 text-purple-400" />
+                Refresh IA…
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setDeleteFiles(false)
                   setDeleteOpen(true)
