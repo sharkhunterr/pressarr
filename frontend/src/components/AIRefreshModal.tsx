@@ -82,16 +82,14 @@ export function AIRefreshModal({
         force,
       }),
     onSuccess: (res) => {
-      const ok = res.results.filter((r) => r.status === 'success')
-      const cache = ok.filter((r) => r.fromCache).length
-      const real = ok.length - cache
-      const skip = res.results.filter((r) => r.status === 'skipped').length
-      const err = res.results.filter((r) => r.status === 'error').length
-      const totalMs = ok.reduce((a, r) => a + (r.elapsedMs || 0), 0)
-      const avgS = ok.length ? (totalMs / ok.length / 1000).toFixed(1) : '0'
+      const skipped = res.skippedNoFile?.length ?? 0
+      const bits = [
+        `${res.queued} issue(s) en file`,
+        skipped > 0 ? `${skipped} sautée(s) (pas de PDF)` : null,
+      ].filter(Boolean).join(' · ')
       toast.success(
-        `${real} run(s) réelle(s) · ${cache} cache · ${skip} sauté · ${err} erreur — moy ${avgS}s / issue`,
-        { duration: 8000 },
+        `IA lancée : ${bits}. Suis l'avancement dans la Queue.`,
+        { duration: 10000 },
       )
       onDone?.()
       onClose()

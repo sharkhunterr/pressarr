@@ -110,21 +110,12 @@ export const reanalyzeMagazine = (
     }),
   })
 
-export interface BatchRefreshItemResult {
-  issueId: number
-  status: 'success' | 'skipped' | 'error'
-  message: string | null
-  runId: number | null
-  final: Record<string, unknown> | null
-  elapsedMs: number
-  fromCache: boolean
-}
-
 export interface BatchRefreshResponse {
   magazineId: number
   total: number
-  processed: number
-  results: BatchRefreshItemResult[]
+  queued: number
+  background: boolean
+  skippedNoFile: number[]
 }
 
 export const refreshBatch = (
