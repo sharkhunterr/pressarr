@@ -24,6 +24,7 @@ import {
   Check,
   FolderOpen,
   Ban,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -197,6 +198,7 @@ export default function MagazineDetail() {
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingIssueId, setRefreshingIssueId] = useState<number | null>(null)
+  const [reanalyzingAI, setReanalyzingAI] = useState(false)
   const [importingIssueId, setImportingIssueId] = useState<number | null>(null)
 
   // Viewer state
@@ -720,6 +722,32 @@ export default function MagazineDetail() {
     }
   }
 
+  async function handleReanalyzeAI() {
+    // IA re-run : ne bloque pas l'UI, retourne un run_id + final.
+    // Le user sait qu'Ollama peut prendre 30-60s (surtout la vision) —
+    // toast persistant tant que la promise n'est pas résolue.
+    setReanalyzingAI(true)
+    const tid = toast.loading('Analyse IA en cours (peut prendre 30-60s)…')
+    try {
+      const { reanalyzeMagazine } = await import('@/api/ai')
+      const res = await reanalyzeMagazine(magazineId, { applyResult: true })
+      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
+      queryClient.invalidateQueries({ queryKey: ['issues', magazineId] })
+      const fields = Object.entries(res.final)
+        .filter(([, v]) => v !== null && v !== undefined && v !== '')
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ')
+      toast.success(
+        `IA terminée en ${(res.totalElapsedMs / 1000).toFixed(1)}s — ${fields || 'aucun champ extrait'}`,
+        { id: tid },
+      )
+    } catch (e) {
+      toast.error(`IA échouée : ${(e as Error).message}`, { id: tid })
+    } finally {
+      setReanalyzingAI(false)
+    }
+  }
+
   async function handleRefreshIssue(issueId: number) {
     setRefreshingIssueId(issueId)
     try {
@@ -1010,6 +1038,16 @@ export default function MagazineDetail() {
                 >
                   <Clock className="size-3.5" />
                   {t('history.title')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReanalyzeAI}
+                  disabled={reanalyzingAI}
+                  title="Ré-analyse les métadonnées via l'IA (Ollama)"
+                >
+                  <Sparkles className={`size-3.5 ${reanalyzingAI ? 'animate-spin' : ''}`} />
+                  Ré-analyser IA
                 </Button>
                 <Button
                   variant="outline"

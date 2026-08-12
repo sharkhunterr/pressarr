@@ -24,6 +24,7 @@ import {
   ScrollText,
   Package,
   Files,
+  Sparkles,
 } from 'lucide-react'
 
 const MAIN_NAV = [
@@ -47,6 +48,7 @@ const SETTINGS_NAV = [
   { path: '/settings/root-folders', labelKey: 'nav.settingsRootFolders', icon: FolderOpen },
   { path: '/settings/naming', labelKey: 'nav.settingsNaming', icon: FileText },
   { path: '/settings/metadata', labelKey: 'nav.settingsMetadata', icon: Database },
+  { path: '/settings/ai', labelKey: 'nav.settingsAI', icon: Sparkles },
   { path: '/settings/system', labelKey: 'nav.settingsSystem', icon: Monitor },
 ]
 

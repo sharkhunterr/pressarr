@@ -20,6 +20,7 @@
     "settingsNaming": "Naming",
     "settingsMetadata": "Metadata",
     "settingsSceneIndexers": "Magazine indexers",
+    "settingsAI": "AI (Ollama)",
     "settingsSystem": "System"
   },
   "common": {

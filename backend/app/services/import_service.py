@@ -295,6 +295,66 @@ async def process_downloaded_file(
     # 1. Parse filename
     parsed = parse_magazine_filename(file_path.name)
 
+    # 1b. AI enrichment (if enabled) — refines `parsed` fields based
+    # on torrent name + PDF cover. Runs BEFORE rename/import so the
+    # naming template + issue matching use the enriched values.
+    # Never blocks : any failure logs a warning and keeps `parsed`
+    # untouched, so the regex parser stays as ultimate fallback.
+    if getattr(config, "ai_enrichment_enabled", False):
+        try:
+            from app.database import async_session_factory
+            from app.services.ai_enrichment_service import (
+                AIEnrichmentService,
+                merge_ai_into_parsed,
+            )
+
+            trigger = (
+                "import_manual"
+                if magazine_id is not None or issue_id is not None
+                else "grab_auto"
+            )
+            enrich_svc = AIEnrichmentService(config, async_session_factory)
+            enrich_result = await enrich_svc.enrich(
+                torrent_name=file_path.name,
+                pdf_path=file_path,
+                magazine_id=magazine_id,
+                issue_id=issue_id,
+                trigger=trigger,
+            )
+            parsed = merge_ai_into_parsed(
+                parsed, enrich_result.final, config.ai_enrichment_mode
+            )
+            logger.info(
+                "AI enrichment run=%s mode=%s applied: %s",
+                enrich_result.run_id,
+                enrich_result.applied_mode,
+                enrich_result.final,
+            )
+            # `propose` mode stores propositions in DB but doesn't
+            # touch `parsed` — the operator validates via UI later.
+            if (
+                config.ai_enrichment_mode == "propose"
+                and enrich_result.final
+                and enrich_result.applied_mode == "propose"
+            ):
+                from app.models.ai_run import AIEnrichmentProposal
+
+                proposal = AIEnrichmentProposal(
+                    magazine_id=magazine_id,
+                    issue_id=issue_id,
+                    run_id=enrich_result.run_id,
+                    proposed_json=str(enrich_result.final),
+                    status="pending",
+                )
+                db.add(proposal)
+                await db.flush()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "AI enrichment failed (non-fatal, falling back to parser): %s",
+                exc,
+                exc_info=True,
+            )
+
     # Fast path: when issue_id is known (from grab registry), load directly
     # and skip fuzzy title matching + issue number/date matching entirely
     if issue_id:

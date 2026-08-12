@@ -103,6 +103,101 @@ class Config:
         # Download path for IA direct downloads
         self.download_path: str = "/tmp/pressarr_downloads"
 
+        # --- AI (Ollama) ---
+        # Local LLM enrichment of metadata + search ranking. Disabled
+        # by default — enable in Settings → IA. All models must exist
+        # on the Ollama server (pressarr does NOT pull models on its
+        # own; the operator is responsible for `ollama pull <name>`
+        # before enabling). Missing model → the pipeline logs a warning
+        # and falls back gracefully (regex parser for enrichment, native
+        # scorer for ranker) without failing the parent job.
+        self.ai_ollama_url: str = "http://localhost:11434"
+        self.ai_ollama_timeout_s: int = 300
+
+        # Metadata enrichment (torrent name → text LLM + PDF cover →
+        # vision LLM + arbiter that merges the two).
+        self.ai_enrichment_enabled: bool = False
+        # 3 modes : "remplace" (overwrite), "complete" (fill nulls only),
+        # "propose" (store as proposals for user validation, don't touch
+        # the imported metadata directly).
+        self.ai_enrichment_mode: str = "remplace"
+        # Pages passed to vision — negatives count from the end.
+        # Example: [1] = cover only ; [1, -1] = cover + back cover.
+        self.ai_enrichment_vision_pages: list[int] = [1]
+        self.ai_text_model: str = "mistral:7b"
+        self.ai_vision_model: str = "minicpm-v:8b"
+        # Prompts — operator-editable. Kept short + explicit JSON
+        # contract so small models don't drift.
+        self.ai_text_prompt: str = (
+            "Analyse ce nom de fichier torrent d'un magazine et "
+            "extrais UNIQUEMENT les informations claires et précises. "
+            "Si un élément est ambigu ou absent, mets `null`.\n\n"
+            "Réponds avec un objet JSON strict :\n"
+            "{\"title\": str|null, \"issue_number\": int|null, "
+            "\"year\": int|null, \"month\": int|null, \"day\": int|null, "
+            "\"is_hs\": bool, \"series_number\": int|null}\n\n"
+            "`is_hs` = true si c'est un hors-série (mots clés : HS, "
+            "Hors-Série, Spécial, Numéro spécial). `series_number` = "
+            "numéro de la série si HS numéroté."
+        )
+        self.ai_vision_prompt: str = (
+            "Regarde la couverture de ce magazine. Extrais UNIQUEMENT "
+            "le titre principal (en très gros), le numéro d'issue, et "
+            "la date de publication si elle est visible. Ignore les "
+            "titres d'articles.\n\n"
+            "Réponds avec un objet JSON strict :\n"
+            "{\"title\": str|null, \"issue_number\": int|null, "
+            "\"date_text\": str|null}\n\n"
+            "`date_text` = date brute telle que vue sur la couverture "
+            "(ex. \"Mars 2024\", \"15 Janvier 2025\")."
+        )
+        self.ai_arbiter_prompt: str = (
+            "Tu reçois deux extractions de métadonnées pour le même "
+            "magazine : l'une venant du nom du fichier torrent (source "
+            "PRIMAIRE), l'autre de l'OCR vision de la couverture "
+            "(source SECONDAIRE, sert à compléter les trous).\n\n"
+            "Règles :\n"
+            "- Si `torrent` a une valeur non-null, garde-la.\n"
+            "- Sinon utilise la valeur de `vision`.\n"
+            "- Pour la date : convertis toute expression texte en "
+            "year/month/day numériques.\n"
+            "- Ne remplis JAMAIS une valeur `null` par une invention.\n\n"
+            "Réponds avec un objet JSON strict :\n"
+            "{\"title\": str|null, \"issue_number\": int|null, "
+            "\"year\": int|null, \"month\": int|null, \"day\": int|null, "
+            "\"is_hs\": bool, \"series_number\": int|null, "
+            "\"confidence\": float}\n\n"
+            "`confidence` entre 0 et 1 = ton estimation globale de la "
+            "fiabilité du résultat."
+        )
+
+        # Search ranker (compare N releases et donne un avis).
+        self.ai_ranker_enabled: bool = False
+        # 3 modes : "ai_wins" (IA tranche), "ai_veto_only" (IA peut
+        # refuser le top scorer mais ne modifie pas l'ordre), "ai_advisory"
+        # (log seulement, ne change rien — mode observation par défaut).
+        self.ai_ranker_mode: str = "ai_advisory"
+        self.ai_ranker_batch_size: int = 5
+        self.ai_ranker_top_k: int = 15  # candidats du scorer envoyés à l'IA
+        self.ai_ranker_confidence_threshold: float = 0.6
+        self.ai_ranker_prompt: str = (
+            "Tu reçois une liste de releases candidates pour un "
+            "magazine. Ton job : choisir la MEILLEURE correspondance ou "
+            "refuser TOUS les candidats s'ils sont manifestement hors-"
+            "sujet.\n\n"
+            "Critères de choix (par ordre décroissant) :\n"
+            "1. Le titre du magazine et le numéro d'issue correspondent\n"
+            "2. La date de publication colle avec le numéro attendu\n"
+            "3. Pas de mention parasite (best-of, compilation, etc.) "
+            "sauf demande explicite\n\n"
+            "Réponds avec un objet JSON strict :\n"
+            "{\"picked_index\": int|null, \"confidence\": float, "
+            "\"reason\": str}\n\n"
+            "`picked_index` = 0-based index du candidat choisi, ou "
+            "`null` si tu refuses toute la liste. `confidence` entre 0 "
+            "et 1. `reason` = phrase courte expliquant ton choix."
+        )
+
         self._load_yaml()
         self._apply_env_overrides()
 
@@ -174,6 +269,30 @@ class Config:
 
         self.import_mode = data.get("import_mode", self.import_mode)
         self.download_path = data.get("download_path", self.download_path)
+
+        ai = data.get("ai", {})
+        self.ai_ollama_url = ai.get("ollama_url", self.ai_ollama_url)
+        self.ai_ollama_timeout_s = ai.get("ollama_timeout_s", self.ai_ollama_timeout_s)
+        enr = ai.get("enrichment", {})
+        self.ai_enrichment_enabled = enr.get("enabled", self.ai_enrichment_enabled)
+        self.ai_enrichment_mode = enr.get("mode", self.ai_enrichment_mode)
+        self.ai_enrichment_vision_pages = enr.get(
+            "vision_pages", self.ai_enrichment_vision_pages
+        )
+        self.ai_text_model = enr.get("text_model", self.ai_text_model)
+        self.ai_vision_model = enr.get("vision_model", self.ai_vision_model)
+        self.ai_text_prompt = enr.get("text_prompt", self.ai_text_prompt)
+        self.ai_vision_prompt = enr.get("vision_prompt", self.ai_vision_prompt)
+        self.ai_arbiter_prompt = enr.get("arbiter_prompt", self.ai_arbiter_prompt)
+        rnk = ai.get("ranker", {})
+        self.ai_ranker_enabled = rnk.get("enabled", self.ai_ranker_enabled)
+        self.ai_ranker_mode = rnk.get("mode", self.ai_ranker_mode)
+        self.ai_ranker_batch_size = rnk.get("batch_size", self.ai_ranker_batch_size)
+        self.ai_ranker_top_k = rnk.get("top_k", self.ai_ranker_top_k)
+        self.ai_ranker_confidence_threshold = rnk.get(
+            "confidence_threshold", self.ai_ranker_confidence_threshold
+        )
+        self.ai_ranker_prompt = rnk.get("prompt", self.ai_ranker_prompt)
 
         scheduler = data.get("scheduler", {})
         self.rss_sync_interval = scheduler.get(
@@ -268,6 +387,28 @@ class Config:
                 "history_purge_interval": self.history_purge_interval,
                 "forecast_refresh_interval": self.forecast_refresh_interval,
                 "history_retention_days": self.history_retention_days,
+            },
+            "ai": {
+                "ollama_url": self.ai_ollama_url,
+                "ollama_timeout_s": self.ai_ollama_timeout_s,
+                "enrichment": {
+                    "enabled": self.ai_enrichment_enabled,
+                    "mode": self.ai_enrichment_mode,
+                    "vision_pages": self.ai_enrichment_vision_pages,
+                    "text_model": self.ai_text_model,
+                    "vision_model": self.ai_vision_model,
+                    "text_prompt": self.ai_text_prompt,
+                    "vision_prompt": self.ai_vision_prompt,
+                    "arbiter_prompt": self.ai_arbiter_prompt,
+                },
+                "ranker": {
+                    "enabled": self.ai_ranker_enabled,
+                    "mode": self.ai_ranker_mode,
+                    "batch_size": self.ai_ranker_batch_size,
+                    "top_k": self.ai_ranker_top_k,
+                    "confidence_threshold": self.ai_ranker_confidence_threshold,
+                    "prompt": self.ai_ranker_prompt,
+                },
             },
         }
         with open(self.config_path, "w") as f:

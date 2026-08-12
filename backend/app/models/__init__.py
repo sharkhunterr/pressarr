@@ -1,5 +1,6 @@
 """SQLAlchemy ORM models."""
 
+from app.models.ai_run import AIEnrichmentProposal, AIEnrichmentRun, AIRankerRun
 from app.models.blocklist import Blocklist
 from app.models.download_client import DownloadClient
 from app.models.history import History
@@ -26,4 +27,5 @@ __all__ = [
     "RootFolder", "IndexerConfig", "MetadataCache",
     "Pack", "PackPattern", "PackRule",
     "MagazinePattern", "MagazineRule", "MagazineRelease",
+    "AIEnrichmentRun", "AIRankerRun", "AIEnrichmentProposal",
 ]

@@ -23,6 +23,7 @@ import RootFolders from './pages/Settings/RootFolders'
 import NamingTemplate from './pages/Settings/NamingTemplate'
 import Metadata from './pages/Settings/Metadata'
 import General from './pages/Settings/General'
+import AISettings from './pages/Settings/AI'
 import System from './pages/Settings/System'
 import Notifications from './pages/Settings/Notifications'
 import { PackDispatchWatcher } from './components/PackDispatchWatcher'
@@ -135,6 +136,7 @@ function App() {
             <Route path="/settings/naming" element={<NamingTemplate />} />
             <Route path="/settings/root-folders" element={<RootFolders />} />
             <Route path="/settings/metadata" element={<Metadata />} />
+            <Route path="/settings/ai" element={<AISettings />} />
             <Route path="/settings/system" element={<System />} />
           </Routes>
         </PageLayout>

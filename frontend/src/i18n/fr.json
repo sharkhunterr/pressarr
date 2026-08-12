@@ -20,6 +20,7 @@
     "settingsNaming": "Nommage",
     "settingsMetadata": "Métadonnées",
     "settingsSceneIndexers": "Indexers magazines",
+    "settingsAI": "IA (Ollama)",
     "settingsSystem": "Système"
   },
   "common": {

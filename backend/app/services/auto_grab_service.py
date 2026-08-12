@@ -212,6 +212,17 @@ async def _process_magazine(
             key=lambda r: r.discovered_at or datetime.min, reverse=True
         )
         picks = [candidates[0]]
+        # --- AI ranker (optional) : re-consulte les candidats avant
+        # le pick final. Le scorer natif reste maître par défaut
+        # (mode ai_advisory) — l'IA log son avis mais ne change rien
+        # tant que l'user n'a pas basculé en ai_wins / ai_veto_only.
+        if getattr(config, "ai_ranker_enabled", False) and len(candidates) > 1:
+            picks = await _apply_ai_ranker(
+                candidates=candidates,
+                magazine=magazine,
+                config=config,
+                default_pick=picks[0],
+            )
     else:
         # Subscription: take everything after the watch-date.
         picks = [
@@ -295,3 +306,70 @@ def hoster_count_for(release: MagazineRelease) -> int:
         return len(json.loads(release.hoster_links or "[]"))
     except Exception:
         return 0
+
+
+async def _apply_ai_ranker(
+    candidates: list[MagazineRelease],
+    magazine,
+    config,
+    default_pick: MagazineRelease,
+) -> list[MagazineRelease]:
+    """Consult the AI ranker over the candidate list.
+
+    Returns a picks list (0 or 1 items). Empty list means the AI
+    vetoed the top candidate in ``ai_veto_only`` mode — the caller
+    then skips the grab entirely, which is the whole point of the
+    veto mode.
+
+    Any failure inside the ranker (Ollama down, timeout, parse error)
+    is caught here and we return ``[default_pick]`` unchanged — the
+    ranker is optional and must never block the grab flow.
+    """
+    try:
+        from app.database import async_session_factory
+        from app.services.ai_ranker_service import (
+            AIRankerService,
+            RankerCandidate,
+        )
+
+        rc = [
+            RankerCandidate(
+                id=str(r.id),
+                title=r.title or "",
+                publish_date=(
+                    r.discovered_at.isoformat() if r.discovered_at else None
+                ),
+            )
+            for r in candidates
+        ]
+        svc = AIRankerService(config, async_session_factory)
+        result = await svc.rank(
+            candidates=rc,
+            magazine_id=magazine.id,
+            pattern_id=None,  # magazine-level ranker, not pattern
+            magazine_title_hint=magazine.title,
+            issue_hint=magazine.target_issue_label,
+        )
+        logger.info(
+            "AI ranker run=%s mode=%s scorer_top=%s ai_pick=%s "
+            "conf=%s vetoed=%s reason=%s",
+            result.run_id, result.applied_mode,
+            result.scorer_top_index, result.final_pick_index,
+            result.confidence, result.vetoed_top, result.reason,
+        )
+        if result.vetoed_top:
+            logger.info(
+                "AI ranker vetoed top pick for magazine id=%s — skip grab",
+                magazine.id,
+            )
+            return []
+        if result.final_pick_index is None:
+            return [default_pick]
+        return [candidates[result.final_pick_index]]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "AI ranker failed (non-fatal, keeping default pick): %s",
+            exc,
+            exc_info=True,
+        )
+        return [default_pick]
