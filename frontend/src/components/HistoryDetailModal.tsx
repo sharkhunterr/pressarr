@@ -423,20 +423,296 @@ function renderEventDetails(
         </div>
       )
 
+    case 'ai_enrichment':
+      return <AIEnrichmentDetail data={data} />
+
+    case 'ai_ranker':
+      return <AIRankerDetail data={data} />
+
     default:
-      // Generic: show all data keys
+      // Generic: show all data keys ; for nested dicts/arrays, dump
+      // as pretty JSON so the user at least SEES the payload instead
+      // of « [object Object] ».
       return (
         <div className="space-y-0">
           {Object.entries(data).map(([key, value]) => (
             <DetailRow
               key={key}
               label={key.replace(/_/g, ' ')}
-              value={value != null ? String(value) : null}
+              value={
+                value == null
+                  ? null
+                  : typeof value === 'object'
+                    ? JSON.stringify(value, null, 2)
+                    : String(value)
+              }
             />
           ))}
         </div>
       )
   }
+}
+
+// ---------------------------------------------------------------------------
+// AI-specific detail renderers — les events ai_enrichment / ai_ranker portent
+// des payloads riches (steps, models, timings) qui méritent un rendu dédié.
+// ---------------------------------------------------------------------------
+
+interface AIStep {
+  step: string
+  model?: string
+  page?: number | string | null
+  output?: Record<string, unknown> | null
+  error?: string | null
+  elapsed_ms?: number
+}
+
+function fmtMs(ms?: number | null): string {
+  if (ms == null) return '?'
+  if (ms < 1000) return `${ms} ms`
+  return `${(ms / 1000).toFixed(1)} s`
+}
+
+function StatusPill({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    success: 'bg-emerald-950 text-emerald-300 border-emerald-800',
+    skipped: 'bg-amber-950 text-amber-300 border-amber-800',
+    failed: 'bg-rose-950 text-rose-300 border-rose-800',
+    running: 'bg-blue-950 text-blue-300 border-blue-800',
+  }
+  const cls = colors[status] ?? 'bg-zinc-900 text-zinc-300 border-zinc-700'
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded border ${cls}`}>
+      {status}
+    </span>
+  )
+}
+
+function KV({
+  label,
+  children,
+}: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 py-1">
+      <span className="text-zinc-500 text-xs uppercase tracking-wide min-w-[110px] shrink-0">
+        {label}
+      </span>
+      <span className="text-zinc-200 text-sm break-all flex-1">{children}</span>
+    </div>
+  )
+}
+
+function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) {
+  const steps = (data.steps as AIStep[] | undefined) ?? []
+  const final = (data.final as Record<string, unknown> | undefined) ?? {}
+  const runId = data.run_id as number | undefined
+  const trigger = data.trigger as string | undefined
+  const status = (data.status as string | undefined) ?? 'success'
+  const mode = data.applied_mode as string | undefined
+  const totalMs = data.total_elapsed_ms as number | undefined
+  const err = data.error_message as string | undefined
+
+  return (
+    <div className="space-y-4">
+      {/* Résumé */}
+      <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 space-y-1">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm text-zinc-300 font-medium">
+            Run #{runId ?? '?'}
+          </span>
+          <StatusPill status={status} />
+          {mode && (
+            <span className="text-xs text-zinc-500 px-2 py-0.5 rounded bg-zinc-800">
+              mode: {mode}
+            </span>
+          )}
+          {trigger && (
+            <span className="text-xs text-zinc-500 px-2 py-0.5 rounded bg-zinc-800">
+              {trigger}
+            </span>
+          )}
+        </div>
+        <KV label="Durée totale">{fmtMs(totalMs)}</KV>
+        {err && <KV label="Erreur"><span className="text-rose-300">{err}</span></KV>}
+      </div>
+
+      {/* Champs finaux extraits */}
+      <div>
+        <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+          Champs extraits (résultat arbitre)
+        </div>
+        {Object.keys(final).length === 0 ? (
+          <div className="text-sm text-zinc-500 italic">
+            Aucun champ extrait.
+          </div>
+        ) : (
+          <div className="rounded border border-zinc-800 divide-y divide-zinc-800">
+            {Object.entries(final).map(([k, v]) => (
+              <div key={k} className="flex items-center gap-3 px-3 py-2">
+                <span className="text-xs text-zinc-500 min-w-[130px]">
+                  {k}
+                </span>
+                <span className="text-sm text-zinc-100 font-mono">
+                  {v == null ? <span className="text-zinc-600">null</span> : String(v)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Étapes détaillées */}
+      <div>
+        <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+          Étapes du pipeline ({steps.length})
+        </div>
+        <div className="space-y-2">
+          {steps.map((s, i) => (
+            <div
+              key={i}
+              className="rounded border border-zinc-800 bg-zinc-900/40 p-3"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono">
+                  {s.step}
+                </span>
+                {s.page != null && s.page !== '' && (
+                  <span className="text-xs text-zinc-500">page {s.page}</span>
+                )}
+                {s.model && (
+                  <span className="text-xs text-zinc-400 font-mono">
+                    {s.model}
+                  </span>
+                )}
+                <span className="ml-auto text-xs text-zinc-500">
+                  {fmtMs(s.elapsed_ms)}
+                </span>
+              </div>
+              {s.error && (
+                <div className="text-xs text-rose-300 mb-2">
+                  Erreur : {s.error}
+                </div>
+              )}
+              {s.output && (
+                <pre className="text-xs bg-zinc-950 border border-zinc-800 rounded p-2 overflow-x-auto text-zinc-300">
+                  {JSON.stringify(s.output, null, 2)}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface AIBatch {
+  batch_index?: number
+  is_final?: boolean
+  model?: string
+  candidates?: Array<{ id?: string; title?: string; publish_date?: string | null }>
+  output?: Record<string, unknown> | null
+  error?: string | null
+  elapsed_ms?: number
+}
+
+function AIRankerDetail({ data }: { data: Record<string, unknown> }) {
+  const status = (data.status as string) ?? 'success'
+  const mode = data.applied_mode as string | undefined
+  const model = data.model_used as string | undefined
+  const scorerTop = data.scorer_top_index as number | null | undefined
+  const aiPick = data.ai_picked_index as number | null | undefined
+  const confidence = data.confidence as number | null | undefined
+  const reason = data.reason as string | null | undefined
+  const totalMs = data.total_elapsed_ms as number | undefined
+  const batches = (data.batches as AIBatch[] | undefined) ?? []
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 space-y-1">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm text-zinc-300 font-medium">Run ranker</span>
+          <StatusPill status={status} />
+          {mode && (
+            <span className="text-xs text-zinc-500 px-2 py-0.5 rounded bg-zinc-800">
+              mode: {mode}
+            </span>
+          )}
+          {model && (
+            <span className="text-xs text-zinc-400 font-mono">{model}</span>
+          )}
+        </div>
+        <KV label="Durée totale">{fmtMs(totalMs)}</KV>
+        <KV label="Pick scorer">
+          {scorerTop == null ? 'aucun' : `index ${scorerTop}`}
+        </KV>
+        <KV label="Pick IA">
+          {aiPick == null ? (
+            <span className="text-rose-300">refusé</span>
+          ) : (
+            `index ${aiPick}`
+          )}
+        </KV>
+        <KV label="Confiance">
+          {confidence == null ? '?' : `${(confidence * 100).toFixed(0)} %`}
+        </KV>
+        {reason && <KV label="Raison">{reason}</KV>}
+      </div>
+
+      <div>
+        <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+          Batches ({batches.length})
+        </div>
+        <div className="space-y-2">
+          {batches.map((b, i) => (
+            <div
+              key={i}
+              className="rounded border border-zinc-800 bg-zinc-900/40 p-3"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 font-mono">
+                  {b.is_final ? 'FINAL' : `Batch ${b.batch_index}`}
+                </span>
+                {b.model && (
+                  <span className="text-xs text-zinc-400 font-mono">
+                    {b.model}
+                  </span>
+                )}
+                <span className="ml-auto text-xs text-zinc-500">
+                  {fmtMs(b.elapsed_ms)}
+                </span>
+              </div>
+              {b.candidates && b.candidates.length > 0 && (
+                <div className="text-xs text-zinc-400 mb-2">
+                  Candidats :
+                  <ul className="list-decimal ml-6 mt-1 space-y-0.5">
+                    {b.candidates.map((c, idx) => (
+                      <li key={idx} className="text-zinc-300">
+                        {c.title ?? c.id}
+                        {c.publish_date && (
+                          <span className="text-zinc-500 ml-2">
+                            ({c.publish_date})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {b.error && (
+                <div className="text-xs text-rose-300">Erreur : {b.error}</div>
+              )}
+              {b.output && (
+                <pre className="text-xs bg-zinc-950 border border-zinc-800 rounded p-2 overflow-x-auto text-zinc-300">
+                  {JSON.stringify(b.output, null, 2)}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
