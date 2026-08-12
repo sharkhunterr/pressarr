@@ -31,13 +31,38 @@ async def search(
         # magazine_id is passed for scoring context, not for filtering.
         return await search_service.search_free(db, query, config, magazine_id=magazine_id)
     elif magazine_id:
-        # No query — search all wanted/missing issues for this magazine
-        results_by_issue = await search_service.search_magazine_missing(db, magazine_id, config)
-        # Flatten all results
+        # No explicit query : d'abord tenter la recherche par issues
+        # wanted (comportement historique). Si rien n'est retourné —
+        # cas typique du magazine dont TOUTES les issues sont
+        # `upcoming` (forecast) et aucune wanted, comme L'Équipe qui
+        # a 159 upcoming + 0 wanted — on retombe sur une free search
+        # utilisant le titre du magazine comme query. Sinon le user
+        # voyait « 0 résultats » alors que Prowlarr en a des centaines.
+        results_by_issue = await search_service.search_magazine_missing(
+            db, magazine_id, config
+        )
         all_results = []
         for issue_results in results_by_issue.values():
             all_results.extend(issue_results)
         all_results.sort(key=lambda r: r.score, reverse=True)
+
+        if not all_results:
+            # Fallback : lookup magazine title + issue free-search dessus.
+            from sqlalchemy import select as _sel
+            from app.models.magazine import Magazine
+
+            mag = (
+                await db.execute(_sel(Magazine).where(Magazine.id == magazine_id))
+            ).scalars().first()
+            if mag and mag.title:
+                logger.info(
+                    "Manual research on magazine %s: no wanted issues; "
+                    "falling back to free-search on title=%r",
+                    magazine_id, mag.title,
+                )
+                return await search_service.search_free(
+                    db, mag.title, config, magazine_id=magazine_id
+                )
         return all_results
     raise HTTPException(422, "Provide issueId, magazineId, or query")
 
