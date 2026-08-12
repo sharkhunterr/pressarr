@@ -246,16 +246,17 @@ def pdf_hash(pdf_path: Path | None) -> str:
     return h.hexdigest()
 
 
-def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 250) -> bytes:
+def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 350) -> bytes:
     """Render a single PDF page to PNG bytes.
 
     ``page_index_1based`` : 1 = first page ; negative counts from the
-    end (-1 = last). ``dpi`` : 250 est un bon compromis pour la
-    lisibilité des petits nombres/dates sur la couverture (numéros
-    d'édition à 4-5 chiffres type « N° 26 290 » que 150 DPI rendait
-    illisibles pour minicpm-v). Coût : image ~2.5× plus grosse (donc
-    upload base64 + inference vision un peu plus lents), mais la
-    précision d'extraction en vaut largement la peine.
+    end (-1 = last). ``dpi`` : 350 (« print quality ») — au-delà le
+    gain sur l'extraction OCR devient marginal alors que la taille de
+    l'image explose. À ce DPI un chiffre imprimé en 6pt fait ~24px
+    de haut, largement au-dessus du seuil de reconnaissance des
+    vision LLMs modernes. Coût : image PNG ~5× plus grosse qu'à 150
+    (upload base64 + inference sensiblement plus lents), acceptable
+    vu qu'on veut extraire des petits nombres type « N° 26 290 ».
     Raises IndexError when the page doesn't exist.
     """
     import fitz  # PyMuPDF
