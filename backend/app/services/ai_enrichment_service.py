@@ -502,11 +502,18 @@ class AIEnrichmentService:
         }
         if extra_step_fields:
             step.update(extra_step_fields)
+        # Vision calls (with images) need a much larger context : une
+        # image encodée à 350 DPI consomme facilement 3000-8000 tokens
+        # vision et le prompt+system peut ajouter 500-1000 tokens. Le
+        # défaut Ollama 4096 sature → HTTP 400 exceed_context_size_error.
+        # 16384 laisse assez de marge pour toutes les tailles typiques.
+        num_ctx = 16384 if images_b64 else None
         try:
             out = await self._ollama.generate_json(
                 model=model,
                 prompt=prompt,
                 images_b64=images_b64,
+                num_ctx=num_ctx,
             )
             step["output"] = out
             step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)

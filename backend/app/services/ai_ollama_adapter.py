@@ -104,6 +104,7 @@ class OllamaAdapter:
         system: str | None = None,
         images_b64: list[str] | None = None,
         temperature: float = 0.2,
+        num_ctx: int | None = None,
     ) -> dict[str, Any]:
         """Run a single generation, force JSON output, parse it.
 
@@ -112,16 +113,26 @@ class OllamaAdapter:
         creativity. Vision + text share the same endpoint ; images
         are passed as base64 strings via the ``images`` field.
 
+        ``num_ctx`` : override du contexte Ollama (défaut 4096 pour
+        la plupart des modèles). Une image PDF rendue à 350 DPI
+        encodée base64 consomme 3000-8000 tokens vision selon la
+        taille — passer ``num_ctx=16384`` évite les
+        ``exceed_context_size_error`` HTTP 400 vus sur qwen2.5vl:7b
+        avec de grosses images.
+
         Returns the parsed dict. Raises ``OllamaError`` if the call
         itself failed or the response was not valid JSON. The caller
         catches and decides whether to fallback or fail.
         """
+        options: dict[str, Any] = {"temperature": temperature}
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
         payload: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
             "stream": False,
             "format": "json",
-            "options": {"temperature": temperature},
+            "options": options,
         }
         if system:
             payload["system"] = system
