@@ -146,6 +146,123 @@ def _arbitrate(
     return out
 
 
+def _build_arbiter_prompt(
+    *,
+    torrent: dict[str, Any],
+    vision_outputs: list[dict[str, Any]],
+    python_candidates: dict[str, Any],
+    base_prompt: str,
+) -> str:
+    """Construit le prompt de l'arbitre IA final.
+
+    Le prompt liste les 3 sources et demande à l'IA de choisir la valeur
+    la plus RÉALISTE par champ, avec des règles explicites :
+      - torrent = source primaire (fiabilité haute)
+      - vision raw_text = OCR brut (pas d'interprétation)
+      - python candidates = extraction regex (rapide mais peut manquer)
+
+    Le raw_text vision (mélange titre, prix, dates, N°, mentions
+    légales) est passé tel quel — l'IA doit trier.
+    """
+    # Concat des raw_text vision en un seul blob lisible.
+    vision_dump = []
+    for entry in vision_outputs:
+        vd = entry.get("data") or {}
+        if not isinstance(vd, dict):
+            continue
+        chunks = []
+        for k in ("title", "raw_text", "date_text", "issue_number"):
+            v = vd.get(k)
+            if v not in (None, "", []):
+                chunks.append(f"{k}={v!r}")
+        if chunks:
+            page = entry.get("page", "?")
+            zone = entry.get("zone", "?")
+            vision_dump.append(f"[page {page} · zone {zone}] " + " | ".join(chunks))
+    vision_str = "\n".join(vision_dump) if vision_dump else "(aucune sortie vision)"
+
+    return (
+        f"{base_prompt}\n\n---\n"
+        "Trois sources sont disponibles pour extraire les métadonnées "
+        "de ce magazine. Choisis la valeur la plus RÉALISTE par champ.\n\n"
+        f"### Source 1 — Analyse du nom torrent (fiable, source primaire)\n"
+        f"{json.dumps(torrent, ensure_ascii=False, indent=2)}\n\n"
+        f"### Source 2 — OCR brut de la couverture (à trier)\n"
+        f"{vision_str}\n\n"
+        f"### Source 3 — Candidats extraits par regex (rapide mais imparfait)\n"
+        f"{json.dumps(python_candidates, ensure_ascii=False, indent=2)}\n\n"
+        "### Règles de décision\n"
+        "1. Si la source 1 (torrent) a une valeur NON-NULL, garde-la — "
+        "elle est toujours prioritaire.\n"
+        "2. Sinon, préfère la source 3 (Python) car elle a déjà filtré "
+        "les faux positifs comme « 2,70 € » (prix), « 81ᵉ année » "
+        "(année d'existence du magazine), « 80 ans ».\n"
+        "3. Utilise la source 2 (OCR brut) comme vérification : lit le "
+        "raw_text et repère les indices type « N° 26 290 », « lundi 10 "
+        "août 2026 ». Si Python a raté un N° visible, extrais-le.\n"
+        "4. Le N° d'édition est un ENTIER SANS espace (« 26 290 » → 26290). "
+        "N'invente PAS un N° si tu n'en vois pas dans les 3 sources.\n"
+        "5. La date doit être cohérente : year + month + day quand possible. "
+        "Ignore les années < 1900 ou > 2100.\n\n"
+        "Réponds avec un objet JSON strict :\n"
+        "{\"title\": str|null, \"issue_number\": int|null, "
+        "\"year\": int|null, \"month\": int|null, \"day\": int|null, "
+        "\"is_hs\": bool, \"series_number\": int|null, "
+        "\"confidence\": float}\n\n"
+        "`confidence` entre 0 et 1 = estimation globale de fiabilité."
+    )
+
+
+def _postvalidate_arbiter(
+    *,
+    llm_out: dict[str, Any],
+    torrent: dict[str, Any],
+    python_candidates: dict[str, Any],
+) -> dict[str, Any]:
+    """Contrainte post-LLM : garantit la règle « torrent primaire ».
+
+    Si l'arbitre IA a proposé une valeur qui contredit le torrent
+    (torrent avait une valeur non-null et LLM en met une autre), on
+    force le retour à la valeur torrent. Ça évite l'hallucination
+    LLM qui écrase un torrent bien parsé (bug historique year=2016
+    vision remplaçant year=2026 torrent).
+
+    Pour issue_number : on accepte la valeur LLM SEULEMENT si elle
+    figure aussi dans vision raw_text ou python candidates (pas
+    d'invention pure).
+    """
+    out = dict(llm_out)  # copy
+
+    for field in ("title", "issue_number", "year", "month", "day"):
+        torrent_val = torrent.get(field)
+        if torrent_val is not None and torrent_val != "":
+            # Torrent gagne, toujours.
+            out[field] = torrent_val
+
+    # is_hs / series_number : garde torrent si dispo.
+    if torrent.get("is_hs") is not None:
+        out["is_hs"] = bool(torrent["is_hs"])
+    else:
+        out["is_hs"] = bool(out.get("is_hs"))
+
+    if torrent.get("series_number") is not None:
+        out["series_number"] = torrent["series_number"]
+
+    # Anti-hallucination issue_number : si le LLM propose un N° absent
+    # du torrent ET absent des python candidates → refuser sauf si
+    # confidence >= 0.9 (le LLM a réellement vu un truc explicit).
+    if (
+        out.get("issue_number") is not None
+        and torrent.get("issue_number") is None
+        and python_candidates.get("issue_number") is None
+    ):
+        conf = float(out.get("confidence") or 0.0)
+        if conf < 0.9:
+            out["issue_number"] = None
+
+    return out
+
+
 def _extract_issue_number(text: str) -> int | None:
     """Extrait le numéro d'édition d'un blob texte.
 
@@ -572,27 +689,64 @@ class AIEnrichmentService:
             cb("switch", f"Rechargement modèle arbitre {cfg.ai_text_model}…")
             await self._ollama.unload_model(cfg.ai_vision_model)
 
-        # --- 5. Arbitre : merge Python déterministe ---------------
-        # Historique : on faisait un 3e appel LLM pour merger torrent
-        # + vision. Le LLM (mistral:7b) ignorait sa propre règle
-        # « torrent primaire » et gardait des valeurs vision fausses
-        # (ex. year=2016 hallucinée par la vision au lieu de year=2026
-        # du torrent). Coût : +45s pour un résultat MOINS fiable.
-        # Fix : arbitrage en code. Règle stricte : torrent > vision.
-        # Vision ne remplit QUE les champs null du torrent. La date
-        # vision text (« lundi 10 août 2026 ») est parsée en year/
-        # month/day uniquement si tous les 3 sont null côté torrent.
+        # --- 5. Arbitrage hybride : Python propose, LLM tranche ---
+        # Architecture 3-couches :
+        #   a) Python parse le raw_text vision avec regex → candidates
+        #      (rapide, deterministic, mais peut manquer cas edge)
+        #   b) LLM arbitre reçoit : torrent + vision_raw + python_candidates
+        #      → choisit la valeur la plus réaliste par champ
+        #   c) Post-validation Python : force torrent-primary sur les
+        #      champs non-null torrent (l'IA ne peut PAS écraser)
         if vision_outputs:
-            cb("arbiter", "Fusion déterministe (Python)")
+            cb("arbiter", "Analyse Python + arbitrage IA")
             arb_start = time.monotonic()
-            final = _arbitrate(text_result or {}, vision_outputs)
-            steps.append({
-                "step": "arbiter",
-                "model": "deterministic-python",
-                "output": final,
-                "error": None,
-                "elapsed_ms": int((time.monotonic() - arb_start) * 1000),
-            })
+
+            # a) Python propose ses candidats depuis le raw_text vision
+            python_candidates = _arbitrate(text_result or {}, vision_outputs)
+
+            # b) LLM arbitre — reçoit les 3 sources et tranche.
+            llm_final = None
+            llm_err = None
+            if cfg.ai_text_model in available:
+                arb_prompt = _build_arbiter_prompt(
+                    torrent=text_result or {},
+                    vision_outputs=vision_outputs,
+                    python_candidates=python_candidates,
+                    base_prompt=cfg.ai_arbiter_prompt,
+                )
+                llm_out, arb_step = await self._call_json(
+                    model=cfg.ai_text_model,
+                    prompt=arb_prompt,
+                    step_name="arbiter",
+                )
+                steps.append(arb_step)
+                if isinstance(llm_out, dict):
+                    llm_final = llm_out
+                else:
+                    llm_err = arb_step.get("error") or "empty response"
+            else:
+                llm_err = f"arbiter model '{cfg.ai_text_model}' unavailable"
+
+            # c) Post-validation : garantit torrent-primary.
+            if llm_final is None:
+                logger.info(
+                    "Arbiter LLM unavailable (%s), using Python candidates",
+                    llm_err,
+                )
+                final = python_candidates
+            else:
+                final = _postvalidate_arbiter(
+                    llm_out=llm_final,
+                    torrent=text_result or {},
+                    python_candidates=python_candidates,
+                )
+                steps.append({
+                    "step": "arbiter_postvalidate",
+                    "model": "deterministic-python",
+                    "output": final,
+                    "error": None,
+                    "elapsed_ms": int((time.monotonic() - arb_start) * 1000),
+                })
         else:
             final = text_result or {}
 
