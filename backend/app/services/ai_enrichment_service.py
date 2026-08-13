@@ -251,22 +251,26 @@ def _render_page_pngs(
     page_index_1based: int,
     dpi: int = 200,
     crop_mode: str = "full",
+    custom_rect: dict[str, float] | None = None,
 ) -> list[tuple[str, bytes]]:
     """Render a PDF page → 1 or 2 PNGs selon ``crop_mode``.
 
     Retour : liste de ``(label, png_bytes)``. Labels :
-      - ``"full"``          : la page entière
-      - ``"top"``           : les 45 % supérieurs
-      - ``"bottom"``        : les 45 % inférieurs
+      - ``"full"``   : la page entière
+      - ``"top"``    : les 45 % supérieurs
+      - ``"bottom"`` : les 45 % inférieurs
+      - ``"custom"`` : rectangle défini par ``custom_rect``
 
-    ``crop_mode`` :
+    ``custom_rect`` : si fourni (dict avec ``x``, ``y``, ``w``, ``h`` en
+    ratios 0..1), l'emporte sur ``crop_mode``. Utilisé quand l'user a
+    dessiné visuellement une zone dans le UI Refresh IA — persisté sur
+    Magazine.ai_crop_rect.
+
+    ``crop_mode`` (utilisé UNIQUEMENT si custom_rect est None) :
       - ``"full"``      → [("full", ...)]
       - ``"top"``       → [("top", ...)]  ← quotidiens FR
       - ``"bottom"``    → [("bottom", ...)]  ← rare
-      - ``"top_bottom"``→ [("top",...), ("bottom",...)]  ← robuste,
-                          2 appels vision par page (magazines où
-                          le N° peut être en bas type GEO)
-    Autre valeur : fallback silencieux sur ``"full"``.
+      - ``"top_bottom"``→ [("top",...), ("bottom",...)]  ← robuste
 
     ``dpi`` : 200 = sweet spot minicpm-v:8b dans 8 Go VRAM.
     Raises IndexError when the page doesn't exist.
@@ -291,7 +295,21 @@ def _render_page_pngs(
 
         # Résolution des zones à rendre.
         zones: list[tuple[str, "fitz.Rect | None"]]
-        if crop_mode == "top":
+        if custom_rect and all(k in custom_rect for k in ("x", "y", "w", "h")):
+            # Rectangle custom en ratios 0..1 du magazine
+            # (persisté sur Magazine.ai_crop_rect via l'UI). Clampe
+            # les bounds pour éviter les Rect invalides.
+            cx = max(0.0, min(1.0, float(custom_rect["x"])))
+            cy = max(0.0, min(1.0, float(custom_rect["y"])))
+            cw = max(0.01, min(1.0 - cx, float(custom_rect["w"])))
+            ch = max(0.01, min(1.0 - cy, float(custom_rect["h"])))
+            zones = [("custom", fitz.Rect(
+                r.x0 + r.width * cx,
+                r.y0 + r.height * cy,
+                r.x0 + r.width * (cx + cw),
+                r.y0 + r.height * (cy + ch),
+            ))]
+        elif crop_mode == "top":
             zones = [("top", fitz.Rect(
                 r.x0, r.y0, r.x1, r.y0 + r.height * 0.45,
             ))]
@@ -442,13 +460,19 @@ class AIEnrichmentService:
 
             pages = cfg.ai_enrichment_vision_pages or [1]
             crop_mode = getattr(cfg, "ai_enrichment_vision_crop", "full")
+            # Custom rect prioritaire : l'user l'a défini visuellement
+            # dans le UI Refresh IA → persisté sur Magazine.ai_crop_rect.
+            custom_rect = await self._lookup_magazine_crop(magazine_id)
             # Chaque page peut générer 1 ou 2 crops (top_bottom).
             # On les traite comme des appels vision distincts et on
             # laisse l'arbitre déterministe agréger.
             for idx, page_num in enumerate(pages, 1):
                 try:
                     rendered = _render_page_pngs(
-                        pdf_path, page_num, crop_mode=crop_mode,
+                        pdf_path,
+                        page_num,
+                        crop_mode=crop_mode,
+                        custom_rect=custom_rect,
                     )
                 except (IndexError, Exception) as exc:  # noqa: BLE001
                     logger.warning(
@@ -590,6 +614,43 @@ class AIEnrichmentService:
             step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
             logger.warning("AI step %s failed: %s", step_name, exc)
             return None, step
+
+    async def _lookup_magazine_crop(
+        self, magazine_id: int | None
+    ) -> dict[str, float] | None:
+        """Charge le rectangle custom sauvegardé sur le magazine.
+
+        Renvoie ``None`` si magazine_id est None, aucun row trouvé, ou
+        que le champ est vide/malformé — le rendu tombera alors sur
+        le mode global (``full``/``top``/…).
+        """
+        if magazine_id is None:
+            return None
+        from sqlalchemy import select
+        from app.models.magazine import Magazine
+        try:
+            async with self._session_factory() as session:
+                row = (
+                    await session.execute(
+                        select(Magazine.ai_crop_rect).where(
+                            Magazine.id == magazine_id
+                        )
+                    )
+                ).first()
+                raw = row[0] if row else None
+                if not raw:
+                    return None
+                data = json.loads(raw)
+                if all(k in data for k in ("x", "y", "w", "h")):
+                    return {
+                        "x": float(data["x"]),
+                        "y": float(data["y"]),
+                        "w": float(data["w"]),
+                        "h": float(data["h"]),
+                    }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("magazine crop lookup failed: %s", exc)
+        return None
 
     async def _lookup_cache(
         self, magazine_id: int | None, pdfhash: str

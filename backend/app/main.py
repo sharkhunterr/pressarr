@@ -46,8 +46,14 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/"):
             return await call_next(request)
 
-        # Check API key
-        api_key = request.headers.get("X-Api-Key")
+        # Check API key. Le header est le canal principal, mais les
+        # requêtes servies directement par une balise `<img>` ou `<a>`
+        # (cover preview, download) ne peuvent pas porter de header
+        # custom — on accepte `?apikey=` en query en fallback.
+        api_key = (
+            request.headers.get("X-Api-Key")
+            or request.query_params.get("apikey")
+        )
         if api_key != config.api_key:
             return Response(
                 content='{"detail":"Unauthorized"}',
@@ -161,6 +167,8 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "request_type", "VARCHAR(16) NOT NULL DEFAULT 'subscription'"),
         ("magazine", "target_issue_label", "VARCHAR(255)"),
         ("magazine", "target_issue_date", "VARCHAR(10)"),
+        # AI custom crop rectangle (drawn visually by user in Refresh IA modal).
+        ("magazine", "ai_crop_rect", "VARCHAR(200)"),
     ]
     for table, column, col_type in migrations:
         try:

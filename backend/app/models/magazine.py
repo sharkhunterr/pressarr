@@ -68,6 +68,13 @@ class Magazine(Base):
     last_searched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_metadata_refresh: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     excluded_days: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Custom crop rectangle pour l'IA vision, en ratios 0..1 de la
+    # page couverture. Format JSON : {"x":0.05,"y":0.02,"w":0.9,"h":0.15}
+    # L'user le définit visuellement dans le modal Refresh IA →
+    # persisté ici → utilisé pour toutes les analyses vision futures
+    # du magazine. Null = pas de crop custom, fallback sur le mode
+    # global `ai_enrichment_vision_crop` (full/top/bottom/top_bottom).
+    ai_crop_rect: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     # ISSN-first cascade enrichment (populated by ZDB / Wikidata / BnF / LoC
     # via app.metadata.cascade). All nullable — the cascade is best-effort

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Loader2, Sparkles, X } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Loader2, Sparkles, X, Crop } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { refreshBatch } from '@/api/ai'
+import { AICropSelectorModal } from '@/components/AICropSelectorModal'
+import { getMagazineCrop, refreshBatch } from '@/api/ai'
 import type { Issue } from '@/api/issues'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,6 +46,15 @@ export function AIRefreshModal({
   const [applyResult, setApplyResult] = useState(true)
   const [force, setForce] = useState(true)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [cropOpen, setCropOpen] = useState(false)
+
+  // Show whether the magazine currently has a custom crop configured.
+  const cropQ = useQuery({
+    queryKey: ['ai-crop', magazineId],
+    queryFn: () => getMagazineCrop(magazineId),
+    enabled: open,
+  })
+  const hasCustomCrop = !!cropQ.data?.rect
 
   // Only offer issues that have a file — text-only enrichment CAN
   // work without a file but the user's mental model is "re-analyze
@@ -136,6 +146,34 @@ export function AIRefreshModal({
               checked={includeAiVision}
               onChange={setIncludeAiVision}
             />
+          </div>
+
+          {/* --- Zone vision custom ------------------------------ */}
+          <div className="space-y-2">
+            <div className="text-xs uppercase tracking-wide text-zinc-500">
+              Zone d'analyse IA (vision)
+            </div>
+            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-zinc-100">
+                  {hasCustomCrop ? 'Zone custom définie' : 'Aucune zone custom'}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {hasCustomCrop
+                    ? "L'IA vision analysera uniquement cette zone sur chaque couverture."
+                    : 'Sans zone : utilise le mode global (Settings → IA). Trace un cadre pour cibler.'}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCropOpen(true)}
+                disabled={!includeAiVision}
+              >
+                <Crop className="size-4" />
+                {hasCustomCrop ? 'Modifier' : 'Définir'}
+              </Button>
+            </div>
           </div>
 
           {/* --- Autorité + cache -------------------------------- */}
@@ -237,6 +275,17 @@ export function AIRefreshModal({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Modal enfant — sélecteur visuel de zone. Refresh la query
+          crop après save pour que le hint « Zone custom définie »
+          bascule sans reload. */}
+      <AICropSelectorModal
+        open={cropOpen}
+        onClose={() => setCropOpen(false)}
+        magazineId={magazineId}
+        magazineTitle={magazineTitle}
+        onSaved={() => cropQ.refetch()}
+      />
     </Dialog>
   )
 }

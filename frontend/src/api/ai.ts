@@ -166,6 +166,41 @@ export const listRankerRuns = (params?: {
   return apiFetch<RankerRun[]>(`/ai/runs/ranker${qs ? `?${qs}` : ''}`)
 }
 
+// --- Custom vision crop rectangle (drawn visually by user) -----------
+
+export interface CropRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface CropRectResponse {
+  magazineId: number
+  rect: CropRect | null
+}
+
+export const getMagazineCrop = (magazineId: number) =>
+  apiFetch<CropRectResponse>(`/ai/magazine/${magazineId}/crop`)
+
+export const setMagazineCrop = (
+  magazineId: number,
+  rect: CropRect | null,
+) =>
+  apiFetch<CropRectResponse>(`/ai/magazine/${magazineId}/crop`, {
+    method: 'PUT',
+    body: JSON.stringify(rect),
+  })
+
+/** URL directe vers le PNG de la couverture (sert dans <img>) —
+ *  ajoute un timestamp pour cache-buster + la clef API en query
+ *  string (les <img> ne portent pas les headers Auth normaux). */
+export const magazineCoverPreviewUrl = (magazineId: number) => {
+  const apiKey = localStorage.getItem('pressarr_api_key') ?? ''
+  const key = apiKey ? `&apikey=${encodeURIComponent(apiKey)}` : ''
+  return `/api/v1/ai/magazine/${magazineId}/cover-preview?t=${Date.now()}${key}`
+}
+
 export const listProposals = (params?: {
   magazineId?: number
   status?: string

@@ -343,6 +343,122 @@ async def reanalyze_magazine(
     )
 
 
+# ---------------------------------------------------------------------------
+# Custom crop rectangle — l'user le définit visuellement dans le modal
+# Refresh IA, on le persiste sur Magazine, et le pipeline vision l'utilise.
+# ---------------------------------------------------------------------------
+
+
+class CropRect(CamelModel):
+    """Rectangle en ratios 0..1 de la page."""
+
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class CropRectResponse(CamelModel):
+    magazine_id: int
+    rect: CropRect | None
+
+
+@router.get(
+    "/magazine/{magazine_id}/crop",
+    response_model=CropRectResponse,
+)
+async def get_magazine_crop(
+    magazine_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Renvoie le rect custom stocké sur le magazine, ou null."""
+    mag = (
+        await session.execute(select(Magazine).where(Magazine.id == magazine_id))
+    ).scalars().first()
+    if not mag:
+        raise HTTPException(404, "Magazine not found")
+    rect: CropRect | None = None
+    if mag.ai_crop_rect:
+        try:
+            data = json.loads(mag.ai_crop_rect)
+            rect = CropRect(**data)
+        except Exception:  # noqa: BLE001
+            rect = None
+    return CropRectResponse(magazine_id=magazine_id, rect=rect)
+
+
+@router.put(
+    "/magazine/{magazine_id}/crop",
+    response_model=CropRectResponse,
+)
+async def set_magazine_crop(
+    magazine_id: int,
+    body: CropRect | None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Persiste ou efface (body=null) le rect custom sur le magazine."""
+    mag = (
+        await session.execute(select(Magazine).where(Magazine.id == magazine_id))
+    ).scalars().first()
+    if not mag:
+        raise HTTPException(404, "Magazine not found")
+    if body is None:
+        mag.ai_crop_rect = None
+    else:
+        # Clamp bounds pour éviter des rect invalides côté DB.
+        x = max(0.0, min(1.0, body.x))
+        y = max(0.0, min(1.0, body.y))
+        w = max(0.01, min(1.0 - x, body.w))
+        h = max(0.01, min(1.0 - y, body.h))
+        mag.ai_crop_rect = json.dumps({"x": x, "y": y, "w": w, "h": h})
+    await session.commit()
+    return await get_magazine_crop(magazine_id, session)
+
+
+@router.get("/magazine/{magazine_id}/cover-preview")
+async def magazine_cover_preview(
+    magazine_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Rend la page 1 d'une issue avec fichier en PNG pour l'UI crop.
+
+    Sert l'image telle quelle (Content-Type: image/png) au lieu de
+    JSON — le front l'affiche dans un ``<img>``. On prend le plus
+    récent IssueFile du magazine ; si aucun, 404.
+
+    DPI 120 : compromis nettéte/poids pour un affichage web (~500-
+    800 KB), pas l'inférence — cette image sert UNIQUEMENT à laisser
+    l'user dessiner le rect à la souris.
+    """
+    from fastapi.responses import Response
+
+    mag = (
+        await session.execute(select(Magazine).where(Magazine.id == magazine_id))
+    ).scalars().first()
+    if not mag:
+        raise HTTPException(404, "Magazine not found")
+    f = (
+        await session.execute(
+            select(IssueFile)
+            .join(Issue, Issue.id == IssueFile.issue_id)
+            .where(Issue.magazine_id == magazine_id)
+            .order_by(desc(IssueFile.id))
+            .limit(1)
+        )
+    ).scalars().first()
+    if not f or not Path(f.path).exists():
+        raise HTTPException(404, "No PDF available for this magazine")
+    from app.services.ai_enrichment_service import _render_page_pngs
+    try:
+        rendered = _render_page_pngs(
+            Path(f.path), 1, dpi=120, crop_mode="full",
+        )
+        png = rendered[0][1]
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"Render failed: {exc}") from exc
+    return Response(content=png, media_type="image/png")
+
+
 @router.post(
     "/refresh-batch/{magazine_id}",
     response_model=BatchRefreshResponse,
