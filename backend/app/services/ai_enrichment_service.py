@@ -250,11 +250,11 @@ def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 200) -> 
     """Render a single PDF page to PNG bytes.
 
     ``page_index_1based`` : 1 = first page ; negative counts from the
-    end (-1 = last). ``dpi`` : 200 — compromis entre lisibilité OCR
-    et VRAM. À 350 le KV cache de qwen2.5vl:7b explosait (cudaMalloc
-    failed : 18 Go alloués sur 8 Go dispo). 200 DPI donne encore un
-    chiffre 6pt à ~17px de haut, largement au-dessus du seuil
-    vision moderne. Coût vs 150 : image ~1.8× plus grosse.
+    end (-1 = last). ``dpi`` : 200 — sweet spot pour minicpm-v:8b
+    dans 8 Go VRAM. Chiffre 6pt fait ~17px de haut, lisible pour
+    les OCR modernes. Si tu as plus de VRAM et un modèle plus
+    costaud (qwen2.5vl:32b, llama3.2-vision:90b), tu peux remonter
+    à 300-350 DPI pour gratter la précision.
     Raises IndexError when the page doesn't exist.
     """
     import fitz  # PyMuPDF
