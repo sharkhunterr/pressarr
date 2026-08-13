@@ -246,15 +246,25 @@ def pdf_hash(pdf_path: Path | None) -> str:
     return h.hexdigest()
 
 
-def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 200) -> bytes:
+def _render_page_png(
+    pdf_path: Path,
+    page_index_1based: int,
+    dpi: int = 200,
+    crop_top_ratio: float | None = 0.45,
+) -> bytes:
     """Render a single PDF page to PNG bytes.
 
     ``page_index_1based`` : 1 = first page ; negative counts from the
     end (-1 = last). ``dpi`` : 200 — sweet spot pour minicpm-v:8b
     dans 8 Go VRAM. Chiffre 6pt fait ~17px de haut, lisible pour
-    les OCR modernes. Si tu as plus de VRAM et un modèle plus
-    costaud (qwen2.5vl:32b, llama3.2-vision:90b), tu peux remonter
-    à 300-350 DPI pour gratter la précision.
+    les OCR modernes.
+
+    ``crop_top_ratio`` : si non-None, ne rend que le haut de la page.
+    Défaut 0.45 = les 45 % supérieurs de la page (titre, sous-titre,
+    date, numéro d'édition). Ça évite au vision LLM de se disperser
+    sur la photo/accroche principale et double la résolution utile
+    à budget tokens constant. Passer None pour le comportement legacy
+    (page entière).
     Raises IndexError when the page doesn't exist.
     """
     import fitz  # PyMuPDF
@@ -274,7 +284,15 @@ def _render_page_png(pdf_path: Path, page_index_1based: int, dpi: int = 200) -> 
         # DPI → zoom factor. Default 72 DPI in fitz.
         zoom = dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=matrix, alpha=False)
+
+        clip: "fitz.Rect | None" = None
+        if crop_top_ratio and 0 < crop_top_ratio < 1:
+            # Clip = rectangle top X % en unités page (points, pre-zoom).
+            r = page.rect
+            clip = fitz.Rect(
+                r.x0, r.y0, r.x1, r.y0 + (r.height * crop_top_ratio),
+            )
+        pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
         return pix.tobytes(output="png")
     finally:
         doc.close()
