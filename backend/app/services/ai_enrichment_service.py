@@ -246,25 +246,29 @@ def pdf_hash(pdf_path: Path | None) -> str:
     return h.hexdigest()
 
 
-def _render_page_png(
+def _render_page_pngs(
     pdf_path: Path,
     page_index_1based: int,
     dpi: int = 200,
-    crop_top_ratio: float | None = 0.45,
-) -> bytes:
-    """Render a single PDF page to PNG bytes.
+    crop_mode: str = "full",
+) -> list[tuple[str, bytes]]:
+    """Render a PDF page → 1 or 2 PNGs selon ``crop_mode``.
 
-    ``page_index_1based`` : 1 = first page ; negative counts from the
-    end (-1 = last). ``dpi`` : 200 — sweet spot pour minicpm-v:8b
-    dans 8 Go VRAM. Chiffre 6pt fait ~17px de haut, lisible pour
-    les OCR modernes.
+    Retour : liste de ``(label, png_bytes)``. Labels :
+      - ``"full"``          : la page entière
+      - ``"top"``           : les 45 % supérieurs
+      - ``"bottom"``        : les 45 % inférieurs
 
-    ``crop_top_ratio`` : si non-None, ne rend que le haut de la page.
-    Défaut 0.45 = les 45 % supérieurs de la page (titre, sous-titre,
-    date, numéro d'édition). Ça évite au vision LLM de se disperser
-    sur la photo/accroche principale et double la résolution utile
-    à budget tokens constant. Passer None pour le comportement legacy
-    (page entière).
+    ``crop_mode`` :
+      - ``"full"``      → [("full", ...)]
+      - ``"top"``       → [("top", ...)]  ← quotidiens FR
+      - ``"bottom"``    → [("bottom", ...)]  ← rare
+      - ``"top_bottom"``→ [("top",...), ("bottom",...)]  ← robuste,
+                          2 appels vision par page (magazines où
+                          le N° peut être en bas type GEO)
+    Autre valeur : fallback silencieux sur ``"full"``.
+
+    ``dpi`` : 200 = sweet spot minicpm-v:8b dans 8 Go VRAM.
     Raises IndexError when the page doesn't exist.
     """
     import fitz  # PyMuPDF
@@ -273,7 +277,7 @@ def _render_page_png(
     try:
         n = doc.page_count
         if page_index_1based < 0:
-            idx0 = n + page_index_1based  # -1 → n-1
+            idx0 = n + page_index_1based
         else:
             idx0 = page_index_1based - 1
         if idx0 < 0 or idx0 >= n:
@@ -281,21 +285,50 @@ def _render_page_png(
                 f"Page {page_index_1based} out of range (PDF has {n} pages)"
             )
         page = doc.load_page(idx0)
-        # DPI → zoom factor. Default 72 DPI in fitz.
         zoom = dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
+        r = page.rect
 
-        clip: "fitz.Rect | None" = None
-        if crop_top_ratio and 0 < crop_top_ratio < 1:
-            # Clip = rectangle top X % en unités page (points, pre-zoom).
-            r = page.rect
-            clip = fitz.Rect(
-                r.x0, r.y0, r.x1, r.y0 + (r.height * crop_top_ratio),
-            )
-        pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
-        return pix.tobytes(output="png")
+        # Résolution des zones à rendre.
+        zones: list[tuple[str, "fitz.Rect | None"]]
+        if crop_mode == "top":
+            zones = [("top", fitz.Rect(
+                r.x0, r.y0, r.x1, r.y0 + r.height * 0.45,
+            ))]
+        elif crop_mode == "bottom":
+            zones = [("bottom", fitz.Rect(
+                r.x0, r.y0 + r.height * 0.55, r.x1, r.y1,
+            ))]
+        elif crop_mode == "top_bottom":
+            zones = [
+                ("top", fitz.Rect(
+                    r.x0, r.y0, r.x1, r.y0 + r.height * 0.45,
+                )),
+                ("bottom", fitz.Rect(
+                    r.x0, r.y0 + r.height * 0.55, r.x1, r.y1,
+                )),
+            ]
+        else:  # "full" or unknown
+            zones = [("full", None)]
+
+        out: list[tuple[str, bytes]] = []
+        for label, clip in zones:
+            pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
+            out.append((label, pix.tobytes(output="png")))
+        return out
     finally:
         doc.close()
+
+
+# Legacy wrapper — kept to avoid breaking any external caller.
+def _render_page_png(
+    pdf_path: Path,
+    page_index_1based: int,
+    dpi: int = 200,
+    crop_top_ratio: float | None = None,
+) -> bytes:
+    mode = "top" if crop_top_ratio else "full"
+    return _render_page_pngs(pdf_path, page_index_1based, dpi, mode)[0][1]
 
 
 class AIEnrichmentService:
@@ -408,11 +441,15 @@ class AIEnrichmentService:
             await self._ollama.unload_model(cfg.ai_text_model)
 
             pages = cfg.ai_enrichment_vision_pages or [1]
+            crop_mode = getattr(cfg, "ai_enrichment_vision_crop", "full")
+            # Chaque page peut générer 1 ou 2 crops (top_bottom).
+            # On les traite comme des appels vision distincts et on
+            # laisse l'arbitre déterministe agréger.
             for idx, page_num in enumerate(pages, 1):
-                stage = f"vision {idx}/{len(pages)}"
-                cb("vision", f"OCR page {page_num} ({idx}/{len(pages)})")
                 try:
-                    png_bytes = _render_page_png(pdf_path, page_num)
+                    rendered = _render_page_pngs(
+                        pdf_path, page_num, crop_mode=crop_mode,
+                    )
                 except (IndexError, Exception) as exc:  # noqa: BLE001
                     logger.warning(
                         "Page %s render failed: %s", page_num, exc
@@ -428,17 +465,30 @@ class AIEnrichmentService:
                     continue
 
                 import base64
-                img_b64 = base64.b64encode(png_bytes).decode("ascii")
-                v_output, v_step = await self._call_json(
-                    model=cfg.ai_vision_model,
-                    prompt=cfg.ai_vision_prompt,
-                    step_name="vision",
-                    images_b64=[img_b64],
-                    extra_step_fields={"page": page_num},
-                )
-                steps.append(v_step)
-                if v_output is not None:
-                    vision_outputs.append({"page": page_num, "data": v_output})
+                for zone_label, png_bytes in rendered:
+                    cb(
+                        "vision",
+                        f"OCR page {page_num} · zone {zone_label} "
+                        f"({idx}/{len(pages)})",
+                    )
+                    img_b64 = base64.b64encode(png_bytes).decode("ascii")
+                    v_output, v_step = await self._call_json(
+                        model=cfg.ai_vision_model,
+                        prompt=cfg.ai_vision_prompt,
+                        step_name="vision",
+                        images_b64=[img_b64],
+                        extra_step_fields={
+                            "page": page_num,
+                            "zone": zone_label,
+                        },
+                    )
+                    steps.append(v_step)
+                    if v_output is not None:
+                        vision_outputs.append({
+                            "page": page_num,
+                            "zone": zone_label,
+                            "data": v_output,
+                        })
 
             # --- 4. Switch back to text model for arbiter -----
             cb("switch", f"Rechargement modèle arbitre {cfg.ai_text_model}…")

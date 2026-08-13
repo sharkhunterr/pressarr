@@ -124,6 +124,20 @@ class Config:
         # Pages passed to vision — negatives count from the end.
         # Example: [1] = cover only ; [1, -1] = cover + back cover.
         self.ai_enrichment_vision_pages: list[int] = [1]
+        # Zone crop de la couverture envoyée au vision LLM.
+        # Utile pour concentrer le modèle sur la partie qui contient
+        # les infos éditoriales (titre + N° + date). Chaque magazine
+        # a un layout différent :
+        #   "full"       : page entière (défaut, safe pour tout)
+        #   "top"        : les 45 % supérieurs (quotidiens FR type
+        #                  L'Équipe, Le Figaro, Le Monde — logo +
+        #                  infos en haut, photo dessous)
+        #   "bottom"     : les 45 % inférieurs (rare)
+        #   "top_bottom" : 2 crops (haut + bas), 2 appels vision par
+        #                  page — plus lent mais robuste pour les
+        #                  magazines dont le numéro est en pied de
+        #                  couverture (GEO, Sciences & Vie, etc.)
+        self.ai_enrichment_vision_crop: str = "full"
         self.ai_text_model: str = "mistral:7b"
         self.ai_vision_model: str = "minicpm-v:8b"
         # Prompts — operator-editable. Kept short + explicit JSON
@@ -292,6 +306,9 @@ class Config:
         self.ai_enrichment_vision_pages = enr.get(
             "vision_pages", self.ai_enrichment_vision_pages
         )
+        self.ai_enrichment_vision_crop = enr.get(
+            "vision_crop", self.ai_enrichment_vision_crop
+        )
         self.ai_text_model = enr.get("text_model", self.ai_text_model)
         self.ai_vision_model = enr.get("vision_model", self.ai_vision_model)
         self.ai_text_prompt = enr.get("text_prompt", self.ai_text_prompt)
@@ -408,6 +425,7 @@ class Config:
                     "enabled": self.ai_enrichment_enabled,
                     "mode": self.ai_enrichment_mode,
                     "vision_pages": self.ai_enrichment_vision_pages,
+                    "vision_crop": self.ai_enrichment_vision_crop,
                     "text_model": self.ai_text_model,
                     "vision_model": self.ai_vision_model,
                     "text_prompt": self.ai_text_prompt,

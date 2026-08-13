@@ -43,6 +43,7 @@ class AISettingsResource(CamelModel):
     enrichment_enabled: bool
     enrichment_mode: str  # remplace | complete | propose
     enrichment_vision_pages: list[int]
+    enrichment_vision_crop: str  # full | top | bottom | top_bottom
     text_model: str
     vision_model: str
     text_prompt: str
@@ -62,6 +63,7 @@ class AISettingsUpdateResource(CamelModel):
     enrichment_enabled: bool | None = None
     enrichment_mode: str | None = None
     enrichment_vision_pages: list[int] | None = None
+    enrichment_vision_crop: str | None = None
     text_model: str | None = None
     vision_model: str | None = None
     text_prompt: str | None = None
@@ -82,6 +84,7 @@ def _to_resource(config) -> AISettingsResource:
         enrichment_enabled=config.ai_enrichment_enabled,
         enrichment_mode=config.ai_enrichment_mode,
         enrichment_vision_pages=config.ai_enrichment_vision_pages,
+        enrichment_vision_crop=config.ai_enrichment_vision_crop,
         text_model=config.ai_text_model,
         vision_model=config.ai_vision_model,
         text_prompt=config.ai_text_prompt,
@@ -121,6 +124,7 @@ async def save_ai_settings(
         "enrichment_enabled": "ai_enrichment_enabled",
         "enrichment_mode": "ai_enrichment_mode",
         "enrichment_vision_pages": "ai_enrichment_vision_pages",
+        "enrichment_vision_crop": "ai_enrichment_vision_crop",
         "text_model": "ai_text_model",
         "vision_model": "ai_vision_model",
         "text_prompt": "ai_text_prompt",

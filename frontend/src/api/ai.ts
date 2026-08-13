@@ -12,6 +12,7 @@ export interface AISettings {
   enrichmentEnabled: boolean
   enrichmentMode: 'remplace' | 'complete' | 'propose'
   enrichmentVisionPages: number[]
+  enrichmentVisionCrop: 'full' | 'top' | 'bottom' | 'top_bottom'
   textModel: string
   visionModel: string
   textPrompt: string

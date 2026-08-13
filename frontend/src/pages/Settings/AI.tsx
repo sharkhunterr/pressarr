@@ -42,6 +42,7 @@ const DEFAULT: LocalState = {
   enrichmentEnabled: false,
   enrichmentMode: 'remplace',
   enrichmentVisionPages: [1],
+  enrichmentVisionCrop: 'full',
   textModel: 'mistral:7b',
   visionModel: 'minicpm-v:8b',
   textPrompt: '',
@@ -62,22 +63,24 @@ export default function AISettingsPage() {
   const [probe, setProbe] = useState<OllamaModelsProbe | null>(null)
   const [probing, setProbing] = useState(false)
 
-  const { isLoading } = useQuery({
+  const { data: serverSettings, isLoading } = useQuery({
     queryKey: ['aiSettings'],
     queryFn: getAISettings,
-    select: (data) => {
-      setLocal(data)
-      setPagesStr((data.enrichmentVisionPages ?? [1]).join(', '))
-      return data
-    },
   })
 
-  // Auto-probe on mount + whenever the saved URL changes.
+  // Sync server → local exactly once when the query resolves. Using
+  // `select` for this side-effect caused an infinite render loop
+  // (setState inside render). useEffect isolates it to post-render.
+  const [initialised, setInitialised] = useState(false)
   useEffect(() => {
-    if (isLoading) return
-    void runProbe(local.ollamaUrl)
+    if (!serverSettings || initialised) return
+    setLocal(serverSettings)
+    setPagesStr((serverSettings.enrichmentVisionPages ?? [1]).join(', '))
+    setInitialised(true)
+    // First auto-probe uses the freshly loaded URL.
+    void runProbe(serverSettings.ollamaUrl)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading])
+  }, [serverSettings, initialised])
 
   async function runProbe(url?: string) {
     setProbing(true)
@@ -336,6 +339,45 @@ export default function AISettingsPage() {
                   <code>1, -1</code> = couverture + dos.
                 </p>
               </div>
+            </div>
+
+            {/* Crop zone : chaque layout de magazine met le N° à un endroit
+                différent. L'user choisit selon son cas. */}
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                Zone envoyée au vision LLM
+              </label>
+              <Select
+                value={local.enrichmentVisionCrop}
+                onValueChange={(v: 'full' | 'top' | 'bottom' | 'top_bottom') =>
+                  setLocal({ ...local, enrichmentVisionCrop: v })
+                }
+              >
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full">
+                    Page entière — safe pour tout, moins précis
+                  </SelectItem>
+                  <SelectItem value="top">
+                    Haut 45 % — quotidiens FR (L'Équipe, Le Figaro, Le Monde)
+                  </SelectItem>
+                  <SelectItem value="bottom">
+                    Bas 45 % — rare
+                  </SelectItem>
+                  <SelectItem value="top_bottom">
+                    Haut + Bas (2 appels) — robuste, plus lent
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-zinc-500">
+                Le layout diffère par magazine : les quotidiens FR ont le
+                N° sous le titre (haut), certains mensuels (GEO, Sciences &
+                Vie) ont le N° en pied de couverture. Le mode{' '}
+                <code>top_bottom</code> couvre les deux mais double le
+                temps d'inférence.
+              </p>
             </div>
 
             <PromptField
