@@ -219,24 +219,28 @@ def _postvalidate_arbiter(
     torrent: dict[str, Any],
     python_candidates: dict[str, Any],
 ) -> dict[str, Any]:
-    """Contrainte post-LLM : garantit la règle « torrent primaire ».
+    """Contrainte post-LLM en 3 étages :
 
-    Si l'arbitre IA a proposé une valeur qui contredit le torrent
-    (torrent avait une valeur non-null et LLM en met une autre), on
-    force le retour à la valeur torrent. Ça évite l'hallucination
-    LLM qui écrase un torrent bien parsé (bug historique year=2016
-    vision remplaçant year=2026 torrent).
+    1. **Torrent primaire absolu** : si le torrent a une valeur non-null
+       pour un champ, l'arbitre IA ne peut PAS l'écraser (fix bug
+       historique year=2016 vision qui écrasait year=2026 torrent).
 
-    Pour issue_number : on accepte la valeur LLM SEULEMENT si elle
-    figure aussi dans vision raw_text ou python candidates (pas
-    d'invention pure).
+    2. **Restauration Python** : si le LLM a mis un champ à null MAIS que
+       Python (regex sur raw_text vision) avait trouvé une valeur, on
+       restaure la valeur Python. Le LLM peut « oublier » de recopier
+       ce que Python a déjà bien extrait — on ne veut pas perdre l'info.
+
+    3. **Anti-hallucination** : si le LLM propose une valeur (typique
+       issue_number) qui n'est PAS dans torrent NI python_candidates,
+       on la refuse sauf si confidence >= 0.9 (le LLM a « vu » un truc
+       explicit dans le raw_text que la regex a raté).
     """
     out = dict(llm_out)  # copy
 
+    # Étage 1 : torrent primaire absolu.
     for field in ("title", "issue_number", "year", "month", "day"):
         torrent_val = torrent.get(field)
         if torrent_val is not None and torrent_val != "":
-            # Torrent gagne, toujours.
             out[field] = torrent_val
 
     # is_hs / series_number : garde torrent si dispo.
@@ -244,17 +248,30 @@ def _postvalidate_arbiter(
         out["is_hs"] = bool(torrent["is_hs"])
     else:
         out["is_hs"] = bool(out.get("is_hs"))
-
     if torrent.get("series_number") is not None:
         out["series_number"] = torrent["series_number"]
 
-    # Anti-hallucination issue_number : si le LLM propose un N° absent
-    # du torrent ET absent des python candidates → refuser sauf si
-    # confidence >= 0.9 (le LLM a réellement vu un truc explicit).
+    # Étage 2 : restauration Python quand le LLM a « oublié ».
+    # Bug user constaté : Python trouvait issue_number=26290 dans
+    # « N° 26 290 » mais l'arbitre LLM le mettait à null → sortie null.
+    # Le LLM n'a pas le droit de SUPPRIMER une info que Python a
+    # extraite avec succès du raw_text vision.
+    for field in ("issue_number", "title", "year", "month", "day", "series_number"):
+        if out.get(field) is None and python_candidates.get(field) is not None:
+            # Ne restaure que si le torrent est aussi null (l'étage 1
+            # a déjà tranché sinon).
+            if torrent.get(field) is None:
+                out[field] = python_candidates[field]
+
+    # Étage 3 : anti-hallucination pour issue_number.
+    # Si LLM propose un N° qui n'est ni dans torrent ni dans python
+    # → probablement inventé. On refuse sauf confidence >= 0.9.
     if (
         out.get("issue_number") is not None
         and torrent.get("issue_number") is None
         and python_candidates.get("issue_number") is None
+        # ET aussi le LLM lui-même l'a proposé (pas restauré Python)
+        and llm_out.get("issue_number") is not None
     ):
         conf = float(out.get("confidence") or 0.0)
         if conf < 0.9:
