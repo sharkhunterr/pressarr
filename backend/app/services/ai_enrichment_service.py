@@ -73,18 +73,12 @@ def _arbitrate(
         jamais une valeur torrent par une valeur vision (évite les
         hallucinations vision de venir polluer un torrent bien parsé).
       - Si `title` est null côté torrent → prend le title vision.
-        Normalisation légère : `L'ÉQUIPE` (all caps vision) → `L'Équipe`
-        (title case) pour matcher les magazines en DB.
-      - Si `issue_number` est null → prend celui de la première vision
-        output qui en fournit un.
-      - Date : si year/month/day sont tous non-null côté torrent, on
-        garde tout. Sinon on parse `date_text` vision (best-effort,
-        formats français courants) et on remplit UNIQUEMENT les
-        champs manquants.
-      - `is_hs` : garde la valeur torrent (bool, jamais null).
-      - `series_number` : garde la valeur torrent.
-      - `confidence` : moyenne pondérée (torrent 0.7, vision 0.3)
-        basée sur le ratio de champs non-null.
+      - Pour issue_number/date : on scanne le `raw_text` retourné par
+        la vision (mode OCR brut) avec des regex robustes qui
+        distinguent le N° d'édition (« N° 26 290 ») du prix (« 2,70 € »)
+        et de l'année de publication (« 81ᵉ année »).
+      - Le pipeline supporte encore les anciens outputs vision
+        (`title`/`issue_number`/`date_text` structurés) pour compat.
     """
     out: dict[str, Any] = {
         "title": torrent.get("title"),
@@ -96,43 +90,103 @@ def _arbitrate(
         "series_number": torrent.get("series_number"),
     }
 
-    # Cherche la première vision output utile pour chaque champ.
     for entry in vision_outputs:
         vd = entry.get("data") if isinstance(entry, dict) else {}
         if not isinstance(vd, dict):
             continue
-        if out["title"] is None and vd.get("title"):
-            out["title"] = _normalise_title(str(vd["title"]))
+
+        # Title : le vision `title` structuré si présent + non pollué
+        # (contient pas de "€" ou chiffre isolé qui trahit une erreur
+        # de catégorisation).
+        if out["title"] is None:
+            vt = vd.get("title")
+            if isinstance(vt, str) and vt.strip():
+                stripped = vt.strip()
+                # Filtre : si le "title" contient un symbole prix ou
+                # commence par un chiffre, c'est un faux positif —
+                # cherche dans raw_text un vrai titre à la place.
+                if "€" not in stripped and not stripped[:1].isdigit():
+                    out["title"] = _normalise_title(stripped)
+
+        # Aggregate all string blobs into `text_pool` for smart parsing.
+        text_pool = " ".join(
+            str(v) for v in [
+                vd.get("raw_text"),
+                vd.get("date_text"),
+                vd.get("title"),
+            ] if v
+        )
+        if not text_pool:
+            continue
+
+        # issue_number : cherche « N° XXXXX », « No XXXXX », « # XXXXX »
+        # (avec ou sans espace au milieu, 3-6 chiffres au total).
+        # Évite « 80 ans », « 81ᵉ année », « 2,70 € », « 100 pages ».
         if out["issue_number"] is None:
-            iv = vd.get("issue_number")
-            if isinstance(iv, int):
-                out["issue_number"] = iv
-            elif isinstance(iv, str):
-                # Extract les chiffres — la vision renvoie parfois
-                # « N° 26290 » ou « 26 290 » avec espace.
-                digits = "".join(ch for ch in iv if ch.isdigit())
-                if digits:
-                    try:
-                        out["issue_number"] = int(digits)
-                    except ValueError:
-                        pass
-        # Date : uniquement si torrent n'a pas TOUT.
+            parsed_num = _extract_issue_number(text_pool)
+            if parsed_num is not None:
+                out["issue_number"] = parsed_num
+
+        # Date : cherche des formats courants FR dans tout le raw_text.
+        # `_parse_french_date` gère « lundi 10 août 2026 »,
+        # « Mars 2024 », « 2016-4-23 », « 12/08/2026 ».
         if not all(out.get(k) is not None for k in ("year", "month", "day")):
-            date_text = vd.get("date_text")
-            if isinstance(date_text, str):
-                y, m, d = _parse_french_date(date_text)
-                if y and out.get("year") is None:
-                    out["year"] = y
-                if m and out.get("month") is None:
-                    out["month"] = m
-                if d and out.get("day") is None:
-                    out["day"] = d
+            y, m, d = _parse_french_date(text_pool)
+            if y and out.get("year") is None:
+                out["year"] = y
+            if m and out.get("month") is None:
+                out["month"] = m
+            if d and out.get("day") is None:
+                out["day"] = d
 
     # Confidence : ratio de champs non-null pondéré.
     core_fields = ["title", "issue_number", "year", "month", "day"]
     non_null = sum(1 for f in core_fields if out.get(f) is not None)
     out["confidence"] = round(non_null / len(core_fields), 2)
     return out
+
+
+def _extract_issue_number(text: str) -> int | None:
+    """Extrait le numéro d'édition d'un blob texte.
+
+    Cherche des patterns « N°/No/# XXXXX » (avec espace optionnel au
+    milieu du nombre). Distingue des faux positifs :
+      - « 81ᵉ année », « 80 ans » (année d'existence du magazine)
+      - « 2,70 € », « 100 pages », « Rue de X 75001 »
+      - dates ISO (« 2026-08-10 »)
+
+    Renvoie l'entier ou None.
+    """
+    import re
+
+    # Priorité 1 : préfixe explicite « N° » ou « No » ou « # » ou « nº ».
+    # Autorise un espace au milieu du nombre (« N° 26 290 »).
+    m = re.search(
+        r"(?:n[°º]|no|#|numéro)\s*(\d{2,3}(?:\s?\d{2,3})*)",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        digits = m.group(1).replace(" ", "")
+        try:
+            return int(digits)
+        except ValueError:
+            pass
+
+    # Priorité 2 : un nombre à 4-6 chiffres CONSÉCUTIFS qui n'est ni
+    # une année (1900-2100) ni suivi de « ans/année/pages/€/€ ».
+    for cand in re.finditer(r"\b(\d{4,6})\b", text):
+        n = int(cand.group(1))
+        # Filtre années
+        if 1900 <= n <= 2100:
+            continue
+        # Filtre unités qui viennent après
+        after = text[cand.end():cand.end() + 30].lower()
+        if any(k in after[:15] for k in ("ans", "année", "pages", "€", "eur")):
+            continue
+        return n
+
+    return None
 
 
 _MONTHS_FR = {
