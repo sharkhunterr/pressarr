@@ -377,10 +377,11 @@ async def grab_pack_release(
 
     from app.services import activity_service as _asvc
     activity_id: int | None = None
+    _pg_title = (f"Pack grab · {title}")[:200] if title else "Pack grab"
     try:
         activity_id = await _asvc.create(
             kind="pack_grab",
-            title=f"Pack grab · {title}"[:200] if title else "Pack grab",
+            title=_pg_title,
             subtitle=f"{protocol} · {client_record.name}",
             payload={
                 "pack_id": pack_id,
@@ -390,8 +391,12 @@ async def grab_pack_release(
                 "guid": guid,
             },
         )
+        logger.info(
+            "Pack grab activity created id=%s pack_id=%d title=%r",
+            activity_id, pack_id, _pg_title,
+        )
     except Exception:
-        logger.debug("Activity mirror (pack_grab) failed", exc_info=True)
+        logger.warning("Activity mirror (pack_grab) failed", exc_info=True)
 
     try:
         client = _instantiate_client(client_record)
@@ -441,8 +446,14 @@ async def grab_pack_release(
                     activity_id,
                     hint=f"Envoyé à {client_record.name} — attend fin téléchargement puis dispatch",
                 )
+                logger.info(
+                    "Pack grab activity id=%s marked done (download_id=%s)",
+                    activity_id, download_id,
+                )
             except Exception:
-                pass
+                logger.warning(
+                    "Activity finalize (pack_grab done) failed", exc_info=True,
+                )
 
         return {
             "pack_id": pack_id,
@@ -455,7 +466,9 @@ async def grab_pack_release(
             try:
                 await _asvc.mark_error(activity_id, str(e))
             except Exception:
-                pass
+                logger.warning(
+                    "Activity finalize (pack_grab error) failed", exc_info=True,
+                )
         return {"pack_id": pack_id, "message": f"Grab failed: {e}"}
 
 
