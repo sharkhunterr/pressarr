@@ -64,6 +64,13 @@ class PackDispatchFile(Base):
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # parser | fuzzy | vision | arbiter | issn | manual — pour observabilité.
     match_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Niveau de confiance de l'identification metadata :
+    #   confirmed — ISSN exact OU (title match fort + zones magazine
+    #               définies retrouvent number/date cohérents)
+    #   doubt     — match faible ou champ manquant, à valider user
+    #   rejected  — garbage output vision ou contradiction évidente
+    #   None      — pas encore évalué (avant post-validation)
+    confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Si aucun match : proposition de magazine à créer (JSON).
     proposed_magazine_data: Mapped[str | None] = mapped_column(Text, nullable=True)
 

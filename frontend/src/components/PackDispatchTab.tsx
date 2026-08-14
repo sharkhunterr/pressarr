@@ -294,9 +294,12 @@ function DispatchRow({
       </TableCell>
 
       <TableCell className="align-top">
-        <Badge className={STATUS_STYLES[file.status]}>
-          {STATUS_LABELS[file.status]}
-        </Badge>
+        <div className="flex flex-col gap-1 items-start">
+          <Badge className={STATUS_STYLES[file.status]}>
+            {STATUS_LABELS[file.status]}
+          </Badge>
+          {file.confidence && <ConfidenceBadge value={file.confidence} />}
+        </div>
       </TableCell>
 
       <TableCell className="text-right align-top">
@@ -545,10 +548,21 @@ function DispatchDetailModal({
               </div>
             )}
             {file.matchedMagazineId && !editMode && (
-              <div className="rounded bg-emerald-500/10 border border-emerald-500/30 p-2 text-xs text-emerald-300 flex items-center gap-2">
+              <div className="rounded bg-emerald-500/10 border border-emerald-500/30 p-2 text-xs text-emerald-300 flex items-center gap-2 flex-wrap">
                 <Check className="size-3.5" />
                 Match auto : <strong>{file.matchedMagazineTitle}</strong>{' '}
                 ({file.matchSource} · {file.matchScore?.toFixed(0)}%)
+                {file.confidence && <ConfidenceBadge value={file.confidence} />}
+              </div>
+            )}
+            {!file.matchedMagazineId && file.confidence && !editMode && (
+              <div className="flex items-center gap-2">
+                <ConfidenceBadge value={file.confidence} />
+                <span className="text-xs text-zinc-500">
+                  {file.confidence === 'rejected'
+                    ? 'Extraction non fiable — édite les metadata ou ignore'
+                    : 'À valider par l’utilisateur'}
+                </span>
               </div>
             )}
           </section>
@@ -694,6 +708,24 @@ function Field({ label, value }: { label: string; value: unknown }) {
       <div className="text-zinc-200 truncate">{value === '' || value == null ? '—' : String(value)}</div>
     </div>
   )
+}
+
+function ConfidenceBadge({ value }: { value: 'confirmed' | 'doubt' | 'rejected' }) {
+  const cfg = {
+    confirmed: {
+      cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40',
+      label: '✓ Confirmé',
+    },
+    doubt: {
+      cls: 'bg-amber-500/15 text-amber-200 border border-amber-500/40',
+      label: '⚠ Doute',
+    },
+    rejected: {
+      cls: 'bg-red-500/15 text-red-300 border border-red-500/40',
+      label: '✕ Rejeté',
+    },
+  }[value]
+  return <Badge className={cfg.cls + ' text-[10px]'}>{cfg.label}</Badge>
 }
 
 function MetaEdit({

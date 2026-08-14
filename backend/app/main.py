@@ -207,6 +207,8 @@ def _migrate_add_columns(connection) -> None:
         ("issue", "issn", "VARCHAR(9)"),
         # Magazine placeholder (auto-créé par un pack, en attente user).
         ("magazine", "is_placeholder", "BOOLEAN NOT NULL DEFAULT 0"),
+        # Pack dispatch confidence badge (confirmed | doubt | rejected).
+        ("pack_dispatch_file", "confidence", "VARCHAR(16)"),
         # Pack — nouveaux toggles pipeline dispatch.
         ("pack", "deep_ai_analysis", "BOOLEAN NOT NULL DEFAULT 1"),
         ("pack", "auto_create_missing_magazines", "BOOLEAN NOT NULL DEFAULT 0"),

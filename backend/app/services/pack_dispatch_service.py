@@ -31,6 +31,71 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+
+def _eval_confidence(
+    extracted: dict[str, Any],
+    matched_magazine: Magazine | None,
+    match_source: str | None,
+    match_score: float | None,
+) -> str:
+    """Retourne le badge de confiance : confirmed | doubt | rejected.
+
+    Logique :
+      - ISSN match exact → confirmed (l'ISSN est unique par magazine).
+      - Match fuzzy ≥ 90 % + année ET mois cohérents + magazine a des
+        zones custom définies → confirmed (les zones magazine ciblent
+        les bonnes régions, donc les valeurs extraites sont crédibles).
+      - Source == "user_edit" → confirmed (l'utilisateur a validé).
+      - Aucun magazine matché ET titre extrait vide → rejected.
+      - Extraction avec 0 champ numérique (number, year) → rejected.
+      - Sinon → doubt (à valider par l'utilisateur).
+    """
+    if not extracted:
+        return "rejected"
+    if extracted.get("source") == "user_edit":
+        return "confirmed"
+
+    # Rejeté si titre absent ET pas de match
+    title = (extracted.get("title") or "").strip()
+    year = extracted.get("year")
+    number = extracted.get("issue_number")
+    has_numeric = year is not None or number is not None
+    if matched_magazine is None and not title:
+        return "rejected"
+    if not has_numeric and matched_magazine is None:
+        return "rejected"
+
+    # Confirmed conditions
+    if match_source == "issn":
+        return "confirmed"
+
+    if matched_magazine is not None and match_score is not None and match_score >= 90.0:
+        # Magazine avec zones custom = signal fort de fiabilité
+        has_custom_zones = bool((matched_magazine.ai_crop_rect or "").strip())
+        if has_custom_zones and year and (number or extracted.get("month")):
+            return "confirmed"
+
+    return "doubt"
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    """JSON dump qui survit aux surrogates non-pairés du vision LLM.
+
+    minicpm-v renvoie parfois des chars comme '\\udcfe' (surrogate
+    half orphelin de Windows-1252) qui font planter SQLite au write
+    avec ``UnicodeEncodeError: surrogates not allowed``. Strip ces
+    chars avant dump — l'observabilité vaut mieux qu'un crash.
+    """
+    def _scrub(v: Any) -> Any:
+        if isinstance(v, str):
+            return v.encode("utf-8", errors="replace").decode("utf-8")
+        if isinstance(v, dict):
+            return {k: _scrub(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [_scrub(x) for x in v]
+        return v
+    return json.dumps(_scrub(obj), default=str, ensure_ascii=False)
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -187,10 +252,18 @@ async def _analyze_file_deep(
     file_path: Path,
     config,
     session_factory,
+    magazine_id: int | None = None,
 ) -> dict[str, Any]:
     """Analyse profonde : pipeline IA complet (torrent → python-OCR →
     vision → arbiter). Comme Refresh IA sur une issue. ~30-60 s / fichier
     selon hardware Ollama.
+
+    ``magazine_id`` : quand fourni, ``enrich()`` utilise les zones
+    custom du magazine (Refresh IA modal → sélecteur zones). Ça cible
+    directement les régions où titre / N° / date sont sur les
+    couvertures de CE magazine → extraction beaucoup plus fiable
+    qu'une passe générique. Utilisé en 2ᵉ passe quand le premier
+    match a identifié le magazine.
 
     Retourne les metadata extraites + run_id + source.
     """
@@ -200,7 +273,7 @@ async def _analyze_file_deep(
     result = await svc.enrich(
         torrent_name=file_path.name,
         pdf_path=file_path,
-        magazine_id=None,
+        magazine_id=magazine_id,
         issue_id=None,
         trigger="pack_dispatch",
     )
@@ -459,7 +532,7 @@ async def process_pack_download(
                     if pack.deep_ai_analysis
                     else await _analyze_file_shallow(file_path)
                 )
-                row.extracted_metadata = json.dumps(extracted, default=str)
+                row.extracted_metadata = _safe_json_dumps(extracted)
                 row.ai_run_id = extracted.get("run_id")
 
                 mag, score, source = await _match_to_magazine(db, extracted)
@@ -467,6 +540,9 @@ async def process_pack_download(
                     row.matched_magazine_id = mag.id
                     row.match_score = score
                     row.match_source = source
+
+                # Badge de confiance : confirmed / doubt / rejected
+                row.confidence = _eval_confidence(extracted, mag, source, score)
 
                 stats["analyzed"] += 1
                 row.status = "analyzed"
@@ -580,7 +656,7 @@ async def resolve_dispatch_file(
             if v is not None:
                 current[k] = v
         current["source"] = "user_edit"
-        row.extracted_metadata = json.dumps(current, default=str)
+        row.extracted_metadata = _safe_json_dumps(current)
 
     if action == "ignore":
         row.status = "ignored"
@@ -656,14 +732,28 @@ async def reanalyze_dispatch_file(
         await db.commit()
         return row
 
-    extracted = await _analyze_file_deep(file_path, config, session_factory)
-    row.extracted_metadata = json.dumps(extracted, default=str)
+    # Reanalyze : si un magazine était déjà matché, réutilise ses
+    # zones custom (2ᵉ passe ciblée = extraction plus fiable). Sinon
+    # passe générique.
+    extracted = await _analyze_file_deep(
+        file_path, config, session_factory,
+        magazine_id=row.matched_magazine_id,
+    )
+    row.extracted_metadata = _safe_json_dumps(extracted)
     row.ai_run_id = extracted.get("run_id")
     mag, score, source = await _match_to_magazine(db, extracted)
-    row.matched_magazine_id = mag.id if mag else None
-    row.match_score = score
-    row.match_source = source
-    row.status = "analyzed" if mag is None else "pending_user"
+    row.matched_magazine_id = mag.id if mag else row.matched_magazine_id
+    row.match_score = score if mag else row.match_score
+    row.match_source = source if mag else row.match_source
+    # Re-évalue confiance avec le magazine cible (peut avoir changé)
+    mag_for_conf = mag or (
+        await db.get(Magazine, row.matched_magazine_id)
+        if row.matched_magazine_id else None
+    )
+    row.confidence = _eval_confidence(
+        extracted, mag_for_conf, row.match_source, row.match_score,
+    )
+    row.status = "analyzed" if row.matched_magazine_id is None else "pending_user"
     row.analyzed_at = datetime.now()
     await db.commit()
     return row
@@ -701,7 +791,7 @@ async def update_dispatch_metadata(
             current[k] = v
     # Tag comme edit manuel pour observabilité.
     current["source"] = "user_edit"
-    row.extracted_metadata = json.dumps(current, default=str)
+    row.extracted_metadata = _safe_json_dumps(current)
 
     # Ré-évalue le match si titre a changé.
     if "title" in overrides or "issn" in overrides:
@@ -714,6 +804,14 @@ async def update_dispatch_metadata(
             row.matched_magazine_id = None
             row.match_score = None
             row.match_source = None
+
+    # Recalcule le badge — user_edit = confirmed
+    mag_for_conf = None
+    if row.matched_magazine_id:
+        mag_for_conf = await db.get(Magazine, row.matched_magazine_id)
+    row.confidence = _eval_confidence(
+        current, mag_for_conf, row.match_source, row.match_score,
+    )
 
     # Fait passer en pending_user pour que le user confirme le résultat
     # (le status pending_analysis / analyzed n'a plus de sens après un

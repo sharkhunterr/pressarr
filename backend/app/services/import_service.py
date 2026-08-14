@@ -82,13 +82,32 @@ def apply_template(
     """Apply naming template with given values."""
     result = template
 
+    # Coerce number/date fields — l'IA les renvoie parfois en string
+    # (JSON parse, ou noms comme "Août" au lieu du numéro). On tolère
+    # str-de-digits (fait le cast) et retombe sur "00"/"0000" pour tout
+    # ce qui ne convertit pas.
+    def _to_int(v: object) -> int | None:
+        if v is None or v == "":
+            return None
+        if isinstance(v, int):
+            return v
+        try:
+            return int(str(v).strip())
+        except (ValueError, TypeError):
+            return None
+
+    year_i = _to_int(year)
+    month_i = _to_int(month)
+    day_i = _to_int(day)
+    number_i = number if isinstance(number, int) else _to_int(number)
+
     values = {
         "magazine_title": _sanitize_filename(magazine_title) if magazine_title else "Unknown",
-        "number": str(number) if number is not None else "000",
+        "number": str(number_i) if number_i is not None else "000",
         "volume": str(volume) if volume is not None else "",
-        "year": str(year) if year is not None else "0000",
-        "month": f"{month:02d}" if month is not None else "00",
-        "day": f"{day:02d}" if day is not None else "00",
+        "year": str(year_i) if year_i is not None else "0000",
+        "month": f"{month_i:02d}" if month_i is not None else "00",
+        "day": f"{day_i:02d}" if day_i is not None else "00",
         "quality": quality,
         "format": file_format.lower().lstrip("."),
         "group": group or "",

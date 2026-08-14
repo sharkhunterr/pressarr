@@ -86,6 +86,12 @@ export interface PackDispatchFile {
   matchedMagazineTitle: string | null
   matchScore: number | null
   matchSource: 'parser' | 'fuzzy' | 'vision' | 'arbiter' | 'issn' | 'manual' | null
+  /** Badge de confiance sur l'identification metadata :
+   *   confirmed — ISSN match OU zones magazine + valeurs cohérentes
+   *   doubt     — match faible / champ manquant, à valider user
+   *   rejected  — garbage output ou contradiction évidente
+   *   null      — pas encore évalué */
+  confidence: 'confirmed' | 'doubt' | 'rejected' | null
   proposedMagazineData: {
     title?: string
     issn?: string | null

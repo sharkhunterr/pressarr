@@ -267,6 +267,7 @@ def _dispatch_row_to_resource(row) -> PackDispatchFileResource:
         matched_magazine_title=matched_title,
         match_score=row.match_score,
         match_source=row.match_source,
+        confidence=row.confidence,
         proposed_magazine_data=proposed,
         user_action=row.user_action,
         user_action_magazine_id=row.user_action_magazine_id,

@@ -118,6 +118,8 @@ class PackDispatchFileResource(CamelModel):
     matched_magazine_title: str | None = None
     match_score: float | None = None
     match_source: str | None = None
+    # confirmed | doubt | rejected | None (pas encore évalué)
+    confidence: str | None = None
     proposed_magazine_data: dict | None = None
     user_action: str | None = None
     user_action_magazine_id: int | None = None
