@@ -418,7 +418,11 @@ async def process_pack_download(
                 )
                 db.add(row)
                 rows.append(row)
-        await db.flush()
+        # Commit (pas flush) : libère le write lock DB entre chaque
+        # étape long-running (analyse IA / import). Un flush laisse
+        # la transaction ouverte → bloque ai_enrichment_run.INSERT
+        # jusqu'à la fin (potentiellement 30 min pour 32 fichiers).
+        await db.commit()
 
         # ── 4. Analyse + décision par fichier ─────────────────────
         stats = {
@@ -464,7 +468,7 @@ async def process_pack_download(
                 stats["analyzed"] += 1
                 row.status = "analyzed"
                 row.analyzed_at = datetime.now()
-                await db.flush()
+                await db.commit()
 
                 # ── 5. Décision ──────────────────────────────────
                 if pack.preview_before_import:
@@ -512,12 +516,12 @@ async def process_pack_download(
                             "frequency": pack.default_new_magazine_frequency,
                         })
                     stats["pending_user"] += 1
-                await db.flush()
+                await db.commit()
             except Exception as exc:
                 logger.exception("Pack dispatch analyse fichier %s a échoué", row.filename)
                 row.status = "error"
                 row.error_message = f"{type(exc).__name__}: {exc}"
-                await db.flush()
+                await db.commit()
 
         await db.commit()
         summary = (
