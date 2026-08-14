@@ -52,21 +52,26 @@ class QBittorrentClient(DownloadClientBase):
         self._authenticated = True
 
     async def add_torrent(self, url: str, category: str = "pressarr") -> str:
-        """Add a torrent by URL. Returns the new torrent's info-hash.
+        """Add a torrent by URL. Returns the torrent's info-hash.
 
         qBittorrent's ``/torrents/add`` endpoint never returns the hash —
-        it just answers ``200 Ok.``. We need the hash so the monitor can
-        poll ``/torrents/info?hashes=<id>`` later; passing the source URL
-        as the id (the previous behaviour) made every poll miss because
-        qBit's filter only matches actual info-hashes.
+        il répond juste ``200 Ok.``. On a besoin du hash pour que le
+        monitor puisse poller ``/torrents/info?hashes=<id>`` plus tard ;
+        passer l'URL source comme id (l'ancien fallback) fait rater
+        chaque poll car le filtre qBit ne matche que les vrais hashes.
 
-        Strategy: snapshot the hashes already present in ``category``
-        before the add, fire the add, then poll the category until a new
-        hash appears (or we give up after a few seconds). Diffing by
-        category keeps the window small even on a busy client. If the
-        diff never resolves we fall back to returning the URL so the
-        caller still gets an identifier — the download will continue,
-        only the status polling will be blind for that one item.
+        Deux cas à couvrir :
+          - torrent JAMAIS vu → snapshot "before" ne le contient pas,
+            après add il apparaît → diff nous donne le nouveau hash.
+          - torrent DÉJÀ présent (re-grab du même release) → diff vide
+            car qBit ne dédoublonne pas. Dans ce cas on prend le torrent
+            de la catégorie dont ``added_on`` est le plus récent — c'est
+            très probablement celui qui vient d'être re-touché.
+
+        Sans ce cas #2, un re-grab du même magazine renvoyait l'URL
+        comme "download_id" → grab_registry pollué → pack_dispatch
+        jamais déclenché car impossible de retrouver l'entry registry
+        depuis le hash réel remonté par get_all().
         """
         await self._login()
 
@@ -79,8 +84,7 @@ class QBittorrentClient(DownloadClientBase):
             snap.raise_for_status()
             before = {t.get("hash", "") for t in snap.json() if t.get("hash")}
         except Exception:
-            # Snapshot is best-effort — a transient hiccup here
-            # shouldn't block the actual add below.
+            # Snapshot best-effort — un hiccup ne doit pas bloquer l'add.
             pass
 
         resp = await self._client.post(
@@ -89,10 +93,12 @@ class QBittorrentClient(DownloadClientBase):
         )
         resp.raise_for_status()
 
-        # qBit registers the torrent asynchronously; poll briefly for it
-        # to show up in the category. ~6 s total at 300 ms intervals is
-        # well inside the importer's tolerance and long enough for the
-        # metaDL stage of a fresh magnet/torrent fetch.
+        # Poll : cherche un nouveau hash, ou un torrent dont added_on
+        # est très récent (re-add du même torrent).
+        import time as _time
+        window_start = _time.time() - 3  # 3 s de marge avant l'add
+
+        last_current: list[dict] = []
         for _ in range(20):
             await asyncio.sleep(0.3)
             try:
@@ -102,28 +108,47 @@ class QBittorrentClient(DownloadClientBase):
                 )
                 poll.raise_for_status()
                 current = poll.json()
+                last_current = current
             except Exception:
                 continue
+
+            # Cas 1 : nouveau hash → c'est notre torrent
             new_hashes = [
                 t.get("hash", "")
                 for t in current
                 if t.get("hash") and t["hash"] not in before
             ]
             if new_hashes:
-                # If multiple appeared (unlikely in 6 s), pick the most
-                # recently added one — qBit sets ``added_on`` per torrent.
                 new_hashes.sort(
                     key=lambda h: next(
-                        (
-                            t.get("added_on", 0)
-                            for t in current
-                            if t.get("hash") == h
-                        ),
+                        (t.get("added_on", 0) for t in current if t.get("hash") == h),
                         0,
                     ),
                     reverse=True,
                 )
                 return new_hashes[0]
+
+            # Cas 2 : pas de nouveau hash mais un torrent existant a été
+            # touché récemment (added_on > window_start) → re-add
+            recently_touched = [
+                (t.get("hash", ""), t.get("added_on", 0))
+                for t in current
+                if t.get("hash") and (t.get("added_on") or 0) >= window_start
+            ]
+            if recently_touched:
+                recently_touched.sort(key=lambda p: p[1], reverse=True)
+                return recently_touched[0][0]
+
+        # Ultime fallback : le torrent de la catégorie avec added_on le
+        # plus récent (mieux qu'une URL fake qui pollue le registry).
+        if last_current:
+            latest = max(
+                (t for t in last_current if t.get("hash")),
+                key=lambda t: t.get("added_on", 0),
+                default=None,
+            )
+            if latest:
+                return latest["hash"]
 
         return url
 
