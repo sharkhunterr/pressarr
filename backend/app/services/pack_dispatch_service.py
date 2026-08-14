@@ -351,6 +351,10 @@ async def process_pack_download(
         kind="pack_dispatch",
         title=f"Pack {pack.name} — dispatch",
         payload={"pack_id": pack_id, "download_id": download_id},
+        # Dedup : si un dispatch est déjà en cours pour ce download_id
+        # (ex. relance manuelle pendant qu'une autre tourne), on
+        # récupère l'activité existante au lieu d'en créer une nouvelle.
+        external_id=f"pack_dispatch:{pack_id}:{download_id}",
     )
     try:
         await activity_service.push_step(

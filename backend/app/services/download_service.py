@@ -48,6 +48,12 @@ _processed_downloads: set[str] = set()
 # process_downloaded_file.
 _in_flight_downloads: set[str] = set()
 
+# Same idea pour la dispatch des packs — l'analyse IA prend plusieurs
+# minutes et bloque un tick de monitor. Sans ce garde, chaque tick suivant
+# relançait TOUTE la dispatch (extract + IA sur N fichiers) →
+# activités zombies "0% Analyse 1/32" empilées, Ollama saturé.
+_pack_dispatch_in_flight: set[str] = set()
+
 # Track whether the registry has been loaded from disk
 _registry_loaded: bool = False
 
@@ -781,29 +787,58 @@ async def _process_pack_download(
     Le frontend ne reçoit plus un modal éphémère — il retrouve tout
     dans l'onglet Dispatch du pack (persistant), avec badge count des
     pending_user.
+
+    **Anti-double-fire** : l'analyse IA prend plusieurs minutes (jusqu'à
+    30 min sur 32 fichiers). Pendant ce temps, le monitor scheduler
+    ticke toutes les 30-60 s et retrouve le download toujours "completed"
+    dans le client. Sans garde, chaque tick relançait TOUTE la dispatch
+    → activités zombies, IA en boucle, DB thrashing. On combine :
+      1. ``_pack_dispatch_in_flight`` : set en mémoire — early-return
+         si un dispatch est déjà en cours pour ce download_id.
+      2. ``_processed_downloads.add`` AVANT l'analyse — ne serait-ce
+         que pour dire au monitor "n'y retourne pas", même en cas de
+         crash du process (l'entrée reste au reboot via _save_registry).
     """
     from app.database import async_session_factory
     from app.dependencies import get_config
     from app.services.pack_dispatch_service import process_pack_download
 
     pack_id = grab.pack_id
+    download_id = item.download_id or ""
+
+    if download_id in _pack_dispatch_in_flight:
+        logger.debug(
+            "Monitor: pack dispatch already in-flight for %s — skip",
+            download_id,
+        )
+        return
+
     logger.info(
         "Monitor: pack download %s → pack_dispatch_service (pack_id=%d)",
-        item.download_id, pack_id,
+        download_id, pack_id,
     )
 
     save_path = _resolve_save_path(
         item, remote_path=cfg["remote_path"], local_path=cfg["local_path"]
     )
     if not save_path:
-        logger.warning("Monitor: pack download path not found for %s", item.download_id)
+        logger.warning("Monitor: pack download path not found for %s", download_id)
         return
+
+    # Marque processed AVANT l'analyse pour bloquer les prochains ticks.
+    # Si l'analyse crash / hang, une action manuelle sera nécessaire
+    # (delete _processed_downloads.json + restart), mais c'est bien
+    # mieux que 6 dispatchs zombies qui saturent Ollama.
+    if download_id:
+        _pack_dispatch_in_flight.add(download_id)
+        _processed_downloads.add(download_id)
+        _save_registry()
 
     try:
         stats = await process_pack_download(
             db,
             pack_id=pack_id,
-            download_id=item.download_id or "",
+            download_id=download_id,
             save_path=save_path,
             config=get_config(),
             session_factory=async_session_factory,
@@ -811,6 +846,8 @@ async def _process_pack_download(
     except Exception:
         logger.exception("Monitor: pack dispatch failed for pack_id=%d", pack_id)
         return
+    finally:
+        _pack_dispatch_in_flight.discard(download_id)
 
     # History event pour trace
     try:
@@ -824,7 +861,7 @@ async def _process_pack_download(
             ),
             data={
                 "pack_id": pack_id,
-                "download_id": item.download_id,
+                "download_id": download_id,
                 **stats,
             },
         )
@@ -836,17 +873,15 @@ async def _process_pack_download(
         from app.api.v1.websocket import manager as ws_manager
         await ws_manager.broadcast(
             "pack:dispatch_ready",
-            {"packId": pack_id, "downloadId": item.download_id, **stats},
+            {"packId": pack_id, "downloadId": download_id, **stats},
         )
         await ws_manager.broadcast("library:updated", {})
     except Exception:
         pass
 
-    # Le download est traité (auto ou en attente user). On le retire de
-    # la registry pour ne pas re-triggerer au prochain tick monitor.
-    if item.download_id:
-        _processed_downloads.add(item.download_id)
-        _grab_registry.pop(item.download_id, None)
+    # Retire de la grab_registry (déjà processed marqué au début).
+    if download_id:
+        _grab_registry.pop(download_id, None)
         _import_fail_count.pop(item.download_id, None)
         _save_registry()
 
