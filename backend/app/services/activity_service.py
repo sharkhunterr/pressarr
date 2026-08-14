@@ -141,23 +141,36 @@ async def create(
         if existing is not None:
             return existing
 
-    async with _db.async_session_factory() as session:
-        row = Activity(
-            kind=kind,
-            status=status,
-            title=title,
-            subtitle=subtitle,
-            magazine_id=magazine_id,
-            issue_id=issue_id,
-            payload=_dump_payload(payload_dict),
-        )
-        session.add(row)
-        await session.commit()
-        await session.refresh(row)
-        logger.info(
-            "[activity] created id=%d kind=%s title=%r", row.id, kind, title,
-        )
-        return row.id
+    # Sérialise avec les autres writers via _write_lock + retry 3× 250 ms
+    # sur "database is locked". Sans ça un create tombe silencieusement
+    # dès qu'un autre writer (dispatch, scheduler, monitor) tient un
+    # tx de plus de quelques ms → activités jamais persistées → user ne
+    # voit rien dans /activity malgré l'action déclenchée.
+    row_id_holder: dict[str, int] = {}
+
+    async def _do() -> None:
+        async with _write_lock:
+            async with _db.async_session_factory() as session:
+                row = Activity(
+                    kind=kind,
+                    status=status,
+                    title=title,
+                    subtitle=subtitle,
+                    magazine_id=magazine_id,
+                    issue_id=issue_id,
+                    payload=_dump_payload(payload_dict),
+                )
+                session.add(row)
+                await session.commit()
+                await session.refresh(row)
+                row_id_holder["id"] = row.id
+                logger.info(
+                    "[activity] created id=%d kind=%s title=%r",
+                    row.id, kind, title,
+                )
+
+    await _retry_on_lock(_do)
+    return row_id_holder["id"]
 
 
 async def find_by_external_id(
