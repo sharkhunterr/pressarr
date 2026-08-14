@@ -62,13 +62,20 @@ STALE_S = 900
 _write_lock = asyncio.Lock()
 
 
-async def _retry_on_lock(coro_factory, tries: int = 3, delay: float = 0.25):
+async def _retry_on_lock(coro_factory, tries: int = 8, delay: float = 0.3):
     """Exécute une coroutine, retry avec backoff sur DB lock.
 
     Défense en profondeur : le _write_lock devrait suffire, mais
     aiosqlite peut occasionnellement lever OperationalError sur des
     transactions rapides multiples (le WAL a besoin d'un checkpoint
-    de temps en temps). 3 tentatives × 250 ms suffit largement.
+    de temps en temps). Ancienne valeur 3×250ms=1.5s se révélait trop
+    courte quand le monitor scheduler + dispatch pack + trackers
+    d'imports pouvaient tenir la DB longtemps. 8 essais × backoff
+    linéaire = jusqu'à ~11 s d'attente cumulée (0.3+0.6+…+2.4).
+
+    Un write bloqué 11 s c'est déjà critique, mais mieux qu'un
+    silent-drop dans le log warning qui laisse l'utilisateur voir
+    "Recherche lancée" sans jamais d'activity en base.
     """
     last_exc: Exception | None = None
     for attempt in range(tries):
