@@ -65,10 +65,35 @@ const KIND_META: Record<
     badge: 'bg-purple-500/15 text-purple-200 ring-purple-500/30',
     short: 'IA',
   },
+  ai_refresh: {
+    label: 'Refresh IA',
+    badge: 'bg-purple-500/15 text-purple-200 ring-purple-500/30',
+    short: 'IA',
+  },
   scan: {
     label: 'Scan auto-grab',
     badge: 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/30',
     short: 'SCAN',
+  },
+  search: {
+    label: 'Recherche',
+    badge: 'bg-blue-500/15 text-blue-200 ring-blue-500/30',
+    short: 'SEARCH',
+  },
+  grab: {
+    label: 'Grab release',
+    badge: 'bg-orange-500/15 text-orange-200 ring-orange-500/30',
+    short: 'GRAB',
+  },
+  pack_grab: {
+    label: 'Grab pack',
+    badge: 'bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-500/30',
+    short: 'PACK',
+  },
+  pack_dispatch: {
+    label: 'Dispatch pack',
+    badge: 'bg-teal-500/15 text-teal-200 ring-teal-500/30',
+    short: 'DISPATCH',
   },
   scheduled: {
     label: 'Tâche planifiée',
@@ -87,12 +112,15 @@ const STATUS_STYLE: Record<string, string> = {
 
 const KIND_TABS: Array<{ key: 'all' | ActivityKind; label: string }> = [
   { key: 'all', label: 'Tout' },
+  { key: 'search', label: 'Recherches' },
+  { key: 'grab', label: 'Grabs' },
+  { key: 'pack_grab', label: 'Packs' },
+  { key: 'pack_dispatch', label: 'Dispatch' },
   { key: 'download', label: 'Downloads' },
   { key: 'direct_download', label: 'AA / IA' },
   { key: 'import', label: 'Imports' },
-  { key: 'analyze', label: 'Analyses IA' },
+  { key: 'ai_refresh', label: 'IA' },
   { key: 'scan', label: 'Scans' },
-  { key: 'scheduled', label: 'Planifiées' },
 ]
 
 export default function ActivityPage() {

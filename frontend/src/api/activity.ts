@@ -13,6 +13,11 @@ export type ActivityKind =
   | 'direct_download'
   | 'import'
   | 'analyze'
+  | 'ai_refresh'
+  | 'search'
+  | 'grab'
+  | 'pack_grab'
+  | 'pack_dispatch'
   | 'scan'
   | 'scheduled'
 

@@ -167,6 +167,20 @@ async def search_issue(
     magazine = issue.magazine
     query = _build_query(magazine, issue)
 
+    from app.services import activity_service as _asvc
+    activity_id: int | None = None
+    try:
+        activity_id = await _asvc.create(
+            kind="search",
+            title=f"Recherche · {magazine.title} #{issue.number or '?'}",
+            subtitle=query,
+            magazine_id=magazine.id,
+            issue_id=issue.id,
+            payload={"query": query, "type": "manual_issue"},
+        )
+    except Exception:
+        pass
+
     # Get quality profile items
     profile_items = await _get_quality_items(db, magazine.quality_profile_id)
 
@@ -259,6 +273,15 @@ async def search_issue(
         except Exception:  # noqa: BLE001
             pass
 
+    if activity_id is not None:
+        try:
+            await _asvc.mark_done(
+                activity_id,
+                hint=f"{len(all_results)} résultats · {len(indexer_names)} indexeur(s)",
+            )
+        except Exception:
+            pass
+
     return all_results
 
 
@@ -268,6 +291,19 @@ async def search_free(
     """Free-text search across all enabled indexers (Prowlarr)."""
     from app.indexers.prowlarr import ProwlarrClient
     from app.models.indexer_config import IndexerConfig
+    from app.services import activity_service as _asvc
+
+    activity_id: int | None = None
+    try:
+        activity_id = await _asvc.create(
+            kind="search",
+            title=f"Recherche · {query}"[:200],
+            subtitle="Free-text sur indexeurs Prowlarr",
+            magazine_id=magazine_id,
+            payload={"query": query, "type": "free"},
+        )
+    except Exception:
+        pass
 
     indexer_result = await db.execute(
         select(IndexerConfig).where(IndexerConfig.enabled.is_(True))
@@ -342,6 +378,15 @@ async def search_free(
         try:
             await db.rollback()
         except Exception:  # noqa: BLE001
+            pass
+
+    if activity_id is not None:
+        try:
+            await _asvc.mark_done(
+                activity_id,
+                hint=f"{len(all_results)} résultats · {len(indexer_names)} indexeur(s)",
+            )
+        except Exception:
             pass
 
     return all_results

@@ -47,7 +47,9 @@ class ActivityCountersResource(CamelModel):
 
 VALID_KINDS = {
     "download", "direct_download", "import",
-    "analyze", "scan", "scheduled",
+    "analyze", "ai_refresh",
+    "search", "grab", "pack_grab", "pack_dispatch",
+    "scan", "scheduled",
 }
 VALID_STATUSES = {"queued", "running", "success", "failed", "cancelled"}
 

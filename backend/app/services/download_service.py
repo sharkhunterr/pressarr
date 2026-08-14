@@ -227,6 +227,27 @@ async def grab_release(
             message=f"No {protocol} download client configured",
         )
 
+    # Activité — visible dans la sidebar/queue dès le début du grab.
+    # Auto-clean à la fin (mark_done) ou en erreur (mark_error).
+    from app.services import activity_service as _asvc
+    activity_id: int | None = None
+    try:
+        activity_id = await _asvc.create(
+            kind="grab",
+            title=f"Grab · {title}"[:200] if title else "Grab release",
+            subtitle=f"{protocol} · {client_record.name}",
+            magazine_id=resolved_magazine_id,
+            issue_id=issue.id if issue else None,
+            payload={
+                "title": title,
+                "protocol": protocol,
+                "download_client": client_record.name,
+                "guid": guid,
+            },
+        )
+    except Exception:
+        logger.debug("Activity mirror (grab) failed", exc_info=True)
+
     # Send to download client
     try:
         client = _instantiate_client(client_record)
@@ -303,6 +324,22 @@ async def grab_release(
 
         invalidate_pattern_cache(resolved_magazine_id)
 
+        if activity_id is not None:
+            try:
+                await _asvc.update_meta(
+                    activity_id,
+                    payload_patch={
+                        "download_id": download_id,
+                        "message": f"Envoyé à {client_record.name}",
+                    },
+                )
+                await _asvc.mark_done(
+                    activity_id,
+                    hint=f"Envoyé à {client_record.name} (download_id={download_id})",
+                )
+            except Exception:
+                logger.debug("Activity finalize (grab done) failed", exc_info=True)
+
         return GrabResponse(
             issue_id=issue_id or 0,
             download_id=download_id,
@@ -310,6 +347,11 @@ async def grab_release(
         )
     except Exception as e:
         logger.error("Failed to grab release: %s", e, exc_info=True)
+        if activity_id is not None:
+            try:
+                await _asvc.mark_error(activity_id, str(e))
+            except Exception:
+                pass
         return GrabResponse(issue_id=issue_id or 0, message=f"Grab failed: {e}")
 
 
@@ -330,6 +372,24 @@ async def grab_pack_release(
     client_record = await _select_client(db, protocol)
     if not client_record:
         return {"pack_id": pack_id, "message": f"No {protocol} download client configured"}
+
+    from app.services import activity_service as _asvc
+    activity_id: int | None = None
+    try:
+        activity_id = await _asvc.create(
+            kind="pack_grab",
+            title=f"Pack grab · {title}"[:200] if title else "Pack grab",
+            subtitle=f"{protocol} · {client_record.name}",
+            payload={
+                "pack_id": pack_id,
+                "title": title,
+                "protocol": protocol,
+                "download_client": client_record.name,
+                "guid": guid,
+            },
+        )
+    except Exception:
+        logger.debug("Activity mirror (pack_grab) failed", exc_info=True)
 
     try:
         client = _instantiate_client(client_record)
@@ -369,6 +429,19 @@ async def grab_pack_release(
             },
         )
 
+        if activity_id is not None:
+            try:
+                await _asvc.update_meta(
+                    activity_id,
+                    payload_patch={"download_id": download_id},
+                )
+                await _asvc.mark_done(
+                    activity_id,
+                    hint=f"Envoyé à {client_record.name} — attend fin téléchargement puis dispatch",
+                )
+            except Exception:
+                pass
+
         return {
             "pack_id": pack_id,
             "download_id": download_id,
@@ -376,6 +449,11 @@ async def grab_pack_release(
         }
     except Exception as e:
         logger.error("Failed to grab pack release: %s", e, exc_info=True)
+        if activity_id is not None:
+            try:
+                await _asvc.mark_error(activity_id, str(e))
+            except Exception:
+                pass
         return {"pack_id": pack_id, "message": f"Grab failed: {e}"}
 
 

@@ -394,17 +394,65 @@ async def reanalyze_magazine(
             issue_id = f.issue_id
 
     from app.database import async_session_factory
+    from app.services import activity_service as _asvc_re
+
+    _re_activity: int | None = None
+    try:
+        _re_activity = await _asvc_re.create(
+            kind="ai_refresh",
+            title=f"Analyse IA · {mag.title}"
+                + (f" #{issue_id}" if issue_id else ""),
+            subtitle="Re-analyse manuelle (bypass cache)",
+            magazine_id=magazine_id,
+            issue_id=issue_id,
+            payload={"torrent_name": torrent_name},
+        )
+    except Exception:
+        pass
+
+    def _reanalyze_cb(stage: str, detail: str) -> None:
+        if _re_activity is None:
+            return
+        try:
+            import asyncio as _aio
+            _aio.get_running_loop().create_task(
+                _asvc_re.push_step(
+                    _re_activity,
+                    {"step": stage, "label": stage, "hint": detail},
+                )
+            )
+        except Exception:
+            pass
 
     svc = AIEnrichmentService(config, async_session_factory)
-    result = await svc.enrich(
-        torrent_name=torrent_name,
-        pdf_path=pdf_path,
-        magazine_id=magazine_id,
-        issue_id=issue_id,
-        trigger="reanalyze",
-        # User a explicitement cliqué le bouton — pas de cache silencieux.
-        force=True,
-    )
+    try:
+        result = await svc.enrich(
+            torrent_name=torrent_name,
+            pdf_path=pdf_path,
+            magazine_id=magazine_id,
+            issue_id=issue_id,
+            trigger="reanalyze",
+            progress_cb=_reanalyze_cb,
+            # User a explicitement cliqué le bouton — pas de cache silencieux.
+            force=True,
+        )
+    except Exception as e:
+        if _re_activity is not None:
+            try:
+                await _asvc_re.mark_error(_re_activity, str(e))
+            except Exception:
+                pass
+        raise
+    if _re_activity is not None:
+        try:
+            await _asvc_re.mark_done(
+                _re_activity,
+                hint=f"✓ {result.total_elapsed_ms / 1000:.1f}s"
+                    if result.applied_mode != "cache_hit"
+                    else f"⚡ cache — {result.total_elapsed_ms}ms",
+            )
+        except Exception:
+            pass
 
     # Optionally apply to the issue directly (bypass propose mode).
     if body.apply_result and result.final and issue_id:
@@ -874,11 +922,41 @@ async def _run_batch_background(
     suivante et on log.
     """
     from app.database import async_session_factory
+    from app.services import activity_service as _asvc
     from app.services.ai_enrichment_service import (
         AIEnrichmentService,
         merge_ai_into_parsed,
     )
     from app.services.import_activity_tracker import tracker as _act
+
+    # Activité batch-level : le user voit UNE ligne dans Activity qui
+    # trace la progression global du refresh. Chaque issue continue
+    # d'avoir sa propre activity via _act (import_activity_tracker).
+    batch_activity_id: int | None = None
+    try:
+        from app.models.magazine import Magazine as _Mag
+        async with async_session_factory() as _s:
+            _m = (await _s.execute(
+                select(_Mag).where(_Mag.id == magazine_id)
+            )).scalar_one_or_none()
+        _mag_title = _m.title if _m else f"magazine #{magazine_id}"
+        batch_activity_id = await _asvc.create(
+            kind="ai_refresh",
+            title=f"Refresh IA · {_mag_title}",
+            subtitle=f"{len(work_items)} issue(s)",
+            magazine_id=magazine_id,
+            payload={
+                "issue_count": len(work_items),
+                "python_ocr": python_ocr_enabled,
+                "arbiter": arbiter_enabled,
+                "torrent_ai": torrent_ai_enabled,
+                "vision_pages": vision_pages,
+                "apply": apply_result,
+                "force": force,
+            },
+        )
+    except Exception:
+        logger.debug("Activity mirror (ai_refresh batch) failed", exc_info=True)
 
     # Override runtime : ai_enrichment_vision_pages contrôle la vision,
     # ai_python_ocr_enabled contrôle l'OCR python, ai_arbiter_model
@@ -904,8 +982,27 @@ async def _run_batch_background(
     try:
         svc = AIEnrichmentService(config, async_session_factory)
 
-        for issue_id, torrent_name, pdf_path_str in work_items:
+        _completed = 0
+        _errors = 0
+        for _idx, (issue_id, torrent_name, pdf_path_str) in enumerate(work_items, start=1):
             activity_id = f"reanalyze:{magazine_id}:{issue_id}"
+            if batch_activity_id is not None:
+                try:
+                    await _asvc.push_step(
+                        batch_activity_id,
+                        {
+                            "step": "issue",
+                            "label": f"Issue {_idx}/{len(work_items)}",
+                            "hint": torrent_name[:120],
+                            "issue_id": issue_id,
+                        },
+                    )
+                    await _asvc.update_progress(
+                        batch_activity_id,
+                        (_idx - 1) * 100 / max(1, len(work_items)),
+                    )
+                except Exception:
+                    pass
 
             def _cb(stage: str, detail: str, aid: str = activity_id) -> None:
                 _stage_map = {
@@ -1026,12 +1123,14 @@ async def _run_batch_background(
                         else f"✓ {res.total_elapsed_ms / 1000:.1f}s"
                     ),
                 )
+                _completed += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Batch enrich failed for issue %s: %s",
                     issue_id, exc, exc_info=True,
                 )
                 _act.mark_error(activity_id, str(exc))
+                _errors += 1
                 # continue avec l'issue suivante — un enrichissement raté
                 # n'annule pas le batch entier.
 
@@ -1041,6 +1140,16 @@ async def _run_batch_background(
         config.ai_arbiter_model = original_arbiter_model
         config.ai_torrent_model = original_torrent_model
         config.ai_text_model = original_text_model
+        if batch_activity_id is not None:
+            try:
+                await _asvc.mark_done(
+                    batch_activity_id,
+                    hint=(
+                        f"{_completed}/{len(work_items)} OK · {_errors} erreur(s)"
+                    ),
+                )
+            except Exception:
+                logger.debug("Activity finalize (ai_refresh batch) failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
