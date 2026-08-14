@@ -291,7 +291,28 @@ async def mark_done(activity_id: int, hint: str | None = None) -> None:
     await _retry_on_lock(_do)
 
 
+def _truncate_error(message: str, max_len: int = 400) -> str:
+    """Tronque + normalise un message d'erreur avant persistance.
+
+    Beaucoup d'exceptions SQLAlchemy incluent le SQL complet + les
+    paramètres échoués — dont l'``error_message`` du run PRÉCÉDENT
+    quand une retry-en-boucle se met en place. Sans garde, chaque
+    tour ajoute 500 chars et l'error_message finit par dépasser 20k
+    chars → row bloatée + logs illisibles.
+
+    Prend la 1re ligne (le message principal), coupe à ``max_len``.
+    """
+    if not message:
+        return message
+    first_line = message.split("\n", 1)[0].strip()
+    if len(first_line) > max_len:
+        first_line = first_line[:max_len - 1] + "…"
+    return first_line
+
+
 async def mark_error(activity_id: int, message: str) -> None:
+    short = _truncate_error(message)
+
     async def _do():
         async with _write_lock:
             async with _db.async_session_factory() as session:
@@ -302,16 +323,16 @@ async def mark_error(activity_id: int, message: str) -> None:
                     return
                 row.status = "failed"
                 row.completed_at = datetime.now()
-                row.error_message = message
+                row.error_message = short
                 steps = _load_steps(row.steps)
                 steps.append({
                     "step": "error",
                     "label": "Erreur",
-                    "hint": message,
+                    "hint": short,
                     "at": datetime.now().isoformat(),
                 })
                 row.steps = _dump_steps(steps)
-                row.status_message = f"Erreur — {message}"
+                row.status_message = f"Erreur — {short}"
                 await session.commit()
     await _retry_on_lock(_do)
 
