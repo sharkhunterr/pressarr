@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,8 +44,13 @@ class AISettingsResource(CamelModel):
     enrichment_mode: str  # remplace | complete | propose
     enrichment_vision_pages: list[int]
     enrichment_vision_crop: str  # full | top | bottom | top_bottom
+    python_ocr_enabled: bool
+    python_ocr_engine: str  # tesseract | rapidocr | easyocr
     text_model: str
     vision_model: str
+    # Optional per-step overrides. Null = fall back to text_model.
+    torrent_model: str | None = None
+    arbiter_model: str | None = None
     text_prompt: str
     vision_prompt: str
     arbiter_prompt: str
@@ -64,8 +69,12 @@ class AISettingsUpdateResource(CamelModel):
     enrichment_mode: str | None = None
     enrichment_vision_pages: list[int] | None = None
     enrichment_vision_crop: str | None = None
+    python_ocr_enabled: bool | None = None
+    python_ocr_engine: str | None = None
     text_model: str | None = None
     vision_model: str | None = None
+    torrent_model: str | None = None
+    arbiter_model: str | None = None
     text_prompt: str | None = None
     vision_prompt: str | None = None
     arbiter_prompt: str | None = None
@@ -85,8 +94,12 @@ def _to_resource(config) -> AISettingsResource:
         enrichment_mode=config.ai_enrichment_mode,
         enrichment_vision_pages=config.ai_enrichment_vision_pages,
         enrichment_vision_crop=config.ai_enrichment_vision_crop,
+        python_ocr_enabled=config.ai_python_ocr_enabled,
+        python_ocr_engine=config.ai_python_ocr_engine,
         text_model=config.ai_text_model,
         vision_model=config.ai_vision_model,
+        torrent_model=config.ai_torrent_model,
+        arbiter_model=config.ai_arbiter_model,
         text_prompt=config.ai_text_prompt,
         vision_prompt=config.ai_vision_prompt,
         arbiter_prompt=config.ai_arbiter_prompt,
@@ -112,9 +125,12 @@ async def save_ai_settings(
     """Update AI settings ; every field is optional (partial patch)."""
     valid_enrich_modes = {"remplace", "complete", "propose"}
     valid_ranker_modes = {"ai_wins", "ai_veto_only", "ai_advisory"}
+    valid_pyocr_engines = {"tesseract", "rapidocr", "easyocr"}
 
     if body.enrichment_mode is not None and body.enrichment_mode not in valid_enrich_modes:
         raise HTTPException(400, f"Invalid enrichment mode; must be {valid_enrich_modes}")
+    if body.python_ocr_engine is not None and body.python_ocr_engine not in valid_pyocr_engines:
+        raise HTTPException(400, f"Invalid python OCR engine; must be {valid_pyocr_engines}")
     if body.ranker_mode is not None and body.ranker_mode not in valid_ranker_modes:
         raise HTTPException(400, f"Invalid ranker mode; must be {valid_ranker_modes}")
 
@@ -125,8 +141,12 @@ async def save_ai_settings(
         "enrichment_mode": "ai_enrichment_mode",
         "enrichment_vision_pages": "ai_enrichment_vision_pages",
         "enrichment_vision_crop": "ai_enrichment_vision_crop",
+        "python_ocr_enabled": "ai_python_ocr_enabled",
+        "python_ocr_engine": "ai_python_ocr_engine",
         "text_model": "ai_text_model",
         "vision_model": "ai_vision_model",
+        "torrent_model": "ai_torrent_model",
+        "arbiter_model": "ai_arbiter_model",
         "text_prompt": "ai_text_prompt",
         "vision_prompt": "ai_vision_prompt",
         "arbiter_prompt": "ai_arbiter_prompt",
@@ -157,6 +177,10 @@ class OllamaModelsResource(CamelModel):
     error: str | None = None
 
 
+_OLLAMA_PROBE_CACHE: dict[str, tuple[float, OllamaModelsResource]] = {}
+_OLLAMA_PROBE_TTL_S = 30.0
+
+
 @router.get("/ollama/models", response_model=OllamaModelsResource)
 async def list_ollama_models(
     url: str | None = None,
@@ -168,18 +192,81 @@ async def list_ollama_models(
     (before save) so the "Test" button in the settings UI probes the
     field's live value instead of the persisted config. Falls back
     to ``config.ai_ollama_url`` when not provided.
+
+    Cache TTL 30 s pour ne pas re-tapper Ollama (remote, network ~500ms)
+    à chaque render / focus de la page Settings.
     """
+    import time as _t
+
     target = url or config.ai_ollama_url
+    cached = _OLLAMA_PROBE_CACHE.get(target)
+    if cached and (_t.monotonic() - cached[0]) < _OLLAMA_PROBE_TTL_S:
+        return cached[1]
     adapter = OllamaAdapter(target, timeout_s=10)
     try:
         models = await adapter.list_models()
-        return OllamaModelsResource(
+        result = OllamaModelsResource(
             reachable=True, url=adapter.url, models=models
         )
+        _OLLAMA_PROBE_CACHE[target] = (_t.monotonic(), result)
+        return result
     except Exception as exc:  # noqa: BLE001
         return OllamaModelsResource(
             reachable=False, url=adapter.url, models=[], error=str(exc)
         )
+
+
+# ---------------------------------------------------------------------------
+# Python OCR engines probe — tells the UI which of the 3 engines are
+# actually importable/usable on this machine, so the dropdown greys
+# out the ones missing (avoids saving a broken config).
+# ---------------------------------------------------------------------------
+
+
+class PythonOCRProbeEntry(CamelModel):
+    engine: str
+    available: bool
+    error: str | None = None
+
+
+@router.get(
+    "/python-ocr/engines",
+    response_model=list[PythonOCRProbeEntry],
+)
+async def probe_python_ocr_engines():
+    """Return per-engine availability. Never raises."""
+    from app.services.python_ocr_service import probe_available
+    data = probe_available()
+    return [
+        PythonOCRProbeEntry(engine=name, available=info["available"], error=info.get("error"))
+        for name, info in data.items()
+    ]
+
+
+class PipelineStepDoc(CamelModel):
+    name: str
+    label: str
+    description: str
+    kind: str
+    inputs: list[str]
+    outputs: list[str]
+    optional: bool
+    fan_out: bool
+
+
+@router.get(
+    "/pipeline/steps",
+    response_model=list[PipelineStepDoc],
+)
+async def list_pipeline_steps():
+    """Documentation ordonnée des étapes du pipeline metadata.
+
+    Utilisé par le frontend (Settings/AI + History) pour afficher
+    un diagramme du flow et rappeler les inputs/outputs de chaque
+    step. Modifier cette liste : voir ``pipeline_registry.py``.
+    """
+    from app.services.pipeline_registry import as_dicts
+    return as_dicts()
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +306,15 @@ class BatchRefreshRequest(CamelModel):
     include_metadata: bool = True
     include_ai_text: bool = True
     include_ai_vision: bool = True
+    # Toggles fins par étape du pipeline metadata. ``None`` = fallback
+    # cohérent : True quand la source parente (ai_text/ai_vision) est
+    # activée, False sinon. Le arbiter n'a de sens que si au moins une
+    # source IA a tourné — le service décide en interne. Ces flags
+    # laissent l'opérateur zapper une étape spécifique (ex. skip vision
+    # LLM pour ne garder que python_ocr sur un magazine à bandeau
+    # étroit qui pourrit systématiquement minicpm-v).
+    include_python_ocr: bool | None = None
+    include_ai_arbiter: bool | None = None
     apply_result: bool = True
     # Défaut True : le user a explicitement cliqué « Refresh IA »,
     # il attend une vraie re-run, pas un cache hit silencieux.
@@ -328,7 +424,40 @@ async def reanalyze_magazine(
             proxy.month = issue.month
             proxy.day = issue.day
             merged = merge_ai_into_parsed(proxy, result.final, config.ai_enrichment_mode)
-            issue.number = merged.number
+            # Conflict guard : cf. _run_batch_background — un forecast
+            # peut déjà porter le numéro cible, on le supprime pour
+            # laisser la place à cet import « authoritative ».
+            new_number = merged.number
+            if new_number is not None and issue.number != new_number:
+                from sqlalchemy.orm import selectinload
+                conflict = (
+                    await session.execute(
+                        select(Issue)
+                        .options(selectinload(Issue.file))
+                        .where(
+                            Issue.magazine_id == issue.magazine_id,
+                            Issue.number == new_number,
+                            Issue.id != issue.id,
+                        )
+                    )
+                ).scalars().first()
+                if conflict and conflict.file is None:
+                    logger.info(
+                        "Reanalyze apply: dropping forecast issue %d (#%s) "
+                        "to free the number for issue %d",
+                        conflict.id, new_number, issue.id,
+                    )
+                    await session.delete(conflict)
+                    await session.flush()
+                elif conflict is not None:
+                    logger.warning(
+                        "Reanalyze apply: issue %d wants #%s but issue %d "
+                        "has it with a file → keeping current",
+                        issue.id, new_number, conflict.id,
+                    )
+                    new_number = None
+            if new_number is not None:
+                issue.number = new_number
             issue.year = merged.year
             issue.month = merged.month
             issue.day = merged.day
@@ -349,18 +478,83 @@ async def reanalyze_magazine(
 # ---------------------------------------------------------------------------
 
 
-class CropRect(CamelModel):
-    """Rectangle en ratios 0..1 de la page."""
+class CropZone(CamelModel):
+    """One custom zone drawn by the operator on the cover.
+
+    Coords are ratios 0..1 of the full page. ``rotation`` is a
+    clockwise angle in {0, 90, 180, 270} that will be applied to
+    the rendered crop BEFORE being sent to the vision model —
+    useful for narrow vertical strips (Paris Match tarif) whose
+    text is printed at 90°.
+
+    ``label`` : free-form UI hint ("Masthead haut", "Tarif vertical").
+
+    ``tag`` : vocabulaire STRUCTURÉ qui pilote le prompt vision
+    envoyé pour cette zone. Vocabulaire fixe :
+      - ``number`` : cherche uniquement le N° d'édition
+      - ``date``   : cherche la date de publication
+      - ``title``  : titre principal
+      - ``subtitle``: sous-titre / accroche
+      - ``price``  : prix + mentions tarif
+      - ``publisher``: éditeur / mentions légales
+      - ``all``    : OCR exhaustif (comportement historique)
+      - ``custom`` : voir champ ``custom_tag``
+
+    ``custom_tag`` : texte libre utilisé quand ``tag == "custom"``
+    pour construire un prompt sur-mesure ("cherche le code-barre").
+    """
 
     x: float
     y: float
     w: float
     h: float
+    rotation: int = 0
+    label: str | None = None
+    tag: str = "all"
+    custom_tag: str | None = None
 
 
 class CropRectResponse(CamelModel):
     magazine_id: int
-    rect: CropRect | None
+    zones: list[CropZone] = []
+
+
+def _parse_stored_crop(raw: str | None) -> list[CropZone]:
+    """Parse the ai_crop_rect DB blob, tolerant to legacy shapes.
+
+    Old shape (single dict) -> promoted to a single-zone list.
+    New shape (list of dicts) -> kept as-is (rotation/label optional).
+    """
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return []
+    if isinstance(data, dict):
+        raw_zones = [data]
+    elif isinstance(data, list):
+        raw_zones = data
+    else:
+        return []
+    out: list[CropZone] = []
+    for z in raw_zones:
+        if not isinstance(z, dict):
+            continue
+        try:
+            out.append(CropZone(
+                x=float(z["x"]),
+                y=float(z["y"]),
+                w=float(z["w"]),
+                h=float(z["h"]),
+                rotation=int(z.get("rotation") or 0) % 360,
+                label=(z.get("label") or None),
+                tag=(z.get("tag") or "all"),
+                custom_tag=(z.get("custom_tag") or None),
+            ))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
 
 
 @router.get(
@@ -371,20 +565,22 @@ async def get_magazine_crop(
     magazine_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """Renvoie le rect custom stocké sur le magazine, ou null."""
+    """Renvoie la liste des zones custom du magazine (peut etre vide)."""
     mag = (
         await session.execute(select(Magazine).where(Magazine.id == magazine_id))
     ).scalars().first()
     if not mag:
         raise HTTPException(404, "Magazine not found")
-    rect: CropRect | None = None
-    if mag.ai_crop_rect:
-        try:
-            data = json.loads(mag.ai_crop_rect)
-            rect = CropRect(**data)
-        except Exception:  # noqa: BLE001
-            rect = None
-    return CropRectResponse(magazine_id=magazine_id, rect=rect)
+    return CropRectResponse(
+        magazine_id=magazine_id,
+        zones=_parse_stored_crop(mag.ai_crop_rect),
+    )
+
+
+class CropUpdateRequest(CamelModel):
+    """Body for PUT /crop -- always a list (empty = clear all)."""
+
+    zones: list[CropZone] = []
 
 
 @router.put(
@@ -393,26 +589,82 @@ async def get_magazine_crop(
 )
 async def set_magazine_crop(
     magazine_id: int,
-    body: CropRect | None,
+    body: CropUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Persiste ou efface (body=null) le rect custom sur le magazine."""
+    """Remplace intégralement la liste des zones custom.
+
+    Envoyer ``{"zones": []}`` efface le crop custom (fallback global).
+    """
     mag = (
         await session.execute(select(Magazine).where(Magazine.id == magazine_id))
     ).scalars().first()
     if not mag:
         raise HTTPException(404, "Magazine not found")
-    if body is None:
+    if not body.zones:
         mag.ai_crop_rect = None
     else:
-        # Clamp bounds pour éviter des rect invalides côté DB.
-        x = max(0.0, min(1.0, body.x))
-        y = max(0.0, min(1.0, body.y))
-        w = max(0.01, min(1.0 - x, body.w))
-        h = max(0.01, min(1.0 - y, body.h))
-        mag.ai_crop_rect = json.dumps({"x": x, "y": y, "w": w, "h": h})
+        valid_tags = {
+            "number", "date", "title", "subtitle",
+            "price", "publisher", "issn", "all", "custom",
+        }
+        clamped: list[dict] = []
+        for z in body.zones:
+            x = max(0.0, min(1.0, z.x))
+            y = max(0.0, min(1.0, z.y))
+            w = max(0.01, min(1.0 - x, z.w))
+            h = max(0.01, min(1.0 - y, z.h))
+            rot = int(z.rotation or 0) % 360
+            if rot not in (0, 90, 180, 270):
+                rot = 0
+            tag = z.tag if z.tag in valid_tags else "all"
+            entry: dict = {"x": x, "y": y, "w": w, "h": h, "rotation": rot, "tag": tag}
+            if z.label:
+                entry["label"] = z.label.strip()[:40]
+            if tag == "custom" and z.custom_tag:
+                entry["custom_tag"] = z.custom_tag.strip()[:120]
+            clamped.append(entry)
+        mag.ai_crop_rect = json.dumps(clamped)
     await session.commit()
     return await get_magazine_crop(magazine_id, session)
+
+
+@router.get("/magazine/{magazine_id}/issue-cover-preview")
+async def issue_cover_preview(
+    magazine_id: int,
+    issue_id: int = Query(..., alias="issueId"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Rend la page 1 d'une issue SPÉCIFIQUE en PNG.
+
+    Utilisé par le crop editor pour parcourir les issues disponibles
+    et valider les zones sur plusieurs couvertures. 404 si l'issue
+    n'a pas de fichier ou n'appartient pas au magazine.
+    """
+    from fastapi.responses import Response
+
+    row = (
+        await session.execute(
+            select(IssueFile)
+            .join(Issue, Issue.id == IssueFile.issue_id)
+            .where(
+                Issue.magazine_id == magazine_id,
+                Issue.id == issue_id,
+            )
+            .limit(1)
+        )
+    ).scalars().first()
+    if not row or not Path(row.path).exists():
+        raise HTTPException(404, "No PDF for this issue")
+    from app.services.ai_enrichment_service import _render_page_pngs
+    try:
+        rendered = _render_page_pngs(
+            Path(row.path), 1, dpi=120, crop_mode="full",
+        )
+        png = rendered[0][1]
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"Render failed: {exc}") from exc
+    return Response(content=png, media_type="image/png")
 
 
 @router.get("/magazine/{magazine_id}/cover-preview")
@@ -551,7 +803,11 @@ async def refresh_batch(
     # 2. Lancer la boucle IA en background — asyncio.create_task pour
     # que le HTTP response part IMMÉDIATEMENT. La task tourne sur
     # l'event loop du process principal, avec sa propre session_factory.
-    if work_items and (body.include_ai_text or body.include_ai_vision):
+    if work_items and (
+        body.include_ai_text
+        or body.include_ai_vision
+        or body.include_python_ocr
+    ):
         import asyncio
 
         # Snapshot des settings AI (l'user pourrait changer entre le
@@ -559,12 +815,27 @@ async def refresh_batch(
         vision_pages_snap = (
             config.ai_enrichment_vision_pages if body.include_ai_vision else []
         )
+        # Fallback logic pour python_ocr / arbiter : par défaut ON
+        # si la source parente (vision) l'est aussi.
+        python_ocr_enabled = (
+            body.include_python_ocr
+            if body.include_python_ocr is not None
+            else body.include_ai_vision
+        )
+        arbiter_enabled = (
+            body.include_ai_arbiter
+            if body.include_ai_arbiter is not None
+            else (body.include_ai_vision or body.include_python_ocr is not False)
+        )
 
         asyncio.create_task(
             _run_batch_background(
                 magazine_id=magazine_id,
                 work_items=work_items,
                 vision_pages=vision_pages_snap,
+                python_ocr_enabled=python_ocr_enabled,
+                arbiter_enabled=arbiter_enabled,
+                torrent_ai_enabled=body.include_ai_text,
                 apply_result=body.apply_result,
                 force=body.force,
                 config=config,
@@ -585,9 +856,12 @@ async def _run_batch_background(
     magazine_id: int,
     work_items: list[tuple[int, str, str | None]],
     vision_pages: list[int],
+    python_ocr_enabled: bool,
+    arbiter_enabled: bool,
     apply_result: bool,
     force: bool,
     config,
+    torrent_ai_enabled: bool = True,
 ) -> None:
     """Boucle sequential des enrichissements — tourne détaché.
 
@@ -606,10 +880,26 @@ async def _run_batch_background(
     )
     from app.services.import_activity_tracker import tracker as _act
 
-    # Override runtime : ai_enrichment_vision_pages contrôle la vision.
-    # On modifie la config in-place puis on restore à la fin.
+    # Override runtime : ai_enrichment_vision_pages contrôle la vision,
+    # ai_python_ocr_enabled contrôle l'OCR python, ai_arbiter_model
+    # (à travers effective_arbiter_model) contrôle l'arbiter. On snap
+    # + restore les 3 pour ce batch.
     original_pages = config.ai_enrichment_vision_pages
+    original_pyocr = getattr(config, "ai_python_ocr_enabled", True)
+    original_arbiter_model = getattr(config, "ai_arbiter_model", None)
+    original_torrent_model = getattr(config, "ai_torrent_model", None)
+    original_text_model = getattr(config, "ai_text_model", None)
     config.ai_enrichment_vision_pages = vision_pages
+    config.ai_python_ocr_enabled = python_ocr_enabled
+    if not arbiter_enabled:
+        # Force le pipeline à ne pas avoir de modèle arbitre dispo →
+        # fallback deterministic-python natif.
+        config.ai_arbiter_model = "__disabled__"
+    if not torrent_ai_enabled:
+        # Skip l'analyse LLM du nom torrent — le pipeline gère le
+        # modèle absent en sautant proprement l'étape.
+        config.ai_torrent_model = "__disabled__"
+        config.ai_text_model = "__disabled__"
 
     try:
         svc = AIEnrichmentService(config, async_session_factory)
@@ -656,15 +946,71 @@ async def _run_batch_background(
                                 )
                             ).scalars().first()
                             if iss:
+                                new_number = res.final.get("issue_number")
+                                # Conflit potentiel : un forecast (ou autre
+                                # issue vide) porte déjà ce numéro dans le
+                                # magazine. Cas typique après enrichissement
+                                # IA qui trouve « #4033 » alors qu'un forecast
+                                # #4033 auto-généré existe déjà. On supprime
+                                # le forecast conflict pour laisser la place.
+                                if (
+                                    new_number is not None
+                                    and iss.number != new_number
+                                ):
+                                    conflict = (
+                                        await sess.execute(
+                                            select(Issue).where(
+                                                Issue.magazine_id == iss.magazine_id,
+                                                Issue.number == new_number,
+                                                Issue.id != iss.id,
+                                            )
+                                        )
+                                    ).scalars().first()
+                                    if conflict is not None:
+                                        from sqlalchemy.orm import selectinload
+                                        # Recharge avec le fichier pour
+                                        # décider quoi faire
+                                        conflict = (
+                                            await sess.execute(
+                                                select(Issue)
+                                                .options(selectinload(Issue.file))
+                                                .where(Issue.id == conflict.id)
+                                            )
+                                        ).scalars().first()
+                                        if conflict and conflict.file is None:
+                                            # Vide → on peut le sacrifier
+                                            logger.info(
+                                                "Enrichment apply: dropping "
+                                                "forecast issue %d (#%s) to free "
+                                                "the number for issue %d",
+                                                conflict.id, new_number, iss.id,
+                                            )
+                                            await sess.delete(conflict)
+                                            await sess.flush()
+                                        else:
+                                            # Conflit avec un vrai fichier —
+                                            # on ne touche pas au number pour
+                                            # ne pas casser l'autre issue.
+                                            logger.warning(
+                                                "Enrichment apply: issue %d "
+                                                "wants #%s but issue %d has it "
+                                                "with a file → keeping current",
+                                                iss.id, new_number,
+                                                conflict.id if conflict else "?",
+                                            )
+                                            new_number = None
+                                # Update fields (year/month/day/issn, puis number)
                                 for k_ai, k_iss in (
-                                    ("issue_number", "number"),
                                     ("year", "year"),
                                     ("month", "month"),
                                     ("day", "day"),
+                                    ("issn", "issn"),
                                 ):
                                     v = res.final.get(k_ai)
                                     if v is not None:
                                         setattr(iss, k_iss, v)
+                                if new_number is not None:
+                                    iss.number = new_number
                                 await sess.commit()
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
@@ -691,6 +1037,10 @@ async def _run_batch_background(
 
     finally:
         config.ai_enrichment_vision_pages = original_pages
+        config.ai_python_ocr_enabled = original_pyocr
+        config.ai_arbiter_model = original_arbiter_model
+        config.ai_torrent_model = original_torrent_model
+        config.ai_text_model = original_text_model
 
 
 # ---------------------------------------------------------------------------

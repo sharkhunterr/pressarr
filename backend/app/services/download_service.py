@@ -21,8 +21,13 @@ _GRAB_REGISTRY_PATH: Path | None = None
 
 @dataclass
 class _GrabInfo:
-    """Tracks which issue or pack a download belongs to."""
-    issue_id: int
+    """Tracks which issue or pack a download belongs to.
+
+    ``issue_id`` peut être None : mode « manual grab différé » — l'issue
+    n'existe pas encore et sera créée par le pipeline metadata pendant
+    l'import à partir des valeurs finales du parser + IA + OCR + arbiter.
+    """
+    issue_id: int | None
     magazine_id: int
     pack_id: int | None = None
 
@@ -32,6 +37,16 @@ _grab_registry: dict[str, _GrabInfo] = {}
 
 # download_ids that have already been imported (prevents re-processing)
 _processed_downloads: set[str] = set()
+
+# Downloads currently being imported (post-download pipeline in flight).
+# Used to dedupe : le monitor scheduler tick toutes les 30 s, mais un
+# import complet (parse + IA text + vision + arbiter + copy + cover)
+# peut prendre 60-180 s. Sans ce guard, un 2ᵉ / 3ᵉ import démarre en
+# parallèle → race SQLite lock storm → AI enrichment se plante en
+# `database is locked` → fallback parser → fichier renommé sans les
+# métadonnées enrichies. Cleared à la fin (success OR failure) du
+# process_downloaded_file.
+_in_flight_downloads: set[str] = set()
 
 # Track whether the registry has been loaded from disk
 _registry_loaded: bool = False
@@ -159,29 +174,56 @@ def find_download_ids_for_issue(issue_id: int) -> list[str]:
 
 async def grab_release(
     db: AsyncSession,
-    issue_id: int,
-    download_url: str,
-    title: str,
-    protocol: str,
-    guid: str,
+    issue_id: int | None = None,
+    download_url: str = "",
+    title: str = "",
+    protocol: str = "torrent",
+    guid: str = "",
     match_score: float | None = None,
     match_details: str | None = None,
+    magazine_id: int | None = None,
 ) -> GrabResponse:
-    # Get issue
-    result = await db.execute(
-        select(Issue)
-        .options(selectinload(Issue.magazine))
-        .where(Issue.id == issue_id)
-    )
-    issue = result.scalars().first()
-    if not issue:
-        return GrabResponse(issue_id=issue_id, message="Issue not found")
+    """Envoie une release au client de téléchargement + trace le grab.
+
+    Deux modes selon les args :
+
+    - **avec ``issue_id``** : mode classique — bind l'issue existante,
+      passe son status à ``snatched``, journalise l'event.
+
+    - **sans ``issue_id``, avec ``magazine_id``** : mode « manual grab
+      différé » — l'issue n'existe pas encore. Le pipeline d'import
+      (parser + IA + OCR + arbiter) créera l'issue avec les métadonnées
+      finales. On enregistre juste le magazine_id dans grab_registry
+      pour que le monitor de download sache où router le fichier.
+    """
+    issue = None
+    resolved_magazine_id = magazine_id
+    resolved_issue_number: int | None = None
+
+    if issue_id is not None:
+        # Get issue
+        result = await db.execute(
+            select(Issue)
+            .options(selectinload(Issue.magazine))
+            .where(Issue.id == issue_id)
+        )
+        issue = result.scalars().first()
+        if not issue:
+            return GrabResponse(issue_id=issue_id, message="Issue not found")
+        resolved_magazine_id = issue.magazine_id
+        resolved_issue_number = issue.number
+
+    if resolved_magazine_id is None:
+        return GrabResponse(
+            issue_id=issue_id or 0,
+            message="grab_release: neither issue_id nor magazine_id",
+        )
 
     # Find appropriate download client
     client_record = await _select_client(db, protocol)
     if not client_record:
         return GrabResponse(
-            issue_id=issue_id,
+            issue_id=issue_id or 0,
             message=f"No {protocol} download client configured",
         )
 
@@ -207,27 +249,38 @@ async def grab_release(
             _import_fail_count.pop(download_id, None)
 
             _grab_registry[download_id] = _GrabInfo(
-                issue_id=issue.id,
-                magazine_id=issue.magazine_id,
+                # issue_id peut être None : mode deferred, l'import
+                # décidera après enrichissement metadata.
+                issue_id=issue.id if issue else None,
+                magazine_id=resolved_magazine_id,
             )
             _save_registry()
-            logger.info(
-                "Registered grab: download_id=%s → issue_id=%d, magazine_id=%d",
-                download_id, issue.id, issue.magazine_id,
-            )
+            if issue:
+                logger.info(
+                    "Registered grab: download_id=%s → issue_id=%d, magazine_id=%d",
+                    download_id, issue.id, resolved_magazine_id,
+                )
+            else:
+                logger.info(
+                    "Registered deferred grab: download_id=%s → magazine_id=%d "
+                    "(issue à créer post-import via metadata pipeline)",
+                    download_id, resolved_magazine_id,
+                )
 
-        # Update issue status (and clear forecast flag so generate_forecasts
-        # won't delete it while the download is in progress)
-        issue.status = "snatched"
-        issue.is_forecast = False
-        await db.flush()
+        # Update issue status ONLY quand on a une issue à toucher.
+        if issue is not None:
+            # Clear forecast flag so generate_forecasts won't delete it
+            # while the download is in progress
+            issue.status = "snatched"
+            issue.is_forecast = False
+            await db.flush()
 
         # Record history event
         await create_event(
             db,
             event_type="grab",
-            magazine_id=issue.magazine_id,
-            issue_id=issue.id,
+            magazine_id=resolved_magazine_id,
+            issue_id=issue.id if issue else None,
             details=f"Grabbed: {title}",
             data={
                 "release_title": title,
@@ -235,8 +288,11 @@ async def grab_release(
                 "download_id": download_id,
                 "download_client": client_record.name,
                 "guid": guid,
-                "magazine_title": issue.magazine.title if issue.magazine else None,
-                "issue_number": issue.number,
+                "magazine_title": (
+                    issue.magazine.title if (issue and issue.magazine) else None
+                ),
+                "issue_number": resolved_issue_number,
+                "deferred_issue": issue is None,
                 **({"match_score": round(match_score, 1)} if match_score is not None else {}),
                 **({"match_details": match_details} if match_details else {}),
             },
@@ -245,16 +301,16 @@ async def grab_release(
         # Invalidate smart matcher pattern cache so new grabs inform future matches
         from app.services.smart_matcher import invalidate_pattern_cache
 
-        invalidate_pattern_cache(issue.magazine_id)
+        invalidate_pattern_cache(resolved_magazine_id)
 
         return GrabResponse(
-            issue_id=issue_id,
+            issue_id=issue_id or 0,
             download_id=download_id,
             message=f"Sent to {client_record.name}",
         )
     except Exception as e:
         logger.error("Failed to grab release: %s", e, exc_info=True)
-        return GrabResponse(issue_id=issue_id, message=f"Grab failed: {e}")
+        return GrabResponse(issue_id=issue_id or 0, message=f"Grab failed: {e}")
 
 
 async def grab_pack_release(
@@ -764,6 +820,43 @@ async def _try_import_item(
         logger.debug("Skipping already-processed download %s", item.download_id)
         return {"success": False, "message": "Already processed"}
 
+    # Dedup : un import déjà en cours pour ce download → skip pour
+    # ne pas lancer 2 pipelines en parallèle sur le même fichier
+    # (SQLite lock storm + fichiers copiés 2× + doublons issues).
+    if item.download_id and item.download_id in _in_flight_downloads:
+        logger.debug(
+            "Skipping in-flight download %s (already being imported)",
+            item.download_id,
+        )
+        return {"success": False, "message": "Import already in flight"}
+    if item.download_id:
+        _in_flight_downloads.add(item.download_id)
+    try:
+        return await _try_import_item_locked(
+            db, item, force=force,
+            remote_path=remote_path, local_path=local_path,
+            override_issue_id=override_issue_id,
+            override_magazine_id=override_magazine_id,
+        )
+    finally:
+        if item.download_id:
+            _in_flight_downloads.discard(item.download_id)
+
+
+async def _try_import_item_locked(
+    db: AsyncSession,
+    item,
+    force: bool = False,
+    remote_path: str | None = None,
+    local_path: str | None = None,
+    override_issue_id: int | None = None,
+    override_magazine_id: int | None = None,
+) -> dict:
+    """Actual import logic — always executes inside the in-flight lock
+    guarantee provided by ``_try_import_item``."""
+    from app.dependencies import get_config
+    from app.services.import_service import process_downloaded_file
+
     config = get_config()
     save_path = _resolve_save_path(item, remote_path=remote_path, local_path=local_path)
 
@@ -890,6 +983,26 @@ async def _try_import_item(
         last_result = result_info
         if result_info.get("success"):
             imported_any = True
+
+    # « Not a quality upgrade » = fichier déjà importé, même qualité.
+    # Retrys inutiles + polluent la queue de tracker items. On marque
+    # le download comme processed immédiatement (traitement terminé).
+    if (
+        not imported_any
+        and item.download_id
+        and last_result.get("message") == "Not a quality upgrade"
+    ):
+        logger.info(
+            "Monitor: %s already imported at same quality — marking processed",
+            item.download_id,
+        )
+        _processed_downloads.add(item.download_id)
+        _import_fail_count.pop(item.download_id, None)
+        _grab_registry.pop(item.download_id, None)
+        _save_registry()
+        if magazine_id:
+            last_result["magazine_id"] = magazine_id
+        return last_result
 
     # Track business-logic failures (e.g. "not a quality upgrade")
     if not imported_any and item.download_id:

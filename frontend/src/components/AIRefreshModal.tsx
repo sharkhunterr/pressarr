@@ -43,6 +43,8 @@ export function AIRefreshModal({
   const [includeMetadata, setIncludeMetadata] = useState(true)
   const [includeAiText, setIncludeAiText] = useState(true)
   const [includeAiVision, setIncludeAiVision] = useState(true)
+  const [includePythonOcr, setIncludePythonOcr] = useState(true)
+  const [includeAiArbiter, setIncludeAiArbiter] = useState(true)
   const [applyResult, setApplyResult] = useState(true)
   const [force, setForce] = useState(true)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -54,7 +56,8 @@ export function AIRefreshModal({
     queryFn: () => getMagazineCrop(magazineId),
     enabled: open,
   })
-  const hasCustomCrop = !!cropQ.data?.rect
+  const zoneCount = cropQ.data?.zones?.length ?? 0
+  const hasCustomCrop = zoneCount > 0
 
   // Only offer issues that have a file — text-only enrichment CAN
   // work without a file but the user's mental model is "re-analyze
@@ -88,6 +91,8 @@ export function AIRefreshModal({
         includeMetadata,
         includeAiText,
         includeAiVision,
+        includePythonOcr,
+        includeAiArbiter,
         applyResult,
         force,
       }),
@@ -109,7 +114,7 @@ export function AIRefreshModal({
 
   const canRun =
     !mutation.isPending &&
-    (includeMetadata || includeAiText || includeAiVision) &&
+    (includeMetadata || includeAiText || includeAiVision || includePythonOcr) &&
     !noneSelected
 
   return (
@@ -123,28 +128,45 @@ export function AIRefreshModal({
         </DialogHeader>
 
         <div className="space-y-5 overflow-y-auto flex-1 pr-1">
-          {/* --- Sources ---------------------------------------- */}
+          {/* --- Étapes du pipeline ------------------------------ */}
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-zinc-500">
-              Sources d'enrichissement
+              Étapes du pipeline
             </div>
             <SourceRow
+              step="1"
               label="Métadonnées classiques"
-              hint="Google Books, Internet Archive, Anna's Archive"
+              hint="Google Books, Internet Archive, Anna's Archive — sources externes déterministes."
               checked={includeMetadata}
               onChange={setIncludeMetadata}
             />
             <SourceRow
-              label="IA texte (nom du fichier)"
-              hint="Analyse le nom du torrent avec le LLM texte"
+              step="2"
+              label="Analyse IA du nom torrent"
+              hint="Extrait titre / N° / date depuis le nom de fichier avec le LLM texte. Si l'IA texte est désactivée en Settings, un parser Python prend le relais."
               checked={includeAiText}
               onChange={setIncludeAiText}
             />
             <SourceRow
-              label="IA vision (couverture)"
-              hint="OCR de la première page du PDF avec le LLM vision"
+              step="3"
+              label="OCR algorithmique (Python)"
+              hint="Tesseract / EasyOCR / RapidOCR — extraction déterministe des zones. Ne peut pas halluciner."
+              checked={includePythonOcr}
+              onChange={setIncludePythonOcr}
+            />
+            <SourceRow
+              step="4"
+              label="OCR IA vision"
+              hint="LLM vision sur chaque zone. Prompt adapté au tag (number/date/title/issn/…)."
               checked={includeAiVision}
               onChange={setIncludeAiVision}
+            />
+            <SourceRow
+              step="5"
+              label="Arbitrage IA (gros modèle)"
+              hint="Voit torrent + vision + python_ocr + candidats regex, tranche la valeur la plus réaliste par champ."
+              checked={includeAiArbiter}
+              onChange={setIncludeAiArbiter}
             />
           </div>
 
@@ -156,12 +178,14 @@ export function AIRefreshModal({
             <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="text-sm text-zinc-100">
-                  {hasCustomCrop ? 'Zone custom définie' : 'Aucune zone custom'}
+                  {hasCustomCrop
+                    ? `${zoneCount} zone${zoneCount > 1 ? 's' : ''} définie${zoneCount > 1 ? 's' : ''}`
+                    : 'Aucune zone custom'}
                 </div>
                 <div className="text-xs text-zinc-500">
                   {hasCustomCrop
-                    ? "L'IA vision analysera uniquement cette zone sur chaque couverture."
-                    : 'Sans zone : utilise le mode global (Settings → IA). Trace un cadre pour cibler.'}
+                    ? "L'IA vision analysera chaque zone séparément sur chaque couverture."
+                    : 'Sans zone : utilise le mode global (Settings → IA). Trace un ou plusieurs cadres pour cibler.'}
                 </div>
               </div>
               <Button
@@ -291,11 +315,13 @@ export function AIRefreshModal({
 }
 
 function SourceRow({
+  step,
   label,
   hint,
   checked,
   onChange,
 }: {
+  step?: string
   label: string
   hint: string
   checked: boolean
@@ -303,6 +329,11 @@ function SourceRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+      {step && (
+        <div className="mt-0.5 shrink-0 size-6 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs font-medium flex items-center justify-center">
+          {step}
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         <div className="text-sm text-zinc-100">{label}</div>
         <div className="text-xs text-zinc-500">{hint}</div>

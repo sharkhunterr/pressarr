@@ -15,9 +15,11 @@ import { toast } from 'sonner'
 import {
   getAISettings,
   probeOllamaModels,
+  probePythonOCREngines,
   saveAISettings,
   type AISettings,
   type OllamaModelsProbe,
+  type PythonOCRProbeEntry,
 } from '@/api/ai'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -43,8 +45,12 @@ const DEFAULT: LocalState = {
   enrichmentMode: 'remplace',
   enrichmentVisionPages: [1],
   enrichmentVisionCrop: 'full',
+  pythonOcrEnabled: true,
+  pythonOcrEngine: 'easyocr',
   textModel: 'mistral:7b',
   visionModel: 'minicpm-v:8b',
+  torrentModel: null,
+  arbiterModel: null,
   textPrompt: '',
   visionPrompt: '',
   arbiterPrompt: '',
@@ -77,8 +83,9 @@ export default function AISettingsPage() {
     setLocal(serverSettings)
     setPagesStr((serverSettings.enrichmentVisionPages ?? [1]).join(', '))
     setInitialised(true)
-    // First auto-probe uses the freshly loaded URL.
-    void runProbe(serverSettings.ollamaUrl)
+    // Pas d'auto-probe au load — le probe est distant, prend
+    // ~500 ms et bloque la page. L'utilisateur clique « Test »
+    // quand il veut vérifier la connexion.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverSettings, initialised])
 
@@ -101,11 +108,11 @@ export default function AISettingsPage() {
 
   const saveMutation = useMutation({
     mutationFn: (payload: Partial<AISettings>) => saveAISettings(payload),
-    onSuccess: (fresh) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['aiSettings'] })
       toast.success('Paramètres IA enregistrés')
-      // Re-probe after save in case the URL/timeout changed.
-      void runProbe(fresh.ollamaUrl)
+      // Pas de re-probe automatique — l'utilisateur clique
+      // « Test » s'il veut vérifier après un changement d'URL.
     },
     onError: (e: Error) => toast.error(`Erreur: ${e.message}`),
   })
@@ -274,7 +281,7 @@ export default function AISettingsPage() {
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="grid gap-1.5">
                 <label className="text-sm font-medium text-zinc-300">
-                  Modèle texte (torrent + arbitre)
+                  Modèle par défaut (fallback)
                 </label>
                 <ModelSelect
                   value={local.textModel}
@@ -282,6 +289,10 @@ export default function AISettingsPage() {
                   models={models}
                   placeholder="mistral:7b"
                 />
+                <p className="text-xs text-zinc-500">
+                  Utilisé pour l'analyse torrent et l'arbitre quand les
+                  champs par-étape ci-dessous restent vides.
+                </p>
               </div>
               <div className="grid gap-1.5">
                 <label className="text-sm font-medium text-zinc-300">
@@ -293,6 +304,44 @@ export default function AISettingsPage() {
                   models={models}
                   placeholder="minicpm-v:8b"
                 />
+              </div>
+            </div>
+
+            {/* Per-step overrides. Vide → tombe sur le modèle par
+                défaut ci-dessus. Séparer les modèles permet de mettre
+                un gros modèle sur l'arbitre (qwen3:8b) et garder un
+                modèle rapide pour l'analyse torrent (mistral:7b). */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Modèle « analyse nom torrent » (override)
+                </label>
+                <OverrideModelSelect
+                  value={local.torrentModel}
+                  onChange={(v) => setLocal({ ...local, torrentModel: v })}
+                  models={models}
+                  fallback={local.textModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  Peut rester « défaut ». Tâche courte, un modèle
+                  rapide suffit (mistral:7b).
+                </p>
+              </div>
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Modèle « arbiter » (override)
+                </label>
+                <OverrideModelSelect
+                  value={local.arbiterModel}
+                  onChange={(v) => setLocal({ ...local, arbiterModel: v })}
+                  models={models}
+                  fallback={local.textModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  Voit toutes les sources et tranche. Un « gros »
+                  modèle (qwen3:8b, gemma3:12b) donne un meilleur
+                  arbitrage.
+                </p>
               </div>
             </div>
 
@@ -379,6 +428,14 @@ export default function AISettingsPage() {
                 temps d'inférence.
               </p>
             </div>
+
+            {/* Python OCR : 3ᵉ source d'extraction texte, deterministic. */}
+            <PythonOCRPicker
+              enabled={local.pythonOcrEnabled}
+              engine={local.pythonOcrEngine}
+              onToggle={(v) => setLocal({ ...local, pythonOcrEnabled: v })}
+              onEngineChange={(e) => setLocal({ ...local, pythonOcrEngine: e })}
+            />
 
             <PromptField
               label="Prompt LLM texte (analyse du nom torrent)"
@@ -640,5 +697,156 @@ function ModelSelect({
         <SelectItem value={CUSTOM}>Autre… (saisie libre)</SelectItem>
       </SelectContent>
     </Select>
+  )
+}
+
+
+/** Variant de ``ModelSelect`` acceptant ``null`` pour représenter
+ *  « pas d'override — fallback sur le modèle par défaut ». Radix
+ *  Select refuse les value="" donc on utilise le sentinel ``DEFAULT``. */
+function OverrideModelSelect({
+  value,
+  onChange,
+  models,
+  fallback,
+}: {
+  value: string | null
+  onChange: (v: string | null) => void
+  models: string[]
+  fallback: string
+}) {
+  const DEFAULT = '__default__'
+  const current = value ?? DEFAULT
+  return (
+    <Select
+      value={current}
+      onValueChange={(v) => onChange(v === DEFAULT ? null : v)}
+    >
+      <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={DEFAULT}>
+          — défaut ({fallback || 'aucun'}) —
+        </SelectItem>
+        {models.map((m) => (
+          <SelectItem key={m} value={m}>
+            {m}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+
+// ---- Python OCR (Tesseract / RapidOCR / EasyOCR) ------------------
+
+const ENGINE_META: Record<
+  'tesseract' | 'rapidocr' | 'easyocr',
+  { label: string; hint: string }
+> = {
+  tesseract: {
+    label: 'Tesseract',
+    hint: 'Rapide (~1 s), léger. Excellent en texte imprimé net, moins bon sur textes stylisés. Nécessite le paquet système tesseract-ocr-fra.',
+  },
+  rapidocr: {
+    label: 'RapidOCR (ONNX)',
+    hint: 'Compromis vitesse/précision. Pas d\'install système. Modèles ONNX ~100 MB.',
+  },
+  easyocr: {
+    label: 'EasyOCR (PyTorch)',
+    hint: 'Le plus robuste sur textes stylisés / inclinés. Warm-up ~5 s premier appel, cache ensuite.',
+  },
+}
+
+function PythonOCRPicker({
+  enabled,
+  engine,
+  onToggle,
+  onEngineChange,
+}: {
+  enabled: boolean
+  engine: 'tesseract' | 'rapidocr' | 'easyocr'
+  onToggle: (v: boolean) => void
+  onEngineChange: (e: 'tesseract' | 'rapidocr' | 'easyocr') => void
+}) {
+  const probeQ = useQuery({
+    queryKey: ['pyocr-probe'],
+    queryFn: probePythonOCREngines,
+    // Cache 5 min — install status ne bouge pas en runtime.
+    staleTime: 5 * 60_000,
+  })
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-900/30 p-3 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-zinc-100">
+            OCR algorithmique (source déterministe)
+          </div>
+          <div className="text-xs text-zinc-500">
+            Tourne sur la MÊME image que l'IA vision. Ne peut pas
+            halluciner et corrobore (ou contredit) le vision LLM —
+            l'arbiter tranche.
+          </div>
+        </div>
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => onToggle(v === true)}
+        />
+      </div>
+
+      {enabled && (
+        <div className="grid gap-1.5">
+          <label className="text-xs font-medium text-zinc-400">
+            Moteur
+          </label>
+          <Select
+            value={engine}
+            onValueChange={(v: 'tesseract' | 'rapidocr' | 'easyocr') =>
+              onEngineChange(v)
+            }
+          >
+            <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(['tesseract', 'rapidocr', 'easyocr'] as const).map((key) => {
+                const probe = probeQ.data?.find((p) => p.engine === key)
+                const avail = probe?.available ?? true
+                return (
+                  <SelectItem key={key} value={key} disabled={!avail}>
+                    {ENGINE_META[key].label}
+                    {!avail && ' — indisponible'}
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-zinc-500">
+            {ENGINE_META[engine].hint}
+          </p>
+          {probeQ.data && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {probeQ.data.map((p: PythonOCRProbeEntry) => (
+                <span
+                  key={p.engine}
+                  className={
+                    'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ' +
+                    (p.available
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                      : 'border-red-500/30 bg-red-500/10 text-red-300')
+                  }
+                  title={p.error ?? ''}
+                >
+                  {ENGINE_META[p.engine].label} · {p.available ? 'ok' : 'ko'}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

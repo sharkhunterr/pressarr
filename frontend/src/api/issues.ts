@@ -29,6 +29,7 @@ export interface Issue {
   isForecast: boolean
   coverPath: string | null
   addedAt: string
+  issn: string | null
   file: IssueFile | null
 }
 
@@ -63,6 +64,7 @@ export interface IssueUpdate {
   monitored?: boolean
   isSpecial?: boolean
   status?: string
+  issn?: string | null
   quality?: string | null
   format?: string | null
   releaseGroup?: string | null

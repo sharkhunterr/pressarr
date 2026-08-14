@@ -138,8 +138,36 @@ class Config:
         #                  magazines dont le numéro est en pied de
         #                  couverture (GEO, Sciences & Vie, etc.)
         self.ai_enrichment_vision_crop: str = "full"
+        # ---- Python OCR (source déterministe #3) ---------------
+        # Lance un moteur OCR algorithmique sur la MÊME image que
+        # celle envoyée au vision LLM. Sortie brute versée dans le
+        # pool text que Python regex parse (issue_number, date) et
+        # que l'arbiter LLM voit comme source 4. Redondance qui
+        # rattrape les échecs vision (loops, hallucinations) et
+        # inversement (Tesseract râte souvent les textes stylisés
+        # que la vision lit bien).
+        self.ai_python_ocr_enabled: bool = True
+        # "tesseract" | "rapidocr" | "easyocr". Défaut easyocr pour
+        # sa robustesse sur textes stylisés/inclinés au prix d'un
+        # temps de warm-up (~5 s premier appel, cache ensuite).
+        self.ai_python_ocr_engine: str = "easyocr"
+        # ---- Modèles Ollama par étape (chaque étape est éditable
+        #      individuellement dans Settings → IA) --------------
+        # ``ai_text_model`` : legacy — était utilisé pour l'analyse
+        # du nom torrent ET pour l'arbiter. Conservé comme fallback
+        # historique quand les champs par-étape ne sont pas définis.
         self.ai_text_model: str = "mistral:7b"
         self.ai_vision_model: str = "minicpm-v:8b"
+        # Analyse du nom torrent — modèle rapide (peu de contexte
+        # nécessaire, juste parser un filename → JSON structuré).
+        # Défaut = None → tombe sur ``ai_text_model``.
+        self.ai_torrent_model: str | None = None
+        # Arbiter final — voit torrent + vision × N zones + python
+        # OCR × N zones + regex candidates. Nécessite un modèle avec
+        # gros contexte + bon reasoning. Défaut None → fallback sur
+        # ``ai_text_model``. Recommandation : qwen3:8b (128k ctx,
+        # reasoning natif) ou mieux si VRAM > 8 Go.
+        self.ai_arbiter_model: str | None = None
         # Prompts — operator-editable. Kept short + explicit JSON
         # contract so small models don't drift.
         self.ai_text_prompt: str = (
@@ -155,28 +183,56 @@ class Config:
             "numéro de la série si HS numéroté."
         )
         self.ai_vision_prompt: str = (
-            "Analyse cette couverture de magazine. Extrais TROIS éléments "
-            "UNIQUEMENT :\n\n"
-            "1. **title** : le titre principal du magazine (le plus GROS "
-            "texte, généralement en haut ou centré, souvent en majuscules). "
-            "IGNORE les titres d'articles ou d'accroches.\n\n"
-            "2. **issue_number** : le numéro de l'édition. Cherche "
-            "ATTENTIVEMENT dans TOUS les coins de la couverture — souvent "
-            "en petit à côté de la date, ou en haut/bas d'un coin, "
-            "précédé de « N° », « No », « #», « nº », ou juste un nombre "
-            "isolé. Pour un quotidien (Le Monde, Le Figaro…), c'est "
-            "généralement un nombre à 4-5 chiffres en petit près du logo "
-            "ou de la date. Si tu ne vois RIEN de tel, mets null (ne PAS "
-            "inventer).\n\n"
-            "3. **date_text** : la date de publication telle qu'écrite "
-            "sur la couverture. Format brut, sans traduction (ex. "
-            "\"Mercredi 12 août 2026\", \"Mars 2024\", \"N° 24 · Juin\"). "
-            "Attention à bien lire l'année COMPLÈTE — n'invente pas un "
-            "millésime.\n\n"
-            "Réponds avec un objet JSON strict :\n"
-            "{\"title\": str|null, \"issue_number\": int|null, "
-            "\"date_text\": str|null}\n\n"
-            "Règle d'or : mets `null` plutôt que d'inventer."
+            "Tu es un OCR EXHAUSTIF. Ta SEULE tâche : transcrire "
+            "MOT POUR MOT tout le texte visible sur cette image. "
+            "Rien d'autre. Pas de résumé, pas d'analyse, pas "
+            "d'interprétation.\n\n"
+            "### Méthode obligatoire\n"
+            "1. Balaie l'image LIGNE PAR LIGNE, de haut en bas.\n"
+            "2. Pour CHAQUE ligne, transcris TOUT ce qui est écrit — "
+            "y compris les petits caractères, les chiffres, les "
+            "symboles, les mentions légales, les prix, les dates, "
+            "les numéros, les codes-barres textuels.\n"
+            "3. Ne saute AUCUNE ligne, même si elle semble "
+            "secondaire ou décorative.\n"
+            "4. Ne t'arrête PAS au titre le plus gros. Le titre "
+            "principal est UNE ligne parmi d'autres.\n\n"
+            "### Anti-triche\n"
+            "- Ne résume PAS : garde CHAQUE ligne visible.\n"
+            "- Ne garde PAS seulement le texte le plus voyant. Les "
+            "petites lignes en bas d'un masthead contiennent "
+            "TOUJOURS la date et le numéro — tu DOIS les extraire.\n"
+            "- Si tu ne vois AUCUN texte lisible (image floue, "
+            "rognée au mauvais endroit, texte pivoté illisible, "
+            "photo sans texte), réponds « raw_text: \"\" » — NE "
+            "RECOPIE JAMAIS l'exemple ci-dessous.\n"
+            "- Si `raw_text` est identique ou similaire à "
+            "l'exemple ci-dessous alors que l'image ne contient "
+            "PAS ces mots-clés, tu as triché : recommence en lisant "
+            "réellement l'image, ou renvoie une chaîne vide.\n\n"
+            "### Format de réponse (JSON strict)\n"
+            "{\n"
+            "  \"title\": str|null,\n"
+            "  \"raw_text\": str\n"
+            "}\n\n"
+            "- **title** : le plus GROS texte identifiable comme "
+            "un titre de magazine (souvent en majuscules colorées). "
+            "Sinon `null`.\n"
+            "- **raw_text** : TOUT le texte de l'image, ligne par "
+            "ligne, séparé par « \\n ». Inclus systématiquement les "
+            "petits caractères. Zéro invention.\n\n"
+            "### Exemple générique de FORMAT (à NE PAS recopier)\n"
+            "L'exemple ci-dessous illustre uniquement la STRUCTURE "
+            "de la réponse — les mots sont fictifs (« <TITRE> », "
+            "« <SOUS-TITRE> »). Ne les recopie sous aucun prétexte : "
+            "n'écris que ce que ton image contient réellement.\n"
+            "{\n"
+            "  \"title\": \"<TITRE>\",\n"
+            "  \"raw_text\": \"<TITRE>\\n<SOUS-TITRE>\\n"
+            "<jour> <date-en-toutes-lettres> <année> N° <numéro>\"\n"
+            "}\n\n"
+            "RÈGLE ABSOLUE : ne mets QUE ce que tu VOIS, mais mets "
+            "TOUT ce que tu vois. Si tu ne vois rien : chaîne vide."
         )
         self.ai_arbiter_prompt: str = (
             "Tu reçois deux extractions de métadonnées pour le même "
@@ -309,8 +365,16 @@ class Config:
         self.ai_enrichment_vision_crop = enr.get(
             "vision_crop", self.ai_enrichment_vision_crop
         )
+        self.ai_python_ocr_enabled = enr.get(
+            "python_ocr_enabled", self.ai_python_ocr_enabled
+        )
+        self.ai_python_ocr_engine = enr.get(
+            "python_ocr_engine", self.ai_python_ocr_engine
+        )
         self.ai_text_model = enr.get("text_model", self.ai_text_model)
         self.ai_vision_model = enr.get("vision_model", self.ai_vision_model)
+        self.ai_torrent_model = enr.get("torrent_model", self.ai_torrent_model)
+        self.ai_arbiter_model = enr.get("arbiter_model", self.ai_arbiter_model)
         self.ai_text_prompt = enr.get("text_prompt", self.ai_text_prompt)
         self.ai_vision_prompt = enr.get("vision_prompt", self.ai_vision_prompt)
         self.ai_arbiter_prompt = enr.get("arbiter_prompt", self.ai_arbiter_prompt)
@@ -369,6 +433,20 @@ class Config:
         self.save()
         return self.api_key
 
+    # ---- Effective model helpers ---------------------------------
+    # Chaque étape IA a un modèle configurable — quand l'utilisateur
+    # n'a pas défini de valeur spécifique, on cascade sur ai_text_model
+    # (historique) pour la torrent-analysis et l'arbiter. La vision
+    # reste toujours ai_vision_model.
+
+    @property
+    def effective_torrent_model(self) -> str:
+        return self.ai_torrent_model or self.ai_text_model
+
+    @property
+    def effective_arbiter_model(self) -> str:
+        return self.ai_arbiter_model or self.ai_text_model
+
     def save(self) -> None:
         """Save current configuration to YAML file."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,8 +504,12 @@ class Config:
                     "mode": self.ai_enrichment_mode,
                     "vision_pages": self.ai_enrichment_vision_pages,
                     "vision_crop": self.ai_enrichment_vision_crop,
+                    "python_ocr_enabled": self.ai_python_ocr_enabled,
+                    "python_ocr_engine": self.ai_python_ocr_engine,
                     "text_model": self.ai_text_model,
                     "vision_model": self.ai_vision_model,
+                    "torrent_model": self.ai_torrent_model,
+                    "arbiter_model": self.ai_arbiter_model,
                     "text_prompt": self.ai_text_prompt,
                     "vision_prompt": self.ai_vision_prompt,
                     "arbiter_prompt": self.ai_arbiter_prompt,

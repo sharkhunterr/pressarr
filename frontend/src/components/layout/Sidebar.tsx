@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   BookOpen,
   PlusCircle,
   CalendarDays,
-  Download,
+  Activity as ActivityIcon,
   Clock,
   ShieldBan,
   Settings,
@@ -27,13 +28,15 @@ import {
   Sparkles,
 } from 'lucide-react'
 
+import { getActivityCounters } from '@/api/activity'
+
 const MAIN_NAV = [
   { path: '/', labelKey: 'nav.library', icon: BookOpen },
   { path: '/add', labelKey: 'nav.addMagazine', icon: PlusCircle },
   { path: '/packs', labelKey: 'nav.packs', icon: Package },
   { path: '/files', labelKey: 'nav.files', icon: Files },
   { path: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
-  { path: '/queue', labelKey: 'nav.queue', icon: Download },
+  { path: '/activity', labelKey: 'nav.activity', icon: ActivityIcon },
   { path: '/history', labelKey: 'nav.history', icon: Clock },
   { path: '/blocklist', labelKey: 'nav.blocklist', icon: ShieldBan },
   { path: '/logs', labelKey: 'nav.logs', icon: ScrollText },
@@ -62,6 +65,18 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const [settingsOpen, setSettingsOpen] = useState(isSettingsPage)
+
+  // Compteur activités en cours pour le badge sidebar. Polling
+  // léger (3 s) suffit pour un feedback humain — pas besoin de
+  // WebSocket ici.
+  const activityCountersQ = useQuery({
+    queryKey: ['activity-counters'],
+    queryFn: getActivityCounters,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+    staleTime: 2500,
+  })
+  const activityBadge = activityCountersQ.data?.total ?? 0
 
   return (
     <>
@@ -99,24 +114,35 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-2">
           {/* Main nav */}
-          {MAIN_NAV.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/'}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                  isActive
-                    ? 'text-[#7C3AED] bg-zinc-900/80'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/50'
-                }`
-              }
-            >
-              <item.icon className="size-4 shrink-0" />
-              {t(item.labelKey)}
-            </NavLink>
-          ))}
+          {MAIN_NAV.map((item) => {
+            const showBadge = item.path === '/activity' && activityBadge > 0
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/'}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                    isActive
+                      ? 'text-[#7C3AED] bg-zinc-900/80'
+                      : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/50'
+                  }`
+                }
+              >
+                <item.icon className="size-4 shrink-0" />
+                <span className="flex-1">{t(item.labelKey)}</span>
+                {showBadge && (
+                  <span
+                    className="rounded-full bg-purple-500 text-white text-[10px] font-semibold px-1.5 min-w-[18px] text-center"
+                    title={`${activityCountersQ.data?.running ?? 0} en cours · ${activityCountersQ.data?.queued ?? 0} en attente`}
+                  >
+                    {activityBadge > 99 ? '99+' : activityBadge}
+                  </span>
+                )}
+              </NavLink>
+            )
+          })}
 
           {/* Settings section */}
           <div className="mt-2 pt-2 border-t border-zinc-800/60">

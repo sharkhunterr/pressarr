@@ -69,7 +69,7 @@ class AIEnrichmentRun(Base):
     final_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+        DateTime, nullable=False, default=datetime.now
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     total_elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -118,7 +118,7 @@ class AIRankerRun(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+        DateTime, nullable=False, default=datetime.now
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     total_elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -158,7 +158,7 @@ class AIEnrichmentProposal(Base):
     proposed_json: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+        DateTime, nullable=False, default=datetime.now
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

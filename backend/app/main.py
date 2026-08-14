@@ -120,6 +120,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.services.download_service import _load_registry
     _load_registry()
 
+    # Cleanup boot orphelins : toute activité restée "running" en DB
+    # au moment du boot n'a AUCUNE chance d'aboutir (le process qui
+    # l'exécutait est mort). Seuil 0 : on tue tout ce qui traîne dès
+    # le premier tick pour ne pas laisser un import factice à 8 %
+    # « en cours » sur la page Activity.
+    try:
+        from app.services import activity_service
+        n = await activity_service.cleanup_stale(older_than_s=0)
+        if n:
+            logger.info(
+                "Startup cleanup: force-failed %d orphan running activities",
+                n,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("Startup activity cleanup failed (non-fatal)", exc_info=True)
+
     # Start scheduler
     from app.scheduler import start_scheduler
     start_scheduler()
@@ -169,6 +185,11 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "target_issue_date", "VARCHAR(10)"),
         # AI custom crop rectangle (drawn visually by user in Refresh IA modal).
         ("magazine", "ai_crop_rect", "VARCHAR(200)"),
+        # Publication weekday (0=Mon..6=Sun) for weekly / biweekly frequencies.
+        ("magazine", "release_weekday", "INTEGER"),
+        # Per-issue ISSN — souvent identique au magazine parent, parfois
+        # distinct pour les hors-série / éditions internationales.
+        ("issue", "issn", "VARCHAR(9)"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -322,6 +343,7 @@ def create_app() -> FastAPI:
     from app.api.v1.quality_profile import router as quality_router
     from app.api.v1.ai import router as ai_router
     from app.api.v1.queue import router as queue_router
+    from app.api.v1.activity import router as activity_router
     from app.api.v1.root_folder import router as root_folder_router
     from app.api.v1.search import router as search_router
     from app.api.v1.file import router as file_router
@@ -347,6 +369,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(calendar_router)
     app.include_router(queue_router)
+    app.include_router(activity_router)
     app.include_router(settings_router)
     app.include_router(filesystem_router)
     app.include_router(file_router)

@@ -147,6 +147,7 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         metadata_provider_id=data.get("metadata_provider_id"),
         metadata_provider=data.get("metadata_provider"),
         excluded_days=excluded_days_str,
+        release_weekday=data.get("release_weekday"),
         # Cascade enrichment fields when caller already has them
         # (allseerr's dispatcher forwards what its search showed).
         language=data.get("language"),
@@ -266,8 +267,15 @@ async def update_magazine(
 
     await db.flush()
 
-    # Regenerate forecasts if frequency, monitoring_start_date, or excluded_days changed
-    if "frequency" in data or "monitoring_start_date" in data or "excluded_days" in data:
+    # Regenerate forecasts when any field that shapes the schedule
+    # changed — frequency, seed date, excluded days, or the new
+    # weekday snap for hebdo/biweekly.
+    if (
+        "frequency" in data
+        or "monitoring_start_date" in data
+        or "excluded_days" in data
+        or "release_weekday" in data
+    ):
         from app.services.calendar_service import generate_forecasts
 
         await generate_forecasts(db, magazine)

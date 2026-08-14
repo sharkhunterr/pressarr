@@ -15,6 +15,25 @@ from app.download_clients.base import DownloadStatus
 logger = logging.getLogger(__name__)
 
 
+def _fire(coro) -> None:
+    """Fire-and-forget d'une coroutine (mirror Activity DB).
+
+    Utilisé pour ne pas bloquer le download loop sur les writes DB.
+    On perd les erreurs silencieusement — c'est la nature d'un mirror
+    best-effort. Si le loop courant n'existe pas (sync context),
+    on schedule sur le default loop.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        loop.create_task(coro)
+    else:
+        # Sync context — rare mais possible pour les tests
+        asyncio.run(coro)
+
+
 @dataclass
 class TrackedDownload:
     """A tracked direct download with metadata for queue display."""
@@ -29,6 +48,10 @@ class TrackedDownload:
     error_message: str | None = None
     added: datetime = field(default_factory=datetime.now)
     task: asyncio.Task | None = field(default=None, repr=False)
+    # ID de la row Activity DB miroir (Phase 2 unified activity).
+    # In-memory kept for task cancellation ; Activity kept for
+    # persistence + UI page /activity + sidebar badge.
+    activity_id: int | None = None
 
 
 class DirectDownloadTracker:
@@ -70,6 +93,31 @@ class DirectDownloadTracker:
         )
         self._downloads[download_id] = tracked
         logger.info("[tracker] Registered download %s (%s)", download_id, source)
+        # Write-through vers la table Activity — best-effort. Récupère
+        # l'id pour permettre les updates ultérieurs (progress, done…).
+        try:
+            from app.services import activity_service
+
+            async def _mirror():
+                aid = await activity_service.create(
+                    kind="direct_download",
+                    title=magazine_title or name,
+                    subtitle=name if magazine_title else source,
+                    magazine_id=magazine_id,
+                    issue_id=issue_id,
+                    status="queued",
+                    external_id=download_id,
+                    payload={
+                        "protocol": protocol,
+                        "source": source,
+                        "download_id": download_id,
+                        "issue_number": issue_number,
+                    },
+                )
+                tracked.activity_id = aid
+            _fire(_mirror())
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Activity mirror (register) failed: %s", exc)
         return tracked
 
     def get(self, download_id: str) -> TrackedDownload | None:
@@ -112,6 +160,32 @@ class DirectDownloadTracker:
             s.save_path = save_path
         if error_message is not None:
             tracked.error_message = error_message
+        # Mirror update → Activity DB (fire-and-forget).
+        try:
+            from app.services import activity_service
+
+            aid = tracked.activity_id
+            if aid is not None:
+                async def _mirror():
+                    st = s.status
+                    if st in ("completed", "imported"):
+                        await activity_service.mark_done(aid, hint=s.name)
+                    elif st == "failed":
+                        await activity_service.mark_error(
+                            aid, error_message or "download failed",
+                        )
+                    else:
+                        new_status = "queued" if st == "queued" else "running"
+                        await activity_service.set_status(aid, new_status)
+                        await activity_service.update_progress(
+                            aid, (s.progress or 0.0) * 100,
+                            status_message=(
+                                f"{st} — {s.name}" if s.name else st
+                            ),
+                        )
+                _fire(_mirror())
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Activity mirror (update) failed: %s", exc)
 
     def remove(self, download_id: str) -> bool:
         """Remove a download from tracking. Cancels the task if running."""

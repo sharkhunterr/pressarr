@@ -57,6 +57,7 @@ export default function AddMagazine() {
   const [manualTitle, setManualTitle] = useState('')
   const [manualFrequency, setManualFrequency] = useState('monthly')
   const [excludedDays, setExcludedDays] = useState<number[]>([])
+  const [releaseWeekday, setReleaseWeekday] = useState<number | null>(null)
   const [rootFolderId, setRootFolderId] = useState<string>('')
   const [qualityProfileId, setQualityProfileId] = useState<string>('')
   const [monitoringStartDate, setMonitoringStartDate] = useState('')
@@ -137,6 +138,7 @@ export default function AddMagazine() {
         title: manualTitle.trim(),
         frequency: manualFrequency,
         excludedDays: excludedDays.length > 0 ? excludedDays : undefined,
+        releaseWeekday: releaseWeekday,
         rootFolderId: rootFolderId ? Number(rootFolderId) : undefined,
         qualityProfileId: qualityProfileId ? Number(qualityProfileId) : undefined,
         monitoringStartDate: monitoringStartDate || undefined,
@@ -335,6 +337,51 @@ export default function AddMagazine() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+              {['weekly', 'biweekly'].includes(manualFrequency) && (
+                <div className="grid gap-1.5 mt-2">
+                  <label className="text-sm font-medium text-zinc-300">
+                    Jour de publication
+                  </label>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setReleaseWeekday(null)}
+                      className={`px-2 py-1 text-xs rounded border ${
+                        releaseWeekday == null
+                          ? 'bg-purple-900/50 border-purple-600 text-purple-200'
+                          : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                      }`}
+                    >
+                      Auto
+                    </button>
+                    {([
+                      [0, 'addMagazine.mon'],
+                      [1, 'addMagazine.tue'],
+                      [2, 'addMagazine.wed'],
+                      [3, 'addMagazine.thu'],
+                      [4, 'addMagazine.fri'],
+                      [5, 'addMagazine.sat'],
+                      [6, 'addMagazine.sun'],
+                    ] as [number, string][]).map(([day, key]) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setReleaseWeekday(day)}
+                        className={`px-2 py-1 text-xs rounded border ${
+                          releaseWeekday === day
+                            ? 'bg-purple-900/50 border-purple-600 text-purple-200'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                        }`}
+                      >
+                        {t(key)}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    Auto = déduit du dernier numéro connu. Sinon les prévisions s'alignent sur ce jour.
+                  </p>
                 </div>
               )}
             </div>

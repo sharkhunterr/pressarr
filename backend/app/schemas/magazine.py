@@ -79,6 +79,7 @@ class MagazineResource(CamelModel):
     last_searched_at: datetime | None = None
     last_metadata_refresh: datetime | None = None
     excluded_days: list[int] | None = None
+    release_weekday: int | None = None
     patterns: list[MagazinePatternResource] = []
     rules: list[MagazineRuleResource] = []
     statistics: MagazineStatistics = MagazineStatistics()
@@ -115,6 +116,7 @@ class MagazineCreateResource(CamelModel):
     metadata_provider_id: str | None = None
     metadata_provider: str | None = None
     excluded_days: list[int] | None = None
+    release_weekday: int | None = None
     search_for_missing_issues: bool = True
     # ISSN-first cascade enrichment — allseerr's dispatcher forwards
     # what its search already resolved so pressarr persists the
@@ -139,6 +141,7 @@ class MagazineUpdateResource(CamelModel):
     quality_profile_id: int | None = None
     root_folder_id: int | None = None
     excluded_days: list[int] | None = None
+    release_weekday: int | None = None
     use_latest_issue_cover: bool | None = None
     cover_issue_id: int | None = None
 

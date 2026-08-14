@@ -68,13 +68,27 @@ class Magazine(Base):
     last_searched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_metadata_refresh: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     excluded_days: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Custom crop rectangle pour l'IA vision, en ratios 0..1 de la
-    # page couverture. Format JSON : {"x":0.05,"y":0.02,"w":0.9,"h":0.15}
-    # L'user le définit visuellement dans le modal Refresh IA →
-    # persisté ici → utilisé pour toutes les analyses vision futures
-    # du magazine. Null = pas de crop custom, fallback sur le mode
-    # global `ai_enrichment_vision_crop` (full/top/bottom/top_bottom).
-    ai_crop_rect: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Weekday on which the magazine hits newsstands, ISO indexing
+    # (0=Monday … 6=Sunday). Used by the forecast generator to snap
+    # weekly/biweekly upcoming issues to the correct day even when
+    # no real issue exists yet to seed the rhythm — e.g. Paris Match
+    # = 3 (Thursday) means every forecast lands on a Thursday
+    # regardless of the monitoring start date. NULL = infer from
+    # last real issue (or monitoring_start_date).
+    release_weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Custom crop zones pour l'IA vision, JSON array. Format canonique
+    # (nouveau) : list of dicts. Chaque dict = un rectangle en ratios
+    # 0..1 avec rotation optionnelle qui sera appliquée AVANT envoi
+    # à la vision (utile pour les bandeaux verticaux type tarif Paris
+    # Match dont le texte est écrit à 90°) :
+    #   [{"x":0.05,"y":0.02,"w":0.9,"h":0.15,"rotation":0,"label":"masthead"},
+    #    {"x":0.0,"y":0.2,"w":0.04,"h":0.8,"rotation":90,"label":"tarif"}]
+    # Rétro-compat : un dict unique legacy `{"x":..,"y":..,"w":..,"h":..}`
+    # est promu automatiquement en `[{...}]` par ``_lookup_magazine_crop``.
+    # Null = pas de crop custom, fallback sur ``ai_enrichment_vision_crop``.
+    # TEXT au lieu de VARCHAR(200) — 4+ zones dépassent facilement la
+    # limite précédente. Migration heal-at-boot upgrade des rows old.
+    ai_crop_rect: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ISSN-first cascade enrichment (populated by ZDB / Wikidata / BnF / LoC
     # via app.metadata.cascade). All nullable — the cascade is best-effort

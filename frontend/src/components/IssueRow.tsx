@@ -123,6 +123,9 @@ export function IssueRow({
           <span className="text-zinc-300 text-sm">{issue.title}</span>
         )}
       </TableCell>
+      <TableCell className="font-mono text-xs text-zinc-400">
+        {issue.issn ? issue.issn : <span className="text-zinc-700">—</span>}
+      </TableCell>
       <TableCell>
         {isInQueue ? (
           <div className="flex flex-col gap-1">

@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
-  Clock,
   Plus,
   X,
   Check,
@@ -77,6 +76,9 @@ import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { FileManagerModal } from '@/components/FileManagerModal'
 import { AIRefreshModal } from '@/components/AIRefreshModal'
+import { MagazineActivitiesPanel } from '@/components/MagazineActivitiesPanel'
+import { HistoryList } from '@/components/HistoryList'
+import { listActivities } from '@/api/activity'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -162,8 +164,10 @@ export default function MagazineDetail() {
   const [editFrequency, setEditFrequency] = useState('monthly')
   const [editMonitoringStartDate, setEditMonitoringStartDate] = useState('')
   const [editExcludedDays, setEditExcludedDays] = useState<number[]>([])
+  const [editReleaseWeekday, setEditReleaseWeekday] = useState<number | null>(null)
   const [editUseLatestCover, setEditUseLatestCover] = useState(false)
   const [editCoverIssueId, setEditCoverIssueId] = useState<number | null>(null)
+  const [editIssn, setEditIssn] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
   const [coverUploading, setCoverUploading] = useState(false)
   const coverFileRef = useRef<HTMLInputElement>(null)
@@ -212,6 +216,11 @@ export default function MagazineDetail() {
   const [historyIssueOpen, setHistoryIssueOpen] = useState(false)
   const [historyIssueId, setHistoryIssueId] = useState<number | null>(null)
 
+  // Manual Grab confirmation modal — opened before the actual download
+  // so the operator can bind the release to a specific issue / date,
+  // overriding the parser-based auto-attribution.
+  const [grabConfirm, setGrabConfirm] = useState<SearchResult | null>(null)
+
   // Manual Research modal state
   const [manualSearchOpen, setManualSearchOpen] = useState(false)
   const [manualSearchQuery, setManualSearchQuery] = useState('')
@@ -221,6 +230,13 @@ export default function MagazineDetail() {
   const [manualSearchPage, setManualSearchPage] = useState(1)
   const [manualSearchSourceFilter, setManualSearchSourceFilter] = useState('')
   const [manualSearchDateSort, setManualSearchDateSort] = useState<'' | 'asc' | 'desc'>('')
+  // Silent hit-count for each free-text tab, populated by a
+  // background probe on every submit so the operator sees which
+  // source actually has data without switching tabs blindly.
+  // null = not probed yet (or in-flight).
+  const [manualSearchCounts, setManualSearchCounts] = useState<
+    Record<string, number | null>
+  >({ annasarchive: null, internetarchive: null, indexers: null })
   // Scene magazine indexer state (Bookys + tm.org). Distinct
   // from the SearchResult-shaped tabs above because the row
   // model is different (hoster_links array, status lifecycle,
@@ -245,6 +261,19 @@ export default function MagazineDetail() {
     queryFn: () => getIssues(magazineId),
     enabled: !isNaN(magazineId),
   })
+
+  // Compteur d'activités en cours pour ce magazine — alimente le
+  // badge de l'onglet « Activités » (pulsation violet quand > 0).
+  const { data: liveActivities = [] } = useQuery({
+    queryKey: ['magazine-activities-running', magazineId],
+    queryFn: () => listActivities({ magazineId, status: 'running', limit: 20 }),
+    enabled: !isNaN(magazineId),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  })
+  const activityRunningCount = liveActivities.filter(
+    (a) => a.status === 'running' || a.status === 'queued',
+  ).length
 
   const { data: profiles = [] } = useQuery({
     queryKey: ['qualityProfiles'],
@@ -659,8 +688,10 @@ export default function MagazineDetail() {
     setEditFrequency(magazine.frequency)
     setEditMonitoringStartDate(magazine.monitoringStartDate ?? '')
     setEditExcludedDays(magazine.excludedDays ?? [])
+    setEditReleaseWeekday(magazine.releaseWeekday ?? null)
     setEditUseLatestCover(magazine.useLatestIssueCover)
     setEditCoverIssueId(null)
+    setEditIssn(magazine.issn ?? '')
     setEditOpen(true)
   }
 
@@ -674,7 +705,9 @@ export default function MagazineDetail() {
       frequency: editFrequency,
       monitoringStartDate: editMonitoringStartDate || null,
       excludedDays: editExcludedDays,
+      releaseWeekday: editReleaseWeekday,
       useLatestIssueCover: editUseLatestCover,
+      issn: editIssn.trim() || null,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
   }
@@ -800,19 +833,45 @@ export default function MagazineDetail() {
     setManualSearchPage(1)
     setManualSearchSourceFilter('')
     setManualSearchDateSort('')
+    // Reset counts for this query — active tab count is set from
+    // its own result below; the other two tabs are probed in
+    // background so the operator sees where the hits actually are.
+    if (!isSceneTab(activeTab)) {
+      setManualSearchCounts({
+        annasarchive: null,
+        internetarchive: null,
+        indexers: null,
+      })
+      const q = manualSearchQuery
+      const probes: Array<[string, Promise<SearchResult[]>]> = [
+        ['annasarchive', searchAnnasArchive(q, magazineId)],
+        ['internetarchive', searchInternetArchive(q, magazineId)],
+        ['indexers', searchIndexers(q, magazineId)],
+      ]
+      probes
+        .filter(([key]) => key !== activeTab)
+        .forEach(([key, p]) => {
+          p.then(
+            (r) =>
+              setManualSearchCounts((c) => ({ ...c, [key]: r.length })),
+            () =>
+              setManualSearchCounts((c) => ({ ...c, [key]: 0 })),
+          )
+        })
+    }
     try {
       if (activeTab === 'annasarchive') {
-        setManualSearchResults(
-          await searchAnnasArchive(manualSearchQuery, magazineId),
-        )
+        const r = await searchAnnasArchive(manualSearchQuery, magazineId)
+        setManualSearchResults(r)
+        setManualSearchCounts((c) => ({ ...c, annasarchive: r.length }))
       } else if (activeTab === 'internetarchive') {
-        setManualSearchResults(
-          await searchInternetArchive(manualSearchQuery, magazineId),
-        )
+        const r = await searchInternetArchive(manualSearchQuery, magazineId)
+        setManualSearchResults(r)
+        setManualSearchCounts((c) => ({ ...c, internetarchive: r.length }))
       } else if (activeTab === 'indexers') {
-        setManualSearchResults(
-          await searchIndexers(manualSearchQuery, magazineId),
-        )
+        const r = await searchIndexers(manualSearchQuery, magazineId)
+        setManualSearchResults(r)
+        setManualSearchCounts((c) => ({ ...c, indexers: r.length }))
       } else if (isSceneTab(activeTab)) {
         // Scene tabs scrape pressarr's own indexer (Bookys /
         // tm.org) using the magazine's stored title + aliases
@@ -886,22 +945,24 @@ export default function MagazineDetail() {
     }
   }
 
-  async function handleGrab(result: SearchResult, fromManualSearch = false) {
+  async function handleGrab(
+    result: SearchResult,
+    fromManualSearch = false,
+    overrides?: { targetIssueId?: number; targetDate?: string },
+  ) {
     if (!fromManualSearch && !searchingIssueId && !magazine) return
     const targetIssueId = searchingIssueId ?? 0
     setGrabbing(result.guid)
     try {
       if (result.protocol === 'aa') {
-        // Anna's Archive direct download - guid = md5 hash
-        await downloadFromAA(result.guid, result.title, targetIssueId || undefined, magazineId)
+        await downloadFromAA(
+          result.guid, result.title,
+          targetIssueId || undefined, magazineId, overrides,
+        )
       } else if (result.protocol === 'ia') {
-        // Internet Archive direct download
         await downloadFromIA(
-          result.guid,
-          `${result.guid}.pdf`,
-          result.title,
-          targetIssueId || undefined,
-          magazineId,
+          result.guid, `${result.guid}.pdf`, result.title,
+          targetIssueId || undefined, magazineId, overrides,
         )
       } else {
         await grabRelease(
@@ -911,11 +972,13 @@ export default function MagazineDetail() {
           result.protocol,
           result.guid,
           magazineId,
+          overrides,
         )
       }
       toast.success(t('issues.grabbed'))
       if (fromManualSearch) {
         setManualSearchOpen(false)
+        setGrabConfirm(null)
       } else {
         setSearchDialogOpen(false)
       }
@@ -986,7 +1049,7 @@ export default function MagazineDetail() {
                     {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-2 mt-1 text-sm text-zinc-400">
+                <div className="flex items-center gap-2 mt-1 text-sm text-zinc-400 flex-wrap">
                   {magazine.publisher && (
                     <span>{magazine.publisher}</span>
                   )}
@@ -994,6 +1057,12 @@ export default function MagazineDetail() {
                     <>
                       <span className="text-zinc-700">|</span>
                       <span className="capitalize">{magazine.frequency}</span>
+                    </>
+                  )}
+                  {magazine.issn && (
+                    <>
+                      <span className="text-zinc-700">|</span>
+                      <span className="font-mono text-xs">ISSN {magazine.issn}</span>
                     </>
                   )}
                 </div>
@@ -1034,14 +1103,6 @@ export default function MagazineDetail() {
                 >
                   <Search className="size-3.5" />
                   {t('magazineDetail.manualResearch')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setHistoryMagazineOpen(true)}
-                >
-                  <Clock className="size-3.5" />
-                  {t('history.title')}
                 </Button>
                 <Button
                   variant="outline"
@@ -1111,14 +1172,6 @@ export default function MagazineDetail() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setHistoryMagazineOpen(true)}
-              >
-                <Clock className="size-3.5" />
-                {t('history.title')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
                 onClick={handleReanalyzeAI}
                 disabled={reanalyzingAI}
                 title="Ré-analyse IA de la dernière issue"
@@ -1174,11 +1227,12 @@ export default function MagazineDetail() {
                 style={{ width: `${completionPercent}%` }}
               />
             </div>
+
           </div>
         </div>
       )}
 
-      {/* Main Tabs: Issues / Patterns / Rules */}
+      {/* Main Tabs: Issues / Patterns / Rules / Activités */}
       <Tabs defaultValue="issues">
         <TabsList className="bg-zinc-900 border-zinc-800 mb-4">
           <TabsTrigger value="issues">{t('magazineDetail.tabIssues')}</TabsTrigger>
@@ -1194,6 +1248,19 @@ export default function MagazineDetail() {
               <Badge variant="secondary" className="ml-1.5 text-xs px-1.5">{magazine.rules.length}</Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="activity">
+            Activités
+            {activityRunningCount > 0 && (
+              <span
+                className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-violet-500/20 text-violet-200 border border-violet-500/40 text-[10px] px-1.5 py-0.5"
+                title={`${activityRunningCount} en cours`}
+              >
+                <span className="size-1.5 rounded-full bg-violet-400 animate-pulse" />
+                {activityRunningCount}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="history">Historique</TabsTrigger>
         </TabsList>
 
         <TabsContent value="issues">
@@ -1282,6 +1349,7 @@ export default function MagazineDetail() {
                     <TableHead className="text-zinc-400">{t('issues.number')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.date')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.issueTitle')}</TableHead>
+                    <TableHead className="text-zinc-400">ISSN</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.status')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.fileInfo')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.actions')}</TableHead>
@@ -1539,6 +1607,14 @@ export default function MagazineDetail() {
         <TabsContent value="rules">
           {magazine && <MagazineRulesTab magazine={magazine} magazineId={magazineId} />}
         </TabsContent>
+
+        <TabsContent value="activity">
+          <MagazineActivitiesPanel magazineId={magazineId} limit={50} />
+        </TabsContent>
+
+        <TabsContent value="history">
+          <HistoryList magazineId={magazineId} pageSize={20} />
+        </TabsContent>
       </Tabs>
 
       {/* Manual Research Modal */}
@@ -1558,18 +1634,31 @@ export default function MagazineDetail() {
               setManualSearchPage(1)
               setManualSearchSourceFilter('')
               setManualSearchDateSort('')
+              // Auto-fetch on tab switch so the user doesn't have
+              // to re-submit — the background probe already told us
+              // whether this tab has hits, but not the actual rows.
+              if (
+                !isSceneTab(val) &&
+                manualSearchQuery.trim() &&
+                (manualSearchCounts[val] ?? 0) > 0
+              ) {
+                handleManualSearch(val)
+              }
             }}
             className="flex-1 overflow-hidden flex flex-col"
           >
             <TabsList className="w-full">
               <TabsTrigger value="annasarchive">
                 {t('magazineDetail.tabAnnasArchive')}
+                <TabCountBadge n={manualSearchCounts.annasarchive} />
               </TabsTrigger>
               <TabsTrigger value="internetarchive">
                 {t('magazineDetail.tabInternetArchive')}
+                <TabCountBadge n={manualSearchCounts.internetarchive} />
               </TabsTrigger>
               <TabsTrigger value="indexers">
                 {t('magazineDetail.tabIndexers')}
+                <TabCountBadge n={manualSearchCounts.indexers} />
               </TabsTrigger>
               <TabsTrigger value="bookys">Bookys</TabsTrigger>
               <TabsTrigger value="telecharger_magazines">
@@ -1808,13 +1897,41 @@ export default function MagazineDetail() {
                         <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
                       </div>
                     ) : filtered.length === 0 && manualSearchResults.length === 0 ? (
-                      <p className="text-zinc-500 text-center py-8">
-                        {t('magazineDetail.manualSearchHint')}
-                      </p>
+                      <div className="py-8 space-y-2 text-center">
+                        <p className="text-zinc-500">
+                          {t('magazineDetail.manualSearchHint')}
+                        </p>
+                        <OtherTabsHint
+                          activeTab={manualSearchTab}
+                          counts={manualSearchCounts}
+                          onSwitch={(tab) => {
+                            setManualSearchTab(tab)
+                            setManualSearchResults([])
+                            setManualSearchPage(1)
+                            setManualSearchSourceFilter('')
+                            setManualSearchDateSort('')
+                            if (manualSearchQuery.trim()) handleManualSearch(tab)
+                          }}
+                        />
+                      </div>
                     ) : filtered.length === 0 ? (
-                      <p className="text-zinc-500 text-center py-8">
-                        {t('common.noResults')}
-                      </p>
+                      <div className="py-8 space-y-2 text-center">
+                        <p className="text-zinc-500">
+                          {t('common.noResults')}
+                        </p>
+                        <OtherTabsHint
+                          activeTab={manualSearchTab}
+                          counts={manualSearchCounts}
+                          onSwitch={(tab) => {
+                            setManualSearchTab(tab)
+                            setManualSearchResults([])
+                            setManualSearchPage(1)
+                            setManualSearchSourceFilter('')
+                            setManualSearchDateSort('')
+                            if (manualSearchQuery.trim()) handleManualSearch(tab)
+                          }}
+                        />
+                      </div>
                     ) : (
                       <div className="divide-y divide-zinc-800">
                         {filtered
@@ -1873,7 +1990,7 @@ export default function MagazineDetail() {
                                 variant="outline"
                                 size="sm"
                                 disabled={result.isBlocklisted || grabbing === result.guid}
-                                onClick={() => handleGrab(result, true)}
+                                onClick={() => setGrabConfirm(result)}
                               >
                                 {grabbing === result.guid ? (
                                   <Loader2 className="size-3.5 animate-spin" />
@@ -2006,6 +2123,20 @@ export default function MagazineDetail() {
                 </div>
 
                 <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">ISSN</label>
+                  <Input
+                    value={editIssn}
+                    onChange={(e) => setEditIssn(e.target.value)}
+                    placeholder="1234-5678"
+                    maxLength={9}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono"
+                  />
+                  <p className="text-xs text-zinc-500">
+                    Numéro international standard du périodique (format 1234-5678). Utilisé par les recherches et l'enrichissement IA.
+                  </p>
+                </div>
+
+                <div className="grid gap-1.5">
                   <label className="text-sm font-medium text-zinc-300">
                     {t('addMagazine.frequency')}
                   </label>
@@ -2088,6 +2219,51 @@ export default function MagazineDetail() {
                           </button>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {['weekly', 'biweekly'].includes(editFrequency) && (
+                    <div className="grid gap-1.5 mt-2">
+                      <label className="text-sm font-medium text-zinc-300">
+                        Jour de publication
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditReleaseWeekday(null)}
+                          className={`px-2 py-1 text-xs rounded border ${
+                            editReleaseWeekday == null
+                              ? 'bg-purple-900/50 border-purple-600 text-purple-200'
+                              : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                          }`}
+                        >
+                          Auto
+                        </button>
+                        {([
+                          [0, 'addMagazine.mon'],
+                          [1, 'addMagazine.tue'],
+                          [2, 'addMagazine.wed'],
+                          [3, 'addMagazine.thu'],
+                          [4, 'addMagazine.fri'],
+                          [5, 'addMagazine.sat'],
+                          [6, 'addMagazine.sun'],
+                        ] as [number, string][]).map(([day, key]) => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => setEditReleaseWeekday(day)}
+                            className={`px-2 py-1 text-xs rounded border ${
+                              editReleaseWeekday === day
+                                ? 'bg-purple-900/50 border-purple-600 text-purple-200'
+                                : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                            }`}
+                          >
+                            {t(key)}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-zinc-500">
+                        Auto = déduit du dernier numéro connu ou de la date de début de suivi. Sinon les prévisions s'alignent sur ce jour.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -2582,6 +2758,19 @@ export default function MagazineDetail() {
           queryClient.invalidateQueries({ queryKey: ['issues', magazineId] })
         }}
       />
+
+      {/* Manual grab confirmation — chooses the target issue BEFORE
+          the download starts, so a « 12 août » torrent doesn't end up
+          bound to a « 1er août » issue via parser guess. */}
+      {grabConfirm && (
+        <ManualGrabConfirmDialog
+          release={grabConfirm}
+          issues={issues}
+          isPending={grabbing === grabConfirm.guid}
+          onClose={() => setGrabConfirm(null)}
+          onConfirm={(overrides) => handleGrab(grabConfirm, true, overrides)}
+        />
+      )}
 
     </div>
   )
@@ -3167,6 +3356,242 @@ function MagazineRulesTab({ magazine, magazineId }: { magazine: Magazine; magazi
         </DialogContent>
       </Dialog>
 
+    </div>
+  )
+}
+
+// --- Manual Grab confirmation dialog --------------------------------
+
+interface ManualGrabConfirmProps {
+  release: SearchResult
+  issues: Issue[]
+  isPending: boolean
+  onClose: () => void
+  onConfirm: (overrides?: { targetIssueId?: number; targetDate?: string }) => void
+}
+
+function ManualGrabConfirmDialog({
+  release,
+  issues,
+  isPending,
+  onClose,
+  onConfirm,
+}: ManualGrabConfirmProps) {
+  const { t } = useTranslation()
+  const [mode, setMode] = useState<'auto' | 'existing' | 'date'>('auto')
+  const [issueId, setIssueId] = useState<number | ''>('')
+  const [date, setDate] = useState('')
+
+  // Sort issues by date DESC then by number, keep only those without
+  // a file (grabbing on top of an existing file overwrites — user
+  // usually doesn't want that from Manual Grab).
+  const sortedIssues = [...issues]
+    .filter((i) => !i.file)
+    .sort((a, b) => {
+      const da = a.year ? a.year * 10000 + (a.month ?? 0) * 100 + (a.day ?? 0) : 0
+      const db = b.year ? b.year * 10000 + (b.month ?? 0) * 100 + (b.day ?? 0) : 0
+      if (da !== db) return db - da
+      return (b.number ?? 0) - (a.number ?? 0)
+    })
+
+  function issueLabel(iss: Issue): string {
+    const parts: string[] = []
+    if (iss.number != null) parts.push(`#${iss.number}`)
+    if (iss.year) {
+      const ymd = [iss.year, iss.month, iss.day]
+        .filter(Boolean)
+        .map((n, i) => (i === 0 ? String(n) : String(n).padStart(2, '0')))
+        .join('-')
+      parts.push(ymd)
+    }
+    if (iss.title) parts.push(`— ${iss.title}`)
+    return parts.join(' ') || `issue #${iss.id}`
+  }
+
+  const canConfirm =
+    !isPending &&
+    (mode === 'auto' ||
+      (mode === 'existing' && issueId !== '') ||
+      (mode === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(date)))
+
+  function handleConfirm() {
+    if (mode === 'existing' && issueId !== '') {
+      onConfirm({ targetIssueId: issueId })
+    } else if (mode === 'date' && date) {
+      onConfirm({ targetDate: date })
+    } else {
+      onConfirm()
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800">
+        <DialogHeader>
+          <DialogTitle className="text-zinc-100">
+            {t('issues.grab')} — associer à
+          </DialogTitle>
+        </DialogHeader>
+        <div className="text-xs text-zinc-500 -mt-1 break-words">
+          {release.title}
+        </div>
+
+        <div className="space-y-3 mt-4">
+          <ModeRow
+            checked={mode === 'auto'}
+            onSelect={() => setMode('auto')}
+            title="Auto (parse le nom + IA)"
+            hint="Comportement historique : le parser + l'IA d'import décident du numéro/date après le téléchargement."
+          />
+          <ModeRow
+            checked={mode === 'existing'}
+            onSelect={() => setMode('existing')}
+            title="Issue existante"
+            hint="Force le rattachement à une issue déjà connue (utile si le titre du torrent trompe le parser)."
+          >
+            <select
+              value={issueId}
+              onChange={(e) => setIssueId(e.target.value === '' ? '' : Number(e.target.value))}
+              onClick={(e) => e.stopPropagation()}
+              disabled={mode !== 'existing'}
+              className="w-full mt-2 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100 disabled:opacity-40"
+            >
+              <option value="">— choisir —</option>
+              {sortedIssues.map((iss) => (
+                <option key={iss.id} value={iss.id}>{issueLabel(iss)}</option>
+              ))}
+            </select>
+          </ModeRow>
+          <ModeRow
+            checked={mode === 'date'}
+            onSelect={() => setMode('date')}
+            title="Nouvelle par date"
+            hint="Crée (ou retrouve) une issue à cette date exacte — bypass total du parser."
+          >
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              disabled={mode !== 'date'}
+              className="mt-2 bg-zinc-900 border-zinc-700 text-zinc-100 disabled:opacity-40"
+            />
+          </ModeRow>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={isPending}>
+            {t('common.cancel')}
+          </Button>
+          <Button onClick={handleConfirm} disabled={!canConfirm}>
+            {isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
+            {t('issues.grab')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ModeRow({
+  checked,
+  onSelect,
+  title,
+  hint,
+  children,
+}: {
+  checked: boolean
+  onSelect: () => void
+  title: string
+  hint: string
+  children?: React.ReactNode
+}) {
+  return (
+    <div
+      onClick={onSelect}
+      className={
+        'rounded border px-3 py-2 cursor-pointer transition ' +
+        (checked
+          ? 'border-purple-500/60 bg-purple-500/5'
+          : 'border-zinc-800 bg-zinc-900/40 hover:border-zinc-700')
+      }
+    >
+      <div className="flex items-start gap-2">
+        <input
+          type="radio"
+          checked={checked}
+          onChange={onSelect}
+          className="mt-1 accent-purple-500"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-zinc-100">{title}</div>
+          <div className="text-xs text-zinc-500">{hint}</div>
+          {checked && children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- Manual Research helpers ----------------------------------------
+
+const TAB_LABELS: Record<string, string> = {
+  annasarchive: "Anna's Archive",
+  internetarchive: 'Internet Archive',
+  indexers: 'Indexers',
+}
+
+function TabCountBadge({ n }: { n: number | null }) {
+  if (n == null) return null
+  return (
+    <span
+      className={
+        'ml-1.5 rounded px-1.5 text-[10px] leading-4 ' +
+        (n > 0
+          ? 'bg-emerald-500/20 text-emerald-300'
+          : 'bg-zinc-800 text-zinc-500')
+      }
+    >
+      {n}
+    </span>
+  )
+}
+
+/** Below-empty-state suggestion : if the active tab has no hits
+ *  but another free-text tab does, show a one-click switch. */
+function OtherTabsHint({
+  activeTab,
+  counts,
+  onSwitch,
+}: {
+  activeTab: string
+  counts: Record<string, number | null>
+  onSwitch: (tab: string) => void
+}) {
+  const others = (['indexers', 'annasarchive', 'internetarchive'] as const)
+    .filter((k) => k !== activeTab)
+    .map((k) => ({ key: k as string, n: counts[k] }))
+    .filter((x) => (x.n ?? 0) > 0) as Array<{ key: string; n: number }>
+  if (others.length === 0) return null
+  return (
+    <div className="text-xs text-zinc-400">
+      Résultats disponibles sur :{' '}
+      {others.map((o, i) => (
+        <span key={o.key}>
+          {i > 0 && ' · '}
+          <button
+            type="button"
+            onClick={() => onSwitch(o.key)}
+            className="text-purple-400 hover:text-purple-300 underline"
+          >
+            {TAB_LABELS[o.key] ?? o.key} ({o.n})
+          </button>
+        </span>
+      ))}
     </div>
   )
 }

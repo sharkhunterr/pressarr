@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { HistoryEntry } from '@/api/history'
@@ -462,15 +463,155 @@ interface AIStep {
   step: string
   model?: string
   page?: number | string | null
-  output?: Record<string, unknown> | null
+  zone?: string | null
+  tag?: string | null
+  engine?: string | null
+  input?: Record<string, unknown> | null
+  params?: Record<string, unknown> | null
+  output?: Record<string, unknown> | string | null
   error?: string | null
   elapsed_ms?: number
+  leak_dropped?: boolean
 }
 
 function fmtMs(ms?: number | null): string {
   if (ms == null) return '?'
   if (ms < 1000) return `${ms} ms`
   return `${(ms / 1000).toFixed(1)} s`
+}
+
+const STEP_KIND_COLOR: Record<string, string> = {
+  text: 'bg-blue-950 text-blue-300 border-blue-800',
+  vision: 'bg-purple-950 text-purple-300 border-purple-800',
+  python_ocr: 'bg-emerald-950 text-emerald-300 border-emerald-800',
+  arbiter: 'bg-amber-950 text-amber-300 border-amber-800',
+  arbiter_postvalidate: 'bg-orange-950 text-orange-300 border-orange-800',
+  switch: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+  cache: 'bg-cyan-950 text-cyan-300 border-cyan-800',
+  skip: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+}
+
+/** Rendu riche d'une step ai_run — inputs / params / output
+ *  déplié progressivement. Chaque bloc est optionnel selon ce que
+ *  la step porte. */
+function AIStepCard({ step: s }: { step: AIStep }) {
+  const [expanded, setExpanded] = useState(false)
+  const color = STEP_KIND_COLOR[s.step] ?? 'bg-zinc-800 text-zinc-300 border-zinc-700'
+
+  const hasInput = s.input && Object.keys(s.input).length > 0
+  const hasParams = s.params && Object.keys(s.params).length > 0
+  const canExpand = hasInput || hasParams
+  const outputPreview = renderOutputPreview(s.output)
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3">
+      <div className="flex items-center flex-wrap gap-2 mb-2">
+        <span className={'text-xs px-2 py-0.5 rounded border font-mono ' + color}>
+          {s.step}
+        </span>
+        {s.model && (
+          <span className="text-xs text-zinc-400 font-mono">{s.model}</span>
+        )}
+        {s.engine && (
+          <span className="text-xs text-zinc-400 font-mono">
+            engine:{s.engine}
+          </span>
+        )}
+        {s.page != null && s.page !== '' && (
+          <span className="text-xs text-zinc-500">page {s.page}</span>
+        )}
+        {s.zone && (
+          <span className="text-xs text-zinc-500">zone: {s.zone}</span>
+        )}
+        {s.tag && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">
+            tag:{s.tag}
+          </span>
+        )}
+        {s.leak_dropped && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-300">
+            leak dropped
+          </span>
+        )}
+        <span className="ml-auto text-xs text-zinc-500">
+          {fmtMs(s.elapsed_ms)}
+        </span>
+      </div>
+
+      {s.error && (
+        <div className="text-xs text-rose-300 mb-2 break-words">
+          <span className="text-zinc-500">Erreur : </span>
+          {s.error}
+        </div>
+      )}
+
+      {/* Output — bloc principal, toujours visible */}
+      {outputPreview !== null && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
+            Sortie
+          </div>
+          <pre className="text-xs bg-zinc-950 border border-zinc-800 rounded p-2 overflow-x-auto text-zinc-300 whitespace-pre-wrap break-words">
+            {outputPreview}
+          </pre>
+        </div>
+      )}
+
+      {/* Input + Params — pliés par défaut, dépliage à la demande */}
+      {canExpand && (
+        <div className="mt-2 border-t border-zinc-800 pt-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="text-[10px] text-zinc-500 hover:text-zinc-300 uppercase tracking-wide"
+          >
+            {expanded ? '▾' : '▸'} Détails technique (entrées + paramètres)
+          </button>
+          {expanded && (
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {hasInput && (
+                <div>
+                  <div className="text-[10px] uppercase text-zinc-500 mb-1">
+                    Entrées
+                  </div>
+                  <pre className="text-[10px] bg-zinc-950 border border-zinc-800 rounded p-2 overflow-x-auto text-zinc-400 whitespace-pre-wrap break-words">
+                    {JSON.stringify(s.input, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {hasParams && (
+                <div>
+                  <div className="text-[10px] uppercase text-zinc-500 mb-1">
+                    Paramètres
+                  </div>
+                  <pre className="text-[10px] bg-zinc-950 border border-zinc-800 rounded p-2 overflow-x-auto text-zinc-400 whitespace-pre-wrap break-words">
+                    {JSON.stringify(s.params, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function renderOutputPreview(
+  out: AIStep['output'],
+): string | null {
+  if (out == null) return null
+  if (typeof out === 'string') {
+    return out.length > 0 ? out.slice(0, 2000) : null
+  }
+  if (typeof out === 'object') {
+    try {
+      return JSON.stringify(out, null, 2)
+    } catch {
+      return String(out)
+    }
+  }
+  return String(out)
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -568,37 +709,7 @@ function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) {
         </div>
         <div className="space-y-2">
           {steps.map((s, i) => (
-            <div
-              key={i}
-              className="rounded border border-zinc-800 bg-zinc-900/40 p-3"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono">
-                  {s.step}
-                </span>
-                {s.page != null && s.page !== '' && (
-                  <span className="text-xs text-zinc-500">page {s.page}</span>
-                )}
-                {s.model && (
-                  <span className="text-xs text-zinc-400 font-mono">
-                    {s.model}
-                  </span>
-                )}
-                <span className="ml-auto text-xs text-zinc-500">
-                  {fmtMs(s.elapsed_ms)}
-                </span>
-              </div>
-              {s.error && (
-                <div className="text-xs text-rose-300 mb-2">
-                  Erreur : {s.error}
-                </div>
-              )}
-              {s.output && (
-                <pre className="text-xs bg-zinc-950 border border-zinc-800 rounded p-2 overflow-x-auto text-zinc-300">
-                  {JSON.stringify(s.output, null, 2)}
-                </pre>
-              )}
-            </div>
+            <AIStepCard key={i} step={s} />
           ))}
         </div>
       </div>

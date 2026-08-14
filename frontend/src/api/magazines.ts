@@ -39,6 +39,11 @@ export interface Magazine {
   lastSearchedAt: string | null
   lastMetadataRefresh: string | null
   excludedDays: number[] | null
+  /** Weekday the magazine is expected to hit newsstands, ISO
+   *  (0=Monday … 6=Sunday). Snaps weekly/biweekly forecast dates
+   *  to the right day even without any real issue as seed. Null
+   *  = infer from last real issue / monitoring start date. */
+  releaseWeekday: number | null
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {

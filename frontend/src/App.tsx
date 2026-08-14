@@ -9,6 +9,7 @@ import AddMagazine from './pages/AddMagazine'
 import MagazineDetail from './pages/MagazineDetail'
 import Calendar from './pages/Calendar'
 import Queue from './pages/Queue'
+import Activity from './pages/Activity'
 import History from './pages/History'
 import Blocklist from './pages/Blocklist'
 import Logs from './pages/Logs'
@@ -125,6 +126,7 @@ function App() {
             <Route path="/files" element={<Files />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/activity" element={<Activity />} />
             <Route path="/history" element={<History />} />
             <Route path="/blocklist" element={<Blocklist />} />
             <Route path="/logs" element={<Logs />} />

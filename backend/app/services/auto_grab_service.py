@@ -132,7 +132,14 @@ async def run_auto_grab(db: AsyncSession, config) -> dict[str, int]:
     """Run one auto-grab cycle across every monitored magazine.
     Returns a small stats dict (``{ "scanned": …, "grabbed":
     …, "skipped": … }``) so the scheduler log lines stay
-    informative."""
+    informative.
+
+    Enregistre une activité ``kind=scan`` dans la table Activity
+    pour que la page /activité + le badge sidebar reflètent le
+    cycle en cours. L'activité est marquée done avec les stats
+    en hint à la fin du cycle.
+    """
+    from app.services import activity_service
 
     if not getattr(config, "jdownloader_enabled", False):
         logger.debug(
@@ -146,19 +153,68 @@ async def run_auto_grab(db: AsyncSession, config) -> dict[str, int]:
         )
     ).all()
 
+    if not magazines:
+        return {"scanned": 0, "grabbed": 0, "skipped": 0}
+
     stats = {"scanned": 0, "grabbed": 0, "skipped": 0}
+
+    # Une activité par cycle. Retourne un id qu'on mettra à jour au
+    # fil du scan (progress + push_step par magazine touché).
+    activity_id: int | None = None
+    try:
+        activity_id = await activity_service.create(
+            kind="scan",
+            title=f"Auto-grab · {len(magazines)} magazines monitorés",
+            subtitle="Recherche indexeurs + dispatch JDownloader",
+            payload={"magazine_count": len(magazines)},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Activity mirror (scan register) failed: %s", exc)
 
     for mag in magazines:
         stats["scanned"] += 1
         try:
             grabbed = await _process_magazine(mag, db, config)
             stats["grabbed"] += grabbed
+            if activity_id is not None:
+                try:
+                    await activity_service.push_step(
+                        activity_id,
+                        {
+                            "step": "scan_magazine",
+                            "label": f"Scan {mag.title}",
+                            "hint": (
+                                f"{grabbed} grab(s)" if grabbed
+                                else "aucun release grabbable"
+                            ),
+                            "magazine_id": mag.id,
+                        },
+                    )
+                    await activity_service.update_progress(
+                        activity_id,
+                        stats["scanned"] * 100 / len(magazines),
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
         except Exception:
             logger.exception(
                 "Auto-grab cycle failed for magazine id=%s title=%r",
                 mag.id, mag.title,
             )
             stats["skipped"] += 1
+            if activity_id is not None:
+                try:
+                    await activity_service.push_step(
+                        activity_id,
+                        {
+                            "step": "scan_error",
+                            "label": f"Erreur sur {mag.title}",
+                            "hint": "voir logs",
+                            "magazine_id": mag.id,
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
 
     if stats["scanned"]:
         logger.info(
@@ -166,6 +222,18 @@ async def run_auto_grab(db: AsyncSession, config) -> dict[str, int]:
             "grabbed=%(grabbed)d skipped=%(skipped)d",
             stats,
         )
+    if activity_id is not None:
+        try:
+            await activity_service.mark_done(
+                activity_id,
+                hint=(
+                    f"{stats['scanned']} scannés · "
+                    f"{stats['grabbed']} grabs · "
+                    f"{stats['skipped']} erreurs"
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return stats
 
 

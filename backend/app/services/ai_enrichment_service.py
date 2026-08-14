@@ -62,9 +62,187 @@ class EnrichmentResult:
     total_elapsed_ms: int = 0
 
 
+_ZONE_TAG_FOCUS: dict[str, str] = {
+    # Le suffixe est concaténé au prompt vision de base pour orienter
+    # le modèle sans réécrire tout le contrat JSON.
+    "number": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT le "
+        "numéro d'édition du magazine (ex. « N° 4033 », « No 26 290 »). "
+        "Ignore tout le reste. Renvoie ce numéro dans raw_text — "
+        "un seul entier suffit si tu ne vois que ça."
+    ),
+    "date": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT la "
+        "date de publication (ex. « lundi 10 août 2026 », « Mars 2024 », "
+        "« DU 13 AU 19 AOÛT 2026 »). Ignore tout le reste. Renvoie la "
+        "date lisiblement dans raw_text."
+    ),
+    "title": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT le "
+        "titre principal du magazine (le logo/nom du journal). Ignore "
+        "les titres d'articles/accroches. Renvoie le titre dans raw_text "
+        "ET dans title."
+    ),
+    "subtitle": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient un sous-titre ou "
+        "une accroche éditoriale. Renvoie le texte tel quel dans raw_text."
+    ),
+    "price": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient le prix + éventuelles "
+        "mentions tarifaires étrangères (« 4,00 € », « BEL: 4,40 € »). "
+        "Renvoie tout ça dans raw_text."
+    ),
+    "publisher": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient l'éditeur / les "
+        "mentions légales / le domaine (« www.lefigaro.fr », « Editions "
+        "Prisma »). Renvoie tout ça dans raw_text."
+    ),
+    "issn": (
+        "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT le "
+        "numéro ISSN du magazine (format « ISSN 1234-5678 » ou juste "
+        "« 1234-5678 » — 8 chiffres/lettres séparés par un tiret). "
+        "Ignore le reste. Renvoie l'ISSN dans raw_text."
+    ),
+    "all": "",  # comportement historique (prompt entier tel quel)
+}
+
+
+def _build_zone_vision_prompt(
+    *,
+    base_prompt: str,
+    tag: str,
+    custom_tag: str | None = None,
+) -> str:
+    """Concat un focus ciblé au prompt vision selon le tag de zone.
+
+    Le focus est ajouté APRÈS le prompt de base pour ne pas casser
+    l'anti-triche déjà en place ; il ne remplace jamais les règles
+    d'anti-hallucination. Pour ``tag == "custom"``, ``custom_tag``
+    devient une consigne libre injectée directement.
+    """
+    if tag == "custom" and custom_tag:
+        focus = (
+            "\n\n---\n### FOCUS ZONE\nConsigne opérateur : "
+            f"{custom_tag.strip()}"
+        )
+        return base_prompt + focus
+    suffix = _ZONE_TAG_FOCUS.get(tag, "")
+    return base_prompt + suffix
+
+
+def _is_vision_garbage(vision_out: dict[str, Any]) -> tuple[bool, str]:
+    """Détecte les sorties vision « poubelle » — mojibake, CJK massif,
+    caractères de contrôle, symboles bizarres.
+
+    Cible principale : minicpm-v qui sort parfois des blocs de kanji /
+    caractères Zalgo / répétitions de glyphes non-ASCII quand l'image
+    l'a désorienté (bandeau trop étroit, zone quasi-vide, texte pivoté).
+
+    Renvoie (True, raison) si la sortie doit être ignorée.
+    Seuils empiriques — on veut catcher les vrais garbage sans
+    pénaliser un magazine étranger légitime (ex: プレイボーイ) :
+      - > 25 % de caractères hors alphabet latin étendu
+      - > 3 caractères de contrôle
+      - > 10 caractères de la plage « symboles » Unicode (mathematical,
+        arrows, misc technical) qui ne devraient pas apparaître dans
+        un titre de magazine occidental.
+    """
+    if not isinstance(vision_out, dict):
+        return False, ""
+    parts: list[str] = []
+    for k in ("title", "raw_text", "publisher", "date", "issue_number"):
+        v = vision_out.get(k)
+        if isinstance(v, str):
+            parts.append(v)
+    blob = " ".join(parts).strip()
+    if len(blob) < 4:
+        return False, ""
+    import unicodedata as _ud
+    ctrl = 0
+    weird_sym = 0
+    non_latin = 0
+    total = 0
+    for ch in blob:
+        if ch.isspace():
+            continue
+        total += 1
+        cat = _ud.category(ch)
+        # Cc = control, Cf = format, Cs = surrogate
+        if cat in ("Cc", "Cf", "Cs"):
+            ctrl += 1
+            continue
+        cp = ord(ch)
+        # Latin étendu OK
+        if cp < 0x0250 or 0x1E00 <= cp <= 0x1EFF:
+            continue
+        # Symboles techniques / flèches / mathematical (garbage typique)
+        if (
+            0x2190 <= cp <= 0x21FF   # arrows
+            or 0x2200 <= cp <= 0x22FF  # mathematical
+            or 0x2300 <= cp <= 0x23FF  # misc technical
+            or 0x25A0 <= cp <= 0x25FF  # geometric
+            or 0x2E80 <= cp <= 0x2EFF  # CJK radicals supplement
+        ):
+            weird_sym += 1
+        non_latin += 1
+    if total == 0:
+        return False, ""
+    if ctrl > 3:
+        return True, f"{ctrl} caractères de contrôle"
+    if weird_sym > 10:
+        return True, f"{weird_sym} symboles bizarres"
+    ratio = non_latin / total
+    if ratio > 0.25 and non_latin > 8:
+        return True, f"{non_latin}/{total} chars hors latin ({ratio:.0%})"
+    return False, ""
+
+
+def _is_vision_leak(
+    vision_out: dict[str, Any],
+    expected_title_lower: str,
+) -> bool:
+    """Heuristique anti-hallucination : la sortie vision recopie-t-elle
+    un titre de magazine différent de celui attendu ?
+
+    Cible principale : minicpm-v qui régurgite parfois un exemple de
+    magazine « célèbre » du prompt (L'ÉQUIPE, Le Monde, Paris Match…)
+    quand on lui envoie une image qu'il ne sait pas lire (bandeau
+    trop étroit, texte pivoté, photo sans texte).
+
+    Renvoie True si la vision remonte un titre qui n'a AUCUN mot
+    commun avec le titre torrent (ex. torrent=« Paris Match » et
+    vision=« L'Équipe » → 0 mot commun → leak).
+    Si ``expected_title_lower`` est vide → False (impossible de juger).
+    """
+    if not expected_title_lower or not isinstance(vision_out, dict):
+        return False
+    # On extrait UN candidat de titre : soit vision.title, soit la
+    # première ligne du raw_text (souvent le titre du masthead).
+    candidate = vision_out.get("title")
+    if not (isinstance(candidate, str) and candidate.strip()):
+        rt = vision_out.get("raw_text") or ""
+        if isinstance(rt, str) and rt.strip():
+            candidate = rt.strip().splitlines()[0]
+    if not (isinstance(candidate, str) and candidate.strip()):
+        return False
+    cand_lower = candidate.lower()
+    # Tokens simples : mots ≥ 3 lettres après retrait apostrophes/accents
+    import re as _re
+    def _toks(s: str) -> set[str]:
+        s = s.lower().replace("'", "'").replace("l'", "").replace("le ", " ").replace("la ", " ")
+        return {t for t in _re.split(r"[^a-zàâäéèêëïîôöùûüç0-9]+", s) if len(t) >= 3}
+    expected = _toks(expected_title_lower)
+    got = _toks(cand_lower)
+    # Si on n'a même pas 1 token attendu à comparer, on ne peut pas juger
+    if not expected:
+        return False
+    return expected.isdisjoint(got)
+
+
 def _arbitrate(
     torrent: dict[str, Any],
     vision_outputs: list[dict[str, Any]],
+    pyocr_outputs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Merge torrent (primary) + vision outputs (fill nulls only).
 
@@ -88,6 +266,7 @@ def _arbitrate(
         "day": torrent.get("day"),
         "is_hs": bool(torrent.get("is_hs")),
         "series_number": torrent.get("series_number"),
+        "issn": torrent.get("issn"),
     }
 
     for entry in vision_outputs:
@@ -139,6 +318,36 @@ def _arbitrate(
             if d and out.get("day") is None:
                 out["day"] = d
 
+        if out.get("issn") is None:
+            v = _extract_issn(text_pool)
+            if v:
+                out["issn"] = v
+
+    # Source 3 déterministe : Python OCR (Tesseract/RapidOCR/EasyOCR)
+    # sur le MÊME crop. Verse son raw_text dans le pool regex —
+    # complémentaire du vision LLM (l'un rate ce que l'autre voit).
+    for entry in pyocr_outputs or []:
+        rt = entry.get("raw_text") if isinstance(entry, dict) else None
+        if not (isinstance(rt, str) and rt.strip()):
+            continue
+        text_pool = rt
+        if out["issue_number"] is None:
+            parsed_num = _extract_issue_number(text_pool)
+            if parsed_num is not None:
+                out["issue_number"] = parsed_num
+        if not all(out.get(k) is not None for k in ("year", "month", "day")):
+            y, m, d = _parse_french_date(text_pool)
+            if y and out.get("year") is None:
+                out["year"] = y
+            if m and out.get("month") is None:
+                out["month"] = m
+            if d and out.get("day") is None:
+                out["day"] = d
+        if out.get("issn") is None:
+            v = _extract_issn(text_pool)
+            if v:
+                out["issn"] = v
+
     # Confidence : ratio de champs non-null pondéré.
     core_fields = ["title", "issue_number", "year", "month", "day"]
     non_null = sum(1 for f in core_fields if out.get(f) is not None)
@@ -152,17 +361,22 @@ def _build_arbiter_prompt(
     vision_outputs: list[dict[str, Any]],
     python_candidates: dict[str, Any],
     base_prompt: str,
+    pyocr_outputs: list[dict[str, Any]] | None = None,
 ) -> str:
     """Construit le prompt de l'arbitre IA final.
 
-    Le prompt liste les 3 sources et demande à l'IA de choisir la valeur
-    la plus RÉALISTE par champ, avec des règles explicites :
-      - torrent = source primaire (fiabilité haute)
-      - vision raw_text = OCR brut (pas d'interprétation)
-      - python candidates = extraction regex (rapide mais peut manquer)
+    Le prompt liste jusqu'à 4 sources et demande à l'IA de choisir la
+    valeur la plus RÉALISTE par champ :
+      - Source 1 : torrent (fiabilité haute, primaire)
+      - Source 2 : IA vision — OCR LLM (raw_text à trier, peut halluciner)
+      - Source 3 : OCR algorithmique Python (Tesseract/EasyOCR/RapidOCR
+                   — deterministic, jamais d'hallucination mais moins
+                   robuste sur textes stylisés)
+      - Source 4 : candidats regex Python (déjà filtrés)
 
-    Le raw_text vision (mélange titre, prix, dates, N°, mentions
-    légales) est passé tel quel — l'IA doit trier.
+    Les 2 OCR (IA + algo) tournent sur la MÊME image : leur
+    corroboration renforce la confiance ; leur divergence signale
+    un texte ambigu où l'arbiter doit trancher.
     """
     # Concat des raw_text vision en un seul blob lisible.
     vision_dump = []
@@ -181,34 +395,75 @@ def _build_arbiter_prompt(
             vision_dump.append(f"[page {page} · zone {zone}] " + " | ".join(chunks))
     vision_str = "\n".join(vision_dump) if vision_dump else "(aucune sortie vision)"
 
+    # Concat des raw_text python OCR — même clef (page/zone) pour
+    # que le LLM puisse cross-checker avec la source vision.
+    pyocr_dump = []
+    for entry in pyocr_outputs or []:
+        rt = entry.get("raw_text") if isinstance(entry, dict) else None
+        if not (isinstance(rt, str) and rt.strip()):
+            continue
+        page = entry.get("page", "?")
+        zone = entry.get("zone", "?")
+        engine = entry.get("engine", "?")
+        pyocr_dump.append(
+            f"[page {page} · zone {zone} · engine {engine}] {rt!r}"
+        )
+    pyocr_str = "\n".join(pyocr_dump) if pyocr_dump else "(aucune sortie python OCR)"
+
     return (
         f"{base_prompt}\n\n---\n"
-        "Trois sources sont disponibles pour extraire les métadonnées "
+        "Quatre sources sont disponibles pour extraire les métadonnées "
         "de ce magazine. Choisis la valeur la plus RÉALISTE par champ.\n\n"
         f"### Source 1 — Analyse du nom torrent (fiable, source primaire)\n"
         f"{json.dumps(torrent, ensure_ascii=False, indent=2)}\n\n"
-        f"### Source 2 — OCR brut de la couverture (à trier)\n"
+        f"### Source 2 — OCR IA vision de la couverture (à trier)\n"
         f"{vision_str}\n\n"
-        f"### Source 3 — Candidats extraits par regex (rapide mais imparfait)\n"
+        f"### Source 3 — OCR algorithmique (Tesseract/EasyOCR/RapidOCR) sur la MÊME image\n"
+        f"{pyocr_str}\n\n"
+        f"### Source 4 — Candidats extraits par regex (rapide mais imparfait)\n"
         f"{json.dumps(python_candidates, ensure_ascii=False, indent=2)}\n\n"
         "### Règles de décision\n"
         "1. Si la source 1 (torrent) a une valeur NON-NULL, garde-la — "
         "elle est toujours prioritaire.\n"
-        "2. Sinon, préfère la source 3 (Python) car elle a déjà filtré "
+        "2. Sinon, préfère la source 4 (regex) car elle a déjà filtré "
         "les faux positifs comme « 2,70 € » (prix), « 81ᵉ année » "
         "(année d'existence du magazine), « 80 ans ».\n"
-        "3. Utilise la source 2 (OCR brut) comme vérification : lit le "
-        "raw_text et repère les indices type « N° 26 290 », « lundi 10 "
-        "août 2026 ». Si Python a raté un N° visible, extrais-le.\n"
-        "4. Le N° d'édition est un ENTIER SANS espace (« 26 290 » → 26290). "
-        "N'invente PAS un N° si tu n'en vois pas dans les 3 sources.\n"
-        "5. La date doit être cohérente : year + month + day quand possible. "
+        "3. **Corroboration OCR IA + OCR algo** : si sources 2 et 3 "
+        "s'accordent sur un chiffre (« N° 26 290 » dans les 2), la "
+        "confiance est très élevée. Si elles divergent, préfère "
+        "celle qui a le format le plus plausible (5 chiffres pour un "
+        "quotidien, 4 pour un hebdo). L'OCR algo n'hallucine JAMAIS ; "
+        "l'IA vision peut inventer sous pression — méfie-toi si "
+        "seul le vision voit un mot que le python OCR n'a pas.\n"
+        "4. Utilise les raw_text pour repérer les indices type "
+        "« N° 26 290 », « lundi 10 août 2026 ». Si les 2 OCR ont "
+        "raté un N° et que la source 4 ne l'a pas non plus, laisse-le "
+        "null (pas d'invention).\n"
+        "5. **Nombre avec espace = UN SEUL nombre.** « 26 290 » est le "
+        "nombre 26290 (espace = séparateur milliers français), pas deux "
+        "nombres 26 et 290. Écris-le concaténé SANS espace. Autres "
+        "exemples : « 3 720 » → 3720, « 12 025 » → 12025. La règle "
+        "s'applique DÈS QU'IL Y A un espace entre 2-3 chiffres puis "
+        "exactement 3 chiffres. NE JAMAIS confondre les premiers 2 "
+        "chiffres seuls avec un jour du mois — vérifie le contexte : "
+        "un « N° » ou « No » devant, ou l'absence de nom de mois "
+        "immédiatement après, prouve que c'est un numéro d'édition.\n"
+        "6. Contre-exemple : « 12 août 2026 » = date (jour 12, mois août, "
+        "année 2026). Ici l'espace sépare le jour et le mot « août », "
+        "donc les 2 chiffres 12 sont bien un jour, pas un préfixe de "
+        "numéro d'édition.\n"
+        "7. N'invente PAS un N° si tu n'en vois pas dans les 4 sources.\n"
+        "8. La date doit être cohérente : year + month + day quand possible. "
         "Ignore les années < 1900 ou > 2100.\n\n"
         "Réponds avec un objet JSON strict :\n"
         "{\"title\": str|null, \"issue_number\": int|null, "
         "\"year\": int|null, \"month\": int|null, \"day\": int|null, "
         "\"is_hs\": bool, \"series_number\": int|null, "
+        "\"issn\": str|null, "
         "\"confidence\": float}\n\n"
+        "`issn` : format canonique ``NNNN-NNNC`` (ex. « 0242-6056 »). "
+        "Extrais-le d'un « ISSN 1234-5678 » ou d'un pattern brut "
+        "4-3+1 chiffres. Sinon null.\n"
         "`confidence` entre 0 et 1 = estimation globale de fiabilité."
     )
 
@@ -280,14 +535,31 @@ def _postvalidate_arbiter(
     return out
 
 
+def _extract_issn(text: str) -> str | None:
+    """Extrait un ISSN d'un blob texte.
+
+    Format ISSN standard : 4 chiffres + tiret + 3 chiffres + 1 chiffre/X.
+    Ex. « 0242-6056 », « ISSN 1234-567X ». Le préfixe « ISSN » est
+    optionnel. On renvoie la forme canonique ``NNNN-NNNC``.
+    """
+    import re
+    if not text:
+        return None
+    m = re.search(r"\b(\d{4})[-\s]?(\d{3}[\dXx])\b", text)
+    if not m:
+        return None
+    return f"{m.group(1)}-{m.group(2).upper()}"
+
+
 def _extract_issue_number(text: str) -> int | None:
     """Extrait le numéro d'édition d'un blob texte.
 
     Cherche des patterns « N°/No/# XXXXX » (avec espace optionnel au
-    milieu du nombre). Distingue des faux positifs :
+    milieu du nombre) puis fallback sur un nombre à séparateur milliers
+    (« 26 290 » = L'Équipe daily). Distingue des faux positifs :
       - « 81ᵉ année », « 80 ans » (année d'existence du magazine)
       - « 2,70 € », « 100 pages », « Rue de X 75001 »
-      - dates ISO (« 2026-08-10 »)
+      - dates ISO (« 2026-08-10 »), « 12 août 2026 »
 
     Renvoie l'entier ou None.
     """
@@ -304,6 +576,37 @@ def _extract_issue_number(text: str) -> int | None:
         digits = m.group(1).replace(" ", "")
         try:
             return int(digits)
+        except ValueError:
+            pass
+
+    # Priorité 1bis : nombre 2-3 chiffres + espace + 3 chiffres sans
+    # préfixe (« 26 290 » sur la Une quand l'OCR a raté le « N° »).
+    # Contrainte : le PREMIER mot juste après NE doit PAS être un nom
+    # de mois (sinon c'est jour+mois séparés par erreur d'OCR : « 12 août »).
+    _MONTH_RE = re.compile(
+        r"^\s*(janv|févr|fevr|mars|avril|mai|juin|juill|"
+        r"août|aout|sept|oct|nov|déc|dec)\b",
+        re.IGNORECASE,
+    )
+    for cand in re.finditer(r"\b(\d{2,3})\s(\d{3})\b", text):
+        d1, d2 = cand.group(1), cand.group(2)
+        # Guard : d2 est un préfixe année tronquée (« 12 025 » = 2025)
+        if len(d2) == 3 and d2.startswith("0"):
+            continue
+        after = text[cand.end():cand.end() + 20]
+        # Guard : mot juste après = mois → c'est une date jour+mois
+        if _MONTH_RE.match(after):
+            continue
+        # Guard : contexte prix immédiat
+        before = text[max(0, cand.start() - 4):cand.start()]
+        if "€" in text[cand.end():cand.end() + 4]:
+            continue
+        if "€" in before:
+            continue
+        try:
+            n = int(d1 + d2)
+            if not (1900 <= n <= 2100):
+                return n
         except ValueError:
             pass
 
@@ -439,22 +742,24 @@ def _render_page_pngs(
     page_index_1based: int,
     dpi: int = 200,
     crop_mode: str = "full",
-    custom_rect: dict[str, float] | None = None,
-) -> list[tuple[str, bytes]]:
-    """Render a PDF page → 1 or 2 PNGs selon ``crop_mode``.
+    custom_rect: dict[str, float] | list[dict[str, Any]] | None = None,
+) -> list[tuple[str, bytes, dict[str, Any] | None]]:
+    """Render a PDF page → N PNGs, one per zone.
 
-    Retour : liste de ``(label, png_bytes)``. Labels :
-      - ``"full"``   : la page entière
-      - ``"top"``    : les 45 % supérieurs
-      - ``"bottom"`` : les 45 % inférieurs
-      - ``"custom"`` : rectangle défini par ``custom_rect``
+    Retour : liste de ``(label, png_bytes)`` — un tuple par zone. Labels
+    typiques :
+      - ``"full" | "top" | "bottom"`` : mode preset (single zone)
+      - ``"custom" | "<label-user>"``  : zone(s) custom user
 
-    ``custom_rect`` : si fourni (dict avec ``x``, ``y``, ``w``, ``h`` en
-    ratios 0..1), l'emporte sur ``crop_mode``. Utilisé quand l'user a
-    dessiné visuellement une zone dans le UI Refresh IA — persisté sur
-    Magazine.ai_crop_rect.
+    ``custom_rect`` accepts three shapes (in priority order) :
+      * ``list[dict]`` : new multi-zone format
+        ``[{x, y, w, h, rotation?, label?}, ...]`` — one output per zone,
+        rotation applied per zone (0/90/180/270 clockwise) after render.
+      * ``dict`` legacy : ``{x, y, w, h}`` — promoted to a single-element
+        list internally.
+      * ``None`` : fall back to ``crop_mode``.
 
-    ``crop_mode`` (utilisé UNIQUEMENT si custom_rect est None) :
+    ``crop_mode`` (utilisé UNIQUEMENT si custom_rect est None/vide) :
       - ``"full"``      → [("full", ...)]
       - ``"top"``       → [("top", ...)]  ← quotidiens FR
       - ``"bottom"``    → [("bottom", ...)]  ← rare
@@ -464,6 +769,12 @@ def _render_page_pngs(
     Raises IndexError when the page doesn't exist.
     """
     import fitz  # PyMuPDF
+
+    # Normalise custom_rect into ``zones_norm`` — always a list of
+    # dicts with (x, y, w, h, rotation, label) once fully resolved.
+    zones_norm: list[dict[str, Any]] | None = None
+    if custom_rect is not None:
+        zones_norm = _normalise_crop_zones(custom_rect)
 
     doc = fitz.open(str(pdf_path))
     try:
@@ -481,49 +792,155 @@ def _render_page_pngs(
         matrix = fitz.Matrix(zoom, zoom)
         r = page.rect
 
-        # Résolution des zones à rendre.
-        zones: list[tuple[str, "fitz.Rect | None"]]
-        if custom_rect and all(k in custom_rect for k in ("x", "y", "w", "h")):
-            # Rectangle custom en ratios 0..1 du magazine
-            # (persisté sur Magazine.ai_crop_rect via l'UI). Clampe
-            # les bounds pour éviter les Rect invalides.
-            cx = max(0.0, min(1.0, float(custom_rect["x"])))
-            cy = max(0.0, min(1.0, float(custom_rect["y"])))
-            cw = max(0.01, min(1.0 - cx, float(custom_rect["w"])))
-            ch = max(0.01, min(1.0 - cy, float(custom_rect["h"])))
-            zones = [("custom", fitz.Rect(
-                r.x0 + r.width * cx,
-                r.y0 + r.height * cy,
-                r.x0 + r.width * (cx + cw),
-                r.y0 + r.height * (cy + ch),
-            ))]
+        # Résolution : (label, clip_rect, rotation_deg, zone_meta).
+        # zone_meta = le dict full de la zone (avec tag/custom_tag)
+        # pour les crops custom ; None pour les presets top/bottom/…
+        renders: list[tuple[str, "fitz.Rect | None", int, dict[str, Any] | None]]
+        if zones_norm:
+            renders = []
+            for idx, z in enumerate(zones_norm, 1):
+                clip = fitz.Rect(
+                    r.x0 + r.width * z["x"],
+                    r.y0 + r.height * z["y"],
+                    r.x0 + r.width * (z["x"] + z["w"]),
+                    r.y0 + r.height * (z["y"] + z["h"]),
+                )
+                label = z.get("label") or f"custom{idx}"
+                renders.append((label, clip, int(z.get("rotation") or 0), z))
         elif crop_mode == "top":
-            zones = [("top", fitz.Rect(
+            renders = [("top", fitz.Rect(
                 r.x0, r.y0, r.x1, r.y0 + r.height * 0.45,
-            ))]
+            ), 0, None)]
         elif crop_mode == "bottom":
-            zones = [("bottom", fitz.Rect(
+            renders = [("bottom", fitz.Rect(
                 r.x0, r.y0 + r.height * 0.55, r.x1, r.y1,
-            ))]
+            ), 0, None)]
         elif crop_mode == "top_bottom":
-            zones = [
+            renders = [
                 ("top", fitz.Rect(
                     r.x0, r.y0, r.x1, r.y0 + r.height * 0.45,
-                )),
+                ), 0, None),
                 ("bottom", fitz.Rect(
                     r.x0, r.y0 + r.height * 0.55, r.x1, r.y1,
-                )),
+                ), 0, None),
             ]
         else:  # "full" or unknown
-            zones = [("full", None)]
+            renders = [("full", None, 0, None)]
 
-        out: list[tuple[str, bytes]] = []
-        for label, clip in zones:
+        out: list[tuple[str, bytes, dict[str, Any] | None]] = []
+        for label, clip, rot, zone_meta in renders:
             pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
-            out.append((label, pix.tobytes(output="png")))
+            png_bytes = pix.tobytes(output="png")
+            # Priorité 1 : rotation explicite user (multi-zone).
+            if rot % 360 != 0:
+                png_bytes = _rotate_png(png_bytes, rot)
+            else:
+                # Priorité 2 : bandeau très étroit → auto-rotate 90°
+                # cw (safety net pour les crops verticaux tracés sans
+                # rotation user — ex. tarif Paris Match).
+                if pix.height >= pix.width * 3:
+                    png_bytes = _rotate_png_90cw(png_bytes)
+            out.append((label, png_bytes, zone_meta))
         return out
     finally:
         doc.close()
+
+
+def _normalise_crop_zones(data: Any) -> list[dict[str, Any]] | None:
+    """Parse the ``ai_crop_rect`` JSON blob into a normalised list.
+
+    Accepts both shapes :
+      - Legacy single dict : ``{x, y, w, h}`` → ``[{x, y, w, h, rotation:0}]``
+      - New list of zones : ``[{x, y, w, h, rotation?, label?}, ...]``
+
+    Coord fields are clamped to [0..1]. Zones missing any required
+    field are dropped (never raised). Returns None when no valid
+    zone survives — the caller falls back to global crop mode.
+    """
+    zones: list[dict[str, Any]] = []
+    raw_zones: list[Any]
+    if isinstance(data, list):
+        raw_zones = data
+    elif isinstance(data, dict):
+        raw_zones = [data]
+    else:
+        return None
+    for z in raw_zones:
+        if not isinstance(z, dict):
+            continue
+        if not all(k in z for k in ("x", "y", "w", "h")):
+            continue
+        try:
+            zone = {
+                "x": max(0.0, min(1.0, float(z["x"]))),
+                "y": max(0.0, min(1.0, float(z["y"]))),
+                "w": max(0.01, min(1.0, float(z["w"]))),
+                "h": max(0.01, min(1.0, float(z["h"]))),
+                "rotation": int(z.get("rotation") or 0) % 360,
+                "label": (z.get("label") or "").strip() or None,
+                "tag": (z.get("tag") or "all"),
+                "custom_tag": (z.get("custom_tag") or "").strip() or None,
+            }
+        except (TypeError, ValueError):
+            continue
+        # Clamp so (x + w) ≤ 1 and (y + h) ≤ 1 — protects PyMuPDF
+        # against out-of-bounds Rect.
+        zone["w"] = min(zone["w"], 1.0 - zone["x"])
+        zone["h"] = min(zone["h"], 1.0 - zone["y"])
+        zones.append(zone)
+    return zones or None
+
+
+def _has_extreme_aspect(png_bytes: bytes, max_ratio: float = 6.0) -> bool:
+    """True when max(w,h) / min(w,h) exceeds ``max_ratio``.
+
+    Cheap sanity check via PIL that returns False on any error (so a
+    malformed PNG doesn't skip the vision by accident). Used to bypass
+    the vision LLM on very thin strips (tarif vertical Paris Match,
+    band bas de couverture) where minicpm-v produces garbage : the
+    python OCR handles those zones better anyway.
+    """
+    try:
+        from PIL import Image
+        import io
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            w, h = img.size
+        short = min(w, h)
+        long_ = max(w, h)
+        if short <= 0:
+            return False
+        return (long_ / short) > max_ratio
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _rotate_png_90cw(png_bytes: bytes) -> bytes:
+    """Rotate a PNG 90° clockwise (shortcut for _rotate_png(..., 90))."""
+    return _rotate_png(png_bytes, 90)
+
+
+def _rotate_png(png_bytes: bytes, degrees: int) -> bytes:
+    """Rotate a PNG by 90/180/270° clockwise via Pillow.
+
+    Only cardinal rotations (0/90/180/270) — anything else is
+    normalised via modulo. Falls back to the original bytes if
+    Pillow chokes (should never happen, but keeps OCR usable).
+    """
+    deg = int(degrees) % 360
+    if deg == 0:
+        return png_bytes
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(png_bytes))
+        # PIL rotate() is counter-clockwise → negate for clockwise UX.
+        rotated = img.rotate(-deg, expand=True)
+        buf = io.BytesIO()
+        rotated.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("PNG rotation failed, sending original: %s", exc)
+        return png_bytes
 
 
 # Legacy wrapper — kept to avoid breaking any external caller.
@@ -607,25 +1024,73 @@ class AIEnrichmentService:
         )
 
         # --- Guard 1 : Ollama reachable + models present ---------
+        # Chaque étape peut avoir son propre modèle (Settings → IA).
+        # `effective_*` cascade sur `ai_text_model` quand la valeur
+        # spécifique n'a pas été définie.
+        torrent_model = cfg.effective_torrent_model
+        arbiter_model = cfg.effective_arbiter_model
+        vision_model = cfg.ai_vision_model
         available = await self._ollama.list_models()
         if not available:
             cb("skip", "Ollama injoignable — fallback parser natif")
             return await self._finalize_skip(run_id, steps, t0, "ollama_unreachable")
-        if cfg.ai_text_model not in available:
-            cb("skip", f"Modèle texte '{cfg.ai_text_model}' absent — fallback")
-            return await self._finalize_skip(run_id, steps, t0, "text_model_missing")
+        torrent_available = torrent_model in available
+        if not torrent_available:
+            logger.info(
+                "Torrent AI skipped — model %r absent from Ollama (or "
+                "disabled). Pipeline continues with vision + python_ocr.",
+                torrent_model,
+            )
 
-        # --- 1. Text LLM ----------------------------------------
-        cb("text", f"Analyse nom torrent avec {cfg.ai_text_model}")
-        text_result, text_step = await self._call_json(
-            model=cfg.ai_text_model,
-            prompt=(
-                f"{cfg.ai_text_prompt}\n\n---\nNom de fichier : "
-                f"{torrent_name}"
-            ),
-            step_name="text",
-        )
-        steps.append(text_step)
+        # --- Guard 1bis : libère la VRAM des modèles concurrents -
+        # Ollama peut être partagé avec un autre process qui a pinné
+        # un modèle avec ``keep_alive=-1`` → notre vision ne pourrait
+        # pas se charger et le call hangerait 5 min avant timeout.
+        # On unload tout ce qui ne fait pas partie de notre pipeline.
+        needed = {torrent_model, vision_model, arbiter_model} - {"__disabled__"}
+        try:
+            freed = await self._ollama.free_vram_for(needed)
+            if freed:
+                cb("switch", f"VRAM libérée (modèles concurrents : {', '.join(freed)})")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("VRAM free step failed non-fatally: %s", exc)
+
+        # --- 1. Torrent-name LLM (skippé si modèle absent/désactivé) --
+        if torrent_available:
+            cb("text", f"Analyse nom torrent avec {torrent_model}")
+            text_result, text_step = await self._call_json(
+                model=torrent_model,
+                prompt=(
+                    f"{cfg.ai_text_prompt}\n\n---\nNom de fichier : "
+                    f"{torrent_name}"
+                ),
+                step_name="text",
+            )
+            steps.append(text_step)
+        else:
+            # Fallback : parse basique via regex du torrent name pour
+            # avoir au moins un candidat title/number côté « source 1 ».
+            from app.parser.magazine_parser import parse_magazine_filename
+            parsed = parse_magazine_filename(torrent_name)
+            text_result = {
+                "title": parsed.title,
+                "issue_number": parsed.number,
+                "year": parsed.year,
+                "month": parsed.month,
+                "day": parsed.day,
+                "is_hs": parsed.is_special,
+                "series_number": parsed.volume,
+            }
+            steps.append({
+                "step": "text",
+                "model": "deterministic-python (parser)",
+                "input": {"torrent_name": torrent_name},
+                "params": {"reason": "AI text disabled or model absent"},
+                "output": text_result,
+                "error": None,
+                "elapsed_ms": 0,
+            })
+            cb("text", "Parser natif (IA texte désactivée)")
 
         # --- Guard 2 : vision available? ------------------------
         vision_outputs: list[dict[str, Any]] = []
@@ -641,10 +1106,22 @@ class AIEnrichmentService:
         elif not cfg.ai_enrichment_vision_pages:
             cb("skip", "Aucune page vision configurée — texte seul")
 
+        # Source 3 déterministe (Python OCR) : collectée en parallèle
+        # logique du vision LLM sur les MÊMES crops. Redondance qui
+        # rattrape les échecs vision (loops, hallucinations) et
+        # inversement (Tesseract râte souvent les textes stylisés).
+        # Liste alimentée au fil des zones — un item par (page, zone).
+        pyocr_outputs: list[dict[str, Any]] = []
+        pyocr_enabled = bool(
+            getattr(cfg, "ai_python_ocr_enabled", False)
+            and pdf_path is not None
+            and cfg.ai_enrichment_vision_pages
+        )
+
         if has_vision:
             # --- 2. Switch : unload text, load vision ---------
-            cb("switch", f"Chargement modèle vision {cfg.ai_vision_model}…")
-            await self._ollama.unload_model(cfg.ai_text_model)
+            cb("switch", f"Chargement modèle vision {vision_model}…")
+            await self._ollama.unload_model(torrent_model)
 
             pages = cfg.ai_enrichment_vision_pages or [1]
             crop_mode = getattr(cfg, "ai_enrichment_vision_crop", "full")
@@ -656,9 +1133,16 @@ class AIEnrichmentService:
             # laisse l'arbitre déterministe agréger.
             for idx, page_num in enumerate(pages, 1):
                 try:
+                    # DPI 260 pour un crop masthead (image petite en px),
+                    # améliore la lisibilité des petits caractères type
+                    # « N° 26 281 » sans faire exploser le budget VRAM
+                    # minicpm-v:8b. DPI 200 en full-page (crop_mode=full)
+                    # pour rester sous la limite contexte.
+                    render_dpi = 260 if custom_rect else 200
                     rendered = _render_page_pngs(
                         pdf_path,
                         page_num,
+                        dpi=render_dpi,
                         crop_mode=crop_mode,
                         custom_rect=custom_rect,
                     )
@@ -669,7 +1153,7 @@ class AIEnrichmentService:
                     steps.append({
                         "step": "vision",
                         "page": page_num,
-                        "model": cfg.ai_vision_model,
+                        "model": vision_model,
                         "output": None,
                         "error": f"render_failed: {exc}",
                         "elapsed_ms": 0,
@@ -677,34 +1161,106 @@ class AIEnrichmentService:
                     continue
 
                 import base64
-                for zone_label, png_bytes in rendered:
+                for zone_label, png_bytes, zone_meta in rendered:
+                    zone_tag = (zone_meta or {}).get("tag") or "all"
+                    zone_custom_tag = (zone_meta or {}).get("custom_tag")
+                    # --- 2bis. Python OCR (source déterministe) ------
+                    # Sur la MÊME image que celle envoyée à la vision.
+                    # Best-effort : jamais fatal — un échec (engine
+                    # manquant, texte illisible) laisse simplement la
+                    # source 3 vide et le pipeline continue.
+                    if pyocr_enabled:
+                        py_step = await self._run_python_ocr(
+                            png_bytes,
+                            engine_name=cfg.ai_python_ocr_engine,
+                            page=page_num,
+                            zone=zone_label,
+                        )
+                        py_step["tag"] = zone_tag
+                        steps.append(py_step)
+                        if py_step.get("output"):
+                            pyocr_outputs.append({
+                                "page": page_num,
+                                "zone": zone_label,
+                                "tag": zone_tag,
+                                "engine": py_step.get("engine"),
+                                "raw_text": py_step["output"],
+                            })
+
+                    # --- 3. Vision LLM (toujours appelée) ------------
+                    # User veut que TOUTES les étapes tournent pour
+                    # que l'arbiter voie tout et décide. La perf n'est
+                    # pas prioritaire : la qualité l'est.
+                    # Le prompt est adapté selon le tag de la zone :
+                    # "number" → ne cherche que le N°, "date" → date,
+                    # etc. Zoom sur ce que l'utilisateur cible.
+                    per_zone_prompt = _build_zone_vision_prompt(
+                        base_prompt=cfg.ai_vision_prompt,
+                        tag=zone_tag,
+                        custom_tag=zone_custom_tag,
+                    )
                     cb(
                         "vision",
                         f"OCR page {page_num} · zone {zone_label} "
-                        f"({idx}/{len(pages)})",
+                        f"[{zone_tag}] ({idx}/{len(pages)})",
                     )
                     img_b64 = base64.b64encode(png_bytes).decode("ascii")
                     v_output, v_step = await self._call_json(
-                        model=cfg.ai_vision_model,
-                        prompt=cfg.ai_vision_prompt,
+                        model=vision_model,
+                        prompt=per_zone_prompt,
                         step_name="vision",
                         images_b64=[img_b64],
                         extra_step_fields={
                             "page": page_num,
                             "zone": zone_label,
+                            "tag": zone_tag,
                         },
                     )
                     steps.append(v_step)
                     if v_output is not None:
+                        # Anti-garbage : rejette les sorties mojibake /
+                        # CJK massif / caractères de contrôle. Cible les
+                        # cas où minicpm-v part en vrille sur une image
+                        # qu'il ne sait pas lire et remonte du bruit.
+                        garbage, reason = _is_vision_garbage(v_output)
+                        if garbage:
+                            logger.warning(
+                                "Vision garbage detected (page %s zone %s, "
+                                "%s) — vision output ignored : %r",
+                                page_num, zone_label, reason, v_output,
+                            )
+                            v_step["garbage_dropped"] = reason
+                            continue
+                        # Anti-leak : rejette les vision outputs qui
+                        # remontent un magazine sans rapport avec le
+                        # torrent (ex. minicpm-v recopie « L'ÉQUIPE »
+                        # sur un scan Paris Match parce que l'exemple
+                        # du prompt le lui a suggéré). On compare le
+                        # title vision aux titres attendus — si zéro
+                        # recouvrement, on drop cette sortie et on
+                        # journalise pour observabilité.
+                        expected_title = (
+                            (text_result or {}).get("title") or ""
+                        ).strip().lower()
+                        if _is_vision_leak(v_output, expected_title):
+                            logger.warning(
+                                "Vision leak detected (page %s zone %s) — "
+                                "vision output ignored : %r",
+                                page_num, zone_label,
+                                v_output,
+                            )
+                            v_step["leak_dropped"] = True
+                            continue
                         vision_outputs.append({
                             "page": page_num,
                             "zone": zone_label,
+                            "tag": zone_tag,
                             "data": v_output,
                         })
 
             # --- 4. Switch back to text model for arbiter -----
-            cb("switch", f"Rechargement modèle arbitre {cfg.ai_text_model}…")
-            await self._ollama.unload_model(cfg.ai_vision_model)
+            cb("switch", f"Rechargement modèle arbitre {arbiter_model}…")
+            await self._ollama.unload_model(vision_model)
 
         # --- 5. Arbitrage hybride : Python propose, LLM tranche ---
         # Architecture 3-couches :
@@ -714,25 +1270,33 @@ class AIEnrichmentService:
         #      → choisit la valeur la plus réaliste par champ
         #   c) Post-validation Python : force torrent-primary sur les
         #      champs non-null torrent (l'IA ne peut PAS écraser)
-        if vision_outputs:
+        if vision_outputs or pyocr_outputs:
             cb("arbiter", "Analyse Python + arbitrage IA")
             arb_start = time.monotonic()
 
-            # a) Python propose ses candidats depuis le raw_text vision
-            python_candidates = _arbitrate(text_result or {}, vision_outputs)
+            # a) Python propose ses candidats depuis raw_text vision
+            #    ET raw_text python_ocr : les 2 sources sont regroupées
+            #    en un pool que la regex balaie ensemble → issue_number
+            #    trouvé même si SEULE l'une des 2 le contient.
+            python_candidates = _arbitrate(
+                text_result or {},
+                vision_outputs,
+                pyocr_outputs=pyocr_outputs,
+            )
 
-            # b) LLM arbitre — reçoit les 3 sources et tranche.
+            # b) LLM arbitre — voit les 4 sources et tranche.
             llm_final = None
             llm_err = None
-            if cfg.ai_text_model in available:
+            if arbiter_model in available:
                 arb_prompt = _build_arbiter_prompt(
                     torrent=text_result or {},
                     vision_outputs=vision_outputs,
                     python_candidates=python_candidates,
                     base_prompt=cfg.ai_arbiter_prompt,
+                    pyocr_outputs=pyocr_outputs,
                 )
                 llm_out, arb_step = await self._call_json(
-                    model=cfg.ai_text_model,
+                    model=arbiter_model,
                     prompt=arb_prompt,
                     step_name="arbiter",
                 )
@@ -742,7 +1306,7 @@ class AIEnrichmentService:
                 else:
                     llm_err = arb_step.get("error") or "empty response"
             else:
-                llm_err = f"arbiter model '{cfg.ai_text_model}' unavailable"
+                llm_err = f"arbiter model '{arbiter_model}' unavailable"
 
             # c) Post-validation : garantit torrent-primary.
             if llm_final is None:
@@ -760,6 +1324,15 @@ class AIEnrichmentService:
                 steps.append({
                     "step": "arbiter_postvalidate",
                     "model": "deterministic-python",
+                    "input": {
+                        "llm_final": llm_final,
+                        "torrent": text_result,
+                        "python_candidates": python_candidates,
+                    },
+                    "params": {
+                        "torrent_primary": True,
+                        "hallucination_threshold": 0.9,
+                    },
                     "output": final,
                     "error": None,
                     "elapsed_ms": int((time.monotonic() - arb_start) * 1000),
@@ -791,6 +1364,67 @@ class AIEnrichmentService:
     # Internal helpers
     # ------------------------------------------------------------
 
+    async def _run_python_ocr(
+        self,
+        png_bytes: bytes,
+        engine_name: str,
+        page: int,
+        zone: str,
+    ) -> dict[str, Any]:
+        """Run the configured python OCR engine on an image, best-effort.
+
+        Runs the sync engine call in a thread so we don't block the
+        event loop (Tesseract subprocess, EasyOCR PyTorch inference,
+        RapidOCR ONNX all release the GIL enough for this to help).
+        Never raises — engine errors surface as step["error"].
+        """
+        import asyncio
+
+        t0 = time.monotonic()
+        step: dict[str, Any] = {
+            "step": "python_ocr",
+            "engine": engine_name,
+            "input": {
+                "image_bytes": len(png_bytes),
+                "image_kilobytes": round(len(png_bytes) / 1024, 1),
+            },
+            "params": {"engine": engine_name},
+            "output": None,
+            "error": None,
+            "elapsed_ms": 0,
+            "page": page,
+            "zone": zone,
+        }
+        try:
+            from app.services.python_ocr_service import (
+                OCREngineError,
+                get_engine,
+            )
+        except Exception as exc:  # noqa: BLE001
+            step["error"] = f"python_ocr_service import failed: {exc}"
+            step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+            return step
+
+        try:
+            eng = get_engine(engine_name)
+            text = await asyncio.to_thread(eng.read, png_bytes)
+            step["output"] = text or ""
+            step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+        except OCREngineError as exc:
+            step["error"] = str(exc)
+            step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+            logger.warning(
+                "Python OCR (%s) failed on page %s zone %s: %s",
+                engine_name, page, zone, exc,
+            )
+        except Exception as exc:  # noqa: BLE001
+            step["error"] = f"unexpected: {exc}"
+            step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+            logger.warning(
+                "Python OCR (%s) unexpected failure: %s", engine_name, exc,
+            )
+        return step
+
     async def _call_json(
         self,
         *,
@@ -808,28 +1442,46 @@ class AIEnrichmentService:
         data.
         """
         t0 = time.monotonic()
+        num_ctx = 8192 if images_b64 else None
+        num_predict = 800 if images_b64 else None
+        repeat_penalty = 1.3 if images_b64 else None
+        # Structured input / params for the History drill-down. Un
+        # step complet ressemble maintenant à :
+        #   {step, input, params, output, error, elapsed_ms, ...extra}
+        # - ``input`` : le contexte visible qui a nourri la step (prompt
+        #   final, présence/taille de l'image, etc.)
+        # - ``params`` : les knobs modèle (num_ctx, num_predict…)
         step: dict[str, Any] = {
             "step": step_name,
             "model": model,
+            "input": {
+                "prompt_len": len(prompt or ""),
+                "prompt_preview": (prompt or "")[:400],
+                "images": [
+                    {"len_b64": len(b), "kilobytes": round(len(b) * 3 / 4 / 1024, 1)}
+                    for b in (images_b64 or [])
+                ],
+            },
+            "params": {
+                "num_ctx": num_ctx,
+                "num_predict": num_predict,
+                "repeat_penalty": repeat_penalty,
+                "temperature": 0.2,
+            },
             "output": None,
             "error": None,
             "elapsed_ms": 0,
         }
         if extra_step_fields:
             step.update(extra_step_fields)
-        # Vision calls (with images) : context ≥ 4096 sature vite car
-        # une image PDF encodée base64 mange 2000-4000 tokens vision.
-        # Compromis 8192 : assez pour une image 200 DPI + prompt + JSON
-        # sortie, sans faire exploser le KV cache VRAM (qwen2.5vl:7b
-        # + 16384 ctx demandait 18 Go, trop pour une 8 Go). Pour un
-        # modèle plus léger ou une VRAM plus grosse, remonter à 16384.
-        num_ctx = 8192 if images_b64 else None
         try:
             out = await self._ollama.generate_json(
                 model=model,
                 prompt=prompt,
                 images_b64=images_b64,
                 num_ctx=num_ctx,
+                num_predict=num_predict,
+                repeat_penalty=repeat_penalty,
             )
             step["output"] = out
             step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
@@ -842,12 +1494,12 @@ class AIEnrichmentService:
 
     async def _lookup_magazine_crop(
         self, magazine_id: int | None
-    ) -> dict[str, float] | None:
-        """Charge le rectangle custom sauvegardé sur le magazine.
+    ) -> list[dict[str, Any]] | None:
+        """Charge la liste des zones custom sauvegardées sur le magazine.
 
-        Renvoie ``None`` si magazine_id est None, aucun row trouvé, ou
-        que le champ est vide/malformé — le rendu tombera alors sur
-        le mode global (``full``/``top``/…).
+        Renvoie ``None`` quand aucun crop custom n'est défini (fallback
+        sur le mode global). Rétro-compat : un ancien row single-dict
+        est promu en list-of-one silencieusement.
         """
         if magazine_id is None:
             return None
@@ -865,14 +1517,7 @@ class AIEnrichmentService:
                 raw = row[0] if row else None
                 if not raw:
                     return None
-                data = json.loads(raw)
-                if all(k in data for k in ("x", "y", "w", "h")):
-                    return {
-                        "x": float(data["x"]),
-                        "y": float(data["y"]),
-                        "w": float(data["w"]),
-                        "h": float(data["h"]),
-                    }
+                return _normalise_crop_zones(json.loads(raw))
         except Exception as exc:  # noqa: BLE001
             logger.warning("magazine crop lookup failed: %s", exc)
         return None

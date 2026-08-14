@@ -36,10 +36,20 @@ export const grabRelease = (
   protocol: string,
   guid: string,
   magazineId?: number,
+  overrides?: { targetIssueId?: number; targetDate?: string },
 ) =>
   apiFetch<void>('/search/grab', {
     method: 'POST',
-    body: JSON.stringify({ issueId: issueId || undefined, downloadUrl, title, protocol, guid, magazineId }),
+    body: JSON.stringify({
+      issueId: issueId || undefined,
+      downloadUrl,
+      title,
+      protocol,
+      guid,
+      magazineId,
+      targetIssueId: overrides?.targetIssueId,
+      targetDate: overrides?.targetDate,
+    }),
   })
 
 // Internet Archive
@@ -55,12 +65,17 @@ export const downloadFromIA = (
   title: string,
   issueId?: number,
   magazineId?: number,
+  overrides?: { targetIssueId?: number; targetDate?: string },
 ) =>
   apiFetch<{ issueId: number; downloadId: string; message: string }>(
     '/search/internetarchive/download',
     {
       method: 'POST',
-      body: JSON.stringify({ identifier, filename, title, issueId, magazineId }),
+      body: JSON.stringify({
+        identifier, filename, title, issueId, magazineId,
+        targetIssueId: overrides?.targetIssueId,
+        targetDate: overrides?.targetDate,
+      }),
     },
   )
 
@@ -71,12 +86,22 @@ export const searchAnnasArchive = (query: string, magazineId?: number) => {
   return apiFetch<SearchResult[]>(`/search/annasarchive?${params}`)
 }
 
-export const downloadFromAA = (md5: string, title: string, issueId?: number, magazineId?: number) =>
+export const downloadFromAA = (
+  md5: string,
+  title: string,
+  issueId?: number,
+  magazineId?: number,
+  overrides?: { targetIssueId?: number; targetDate?: string },
+) =>
   apiFetch<{ issueId: number; downloadId: string; message: string }>(
     '/search/annasarchive/download',
     {
       method: 'POST',
-      body: JSON.stringify({ md5, title, issueId, magazineId }),
+      body: JSON.stringify({
+        md5, title, issueId, magazineId,
+        targetIssueId: overrides?.targetIssueId,
+        targetDate: overrides?.targetDate,
+      }),
     },
   )
 

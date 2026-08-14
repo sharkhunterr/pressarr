@@ -73,28 +73,61 @@ async def grab_release(
     db: AsyncSession = Depends(get_db),
     config=Depends(get_config),
 ):
+    """Grab a release.
+
+    Priority for target issue :
+      1. Explicit ``issueId`` in body → use as-is.
+      2. Explicit ``targetIssueId`` in body → bind release to that issue
+         (Manual Research picker : opérateur lie explicitement au grab).
+      3. Explicit ``targetDate`` (``YYYY-MM-DD``) in body → create/find
+         issue matching that date (Manual Research picker : nouvelle par date).
+      4. Fallback : NE PAS créer d'issue au grab. Le pipeline d'analyse
+         metadata (torrent parser + IA + OCR + arbiter) tourne pendant
+         l'import et **c'est lui** qui associe/crée l'issue avec les
+         valeurs finales. Ça évite les doublons (issue #123 créée par
+         parser au grab + issue avec date correcte créée par l'IA à
+         l'import). Seul le magazine_id est enregistré dans grab_registry.
+    """
     issue_id = body.get("issueId")
     magazine_id = body.get("magazineId")
     download_url = body.get("downloadUrl")
     title = body.get("title", "")
     protocol = body.get("protocol", "torrent")
     guid = body.get("guid", "")
+    target_issue_id = body.get("targetIssueId")
+    target_date = body.get("targetDate")  # 'YYYY-MM-DD' or None
 
     if not download_url:
         raise HTTPException(422, "downloadUrl is required")
 
-    # If no issue_id but we have a magazine, resolve/create issue from title
-    if not issue_id and magazine_id:
-        issue_id, _ = await _resolve_or_create_issue(db, magazine_id, title)
+    # (2) explicit target issue overrides everything.
+    if not issue_id and target_issue_id:
+        issue_id = int(target_issue_id)
+
+    # (3) explicit target date → find-or-create matching issue.
+    if not issue_id and target_date and magazine_id:
+        issue_id = await _resolve_or_create_issue_by_date(
+            db, magazine_id, target_date, title,
+        )
         await db.commit()
         from app.api.v1.websocket import manager as ws_manager
         await ws_manager.broadcast("library:updated", {"magazineId": magazine_id})
 
-    if not issue_id:
+    # (4) SANS issue_id : on laisse le pipeline d'import créer l'issue
+    # avec les métadonnées enrichies. Doit avoir un magazine_id.
+    if not issue_id and not magazine_id:
         raise HTTPException(422, "issueId or magazineId is required")
 
     from app.services.download_service import grab_release as do_grab
-    result = await do_grab(db, issue_id, download_url, title, protocol, guid)
+    result = await do_grab(
+        db,
+        issue_id=issue_id,
+        magazine_id=magazine_id,
+        download_url=download_url,
+        title=title,
+        protocol=protocol,
+        guid=guid,
+    )
     return result
 
 
@@ -168,6 +201,9 @@ class IADownloadRequest(CamelModel):
     issue_id: int | None = None
     magazine_id: int | None = None
     preferred_format: str = "pdf"
+    # Manual Grab overrides — see /grab docstring for semantics.
+    target_issue_id: int | None = None
+    target_date: str | None = None  # 'YYYY-MM-DD'
 
 
 # Priority order for downloadable formats
@@ -291,6 +327,64 @@ async def _lookup_issue_info(
     if not row:
         return None, None, None
     return row[0], row[2], row[1]  # magazine_id, magazine_title, issue_number
+
+
+async def _resolve_or_create_issue_by_date(
+    db: AsyncSession,
+    magazine_id: int,
+    target_date: str,  # 'YYYY-MM-DD'
+    fallback_title: str = "",
+) -> int:
+    """Find (or create) an issue whose (year, month, day) matches ``target_date``.
+
+    Used when the operator explicitly picks a date in the Manual Grab
+    dialog — we trust that date over any parser guess. Skips existing
+    issues that already have a file (create a distinct one instead so
+    a duplicate grab doesn't clobber the imported one).
+    """
+    from datetime import datetime
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.issue import Issue
+
+    try:
+        d = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except ValueError as e:
+        raise HTTPException(422, f"targetDate must be YYYY-MM-DD: {e}")
+
+    result = await db.execute(
+        select(Issue)
+        .options(selectinload(Issue.file))
+        .where(
+            Issue.magazine_id == magazine_id,
+            Issue.year == d.year,
+            Issue.month == d.month,
+            Issue.day == d.day,
+        )
+    )
+    issue = result.scalars().first()
+    if issue and not (issue.status == "available" and issue.file is not None):
+        return issue.id
+
+    # No matching wanted issue → create one.
+    issue = Issue(
+        magazine_id=magazine_id,
+        year=d.year,
+        month=d.month,
+        day=d.day,
+        title=fallback_title or None,
+        status="wanted",
+        monitored=True,
+    )
+    db.add(issue)
+    await db.flush()
+    logger.info(
+        "[resolve_by_date] Created issue id=%d for magazine %d date=%s",
+        issue.id, magazine_id, target_date,
+    )
+    return issue.id
 
 
 async def _resolve_or_create_issue(
@@ -473,16 +567,22 @@ async def download_from_internet_archive(
         if row:
             magazine_title = row[0]
 
-    # If no issue_id but we have a magazine, resolve/create issue from title
-    if not issue_id and magazine_id:
-        resolve_title = body.title or body.identifier or filename
-        issue_id, issue_number = await _resolve_or_create_issue(
-            db, magazine_id, resolve_title,
+    # Manual Grab overrides — same priority as /search/grab.
+    if not issue_id and body.target_issue_id:
+        issue_id = int(body.target_issue_id)
+    if not issue_id and body.target_date and magazine_id:
+        issue_id = await _resolve_or_create_issue_by_date(
+            db, magazine_id, body.target_date,
+            body.title or body.identifier or filename,
         )
         await db.commit()
-        # Notify frontend to refresh issue list immediately
         from app.api.v1.websocket import manager as ws_manager
         await ws_manager.broadcast("library:updated", {"magazineId": magazine_id})
+
+    # SANS issue_id NI target_date : mode différé — le pipeline import
+    # créera l'issue à partir des métadonnées finales (voir /search/grab
+    # docstring). On ne fait plus le _resolve_or_create_issue eager qui
+    # dupliquait les issues.
 
     # Register in tracker
     tracked = tracker.register(
@@ -809,6 +909,9 @@ class AADownloadRequest(CamelModel):
     issue_id: int | None = None
     magazine_id: int | None = None
     preferred_format: str = "pdf"
+    # Manual Grab overrides — see /grab docstring for semantics.
+    target_issue_id: int | None = None
+    target_date: str | None = None  # 'YYYY-MM-DD'
 
 
 @router.post("/annasarchive/download", response_model=GrabResponse)
@@ -857,14 +960,19 @@ async def download_from_annas_archive(
         if row:
             magazine_title = row[0]
 
-    # If no issue_id but we have a magazine, resolve/create issue from title
-    if not issue_id and magazine_id:
-        issue_id, issue_number = await _resolve_or_create_issue(
-            db, magazine_id, body.title or body.md5,
+    # Manual Grab overrides — same priority as /search/grab.
+    if not issue_id and body.target_issue_id:
+        issue_id = int(body.target_issue_id)
+    if not issue_id and body.target_date and magazine_id:
+        issue_id = await _resolve_or_create_issue_by_date(
+            db, magazine_id, body.target_date, body.title or body.md5,
         )
         await db.commit()
         from app.api.v1.websocket import manager as ws_manager
         await ws_manager.broadcast("library:updated", {"magazineId": magazine_id})
+
+    # SANS issue_id : mode différé — l'issue sera créée par le pipeline
+    # d'import à partir des métadonnées finales enrichies.
 
     # Register in tracker
     tracked = tracker.register(

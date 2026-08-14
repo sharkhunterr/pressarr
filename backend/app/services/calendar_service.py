@@ -134,6 +134,21 @@ async def generate_forecasts(
         # No known issues, start from today
         next_date = start_date
 
+    # Snap to configured release_weekday for weekly / biweekly. This
+    # makes the forecast align to the correct day of the week even
+    # when the seed date (monitoring_start_date or last real issue)
+    # is on a different day. E.g. Paris Match released Thursday :
+    # `release_weekday=3` guarantees every forecast is a Thursday
+    # regardless of when the operator added the magazine.
+    weekly_freqs = ("weekly", "biweekly")
+    rwd = getattr(magazine, "release_weekday", None)
+    if rwd is not None and magazine.frequency in weekly_freqs:
+        rwd = int(rwd) % 7
+        # Advance next_date forward to the next matching weekday
+        # (keeps at or after next_date, never rewinds).
+        delta_days = (rwd - next_date.weekday()) % 7
+        next_date = next_date + timedelta(days=delta_days)
+
     # Find issue with highest number (for auto-increment)
     last_numbered_result = await db.execute(
         select(Issue)

@@ -63,16 +63,17 @@ def parse_indexer_overrides(raw: str) -> dict:
 def get_enabled_indexer_ids(overrides: dict) -> list[int] | None:
     """Return list of enabled Prowlarr indexer IDs from overrides.
 
-    Returns None if no overrides exist (use all indexers).
-    If overrides exist, returns only IDs where enabled=True (or not set).
-    If any indexer is explicitly disabled, we must filter.
+    Returns None only when overrides are empty (aggregate default).
+    Otherwise ALWAYS returns the enabled IDs — including when nothing
+    is disabled — because Prowlarr's ``/api/v1/search`` without
+    ``indexerIds`` silently returns [] for reasons that vary by
+    version / config (observed on Prowlarr 1.x : global search
+    with only ``categories`` gives 0 hits while the same categories
+    + explicit ``indexerIds`` give hundreds). Passing the full
+    enabled set forces the fan-out and matches Sonarr/Radarr
+    behaviour.
     """
     if not overrides:
-        return None
-    has_disabled = any(
-        not entry.get("enabled", True) for entry in overrides.values()
-    )
-    if not has_disabled:
         return None
     enabled = [
         int(k)
@@ -125,15 +126,11 @@ def get_search_groups(
     if not groups:
         return [(global_cats, None)]
 
-    # If all enabled indexers use global cats and none are disabled,
-    # we can skip filtering
-    if (
-        not has_disabled
-        and len(groups) == 1
-        and global_key in groups
-    ):
-        return [(global_cats, None)]
-
+    # Historically we passed indexer_ids=None when nothing was
+    # disabled and cats matched the global set. That relied on
+    # Prowlarr fanning out by itself, which turned out to silently
+    # return [] on the current Prowlarr 1.x. Always pass explicit
+    # indexer_ids now — matches Sonarr/Radarr behaviour.
     return [(list(cats), ids) for cats, ids in groups.items()]
 
 

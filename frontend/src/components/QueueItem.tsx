@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Trash2, Ban, Import } from 'lucide-react'
+import { X, Trash2, Ban, Import, Check, Loader2, AlertCircle } from 'lucide-react'
 
 import { type QueueEntry } from '@/api/queue'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -16,6 +17,21 @@ function formatSpeed(bytesPerSecond: number): string {
   if (bytesPerSecond === 0) return '-'
   return `${formatBytes(bytesPerSecond)}/s`
 }
+
+/** Human "5m 23s" for import activity elapsed/ETA. */
+function formatDuration(ms: number): string {
+  if (ms < 0 || !Number.isFinite(ms)) return '-'
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return rem ? `${m}m ${rem}s` : `${m}m`
+}
+
+/** Total step budget expected for the pipeline — used to compute a
+ *  best-effort ETA. Not exact (some steps skipped, some very fast),
+ *  but gives the operator a realistic ballpark. */
+const EXPECTED_TOTAL_STEPS = 12
 
 interface QueueItemProps {
   entry: QueueEntry
@@ -47,6 +63,28 @@ export function QueueItem({
     : entry.size > 0
       ? Math.round(((entry.size - entry.sizeLeft) / entry.size) * 100)
       : 0
+
+  // Live-updating elapsed timer for import activities — re-render
+  // every second so the operator sees the counter tick. Cheap : one
+  // interval per import row, torn down on unmount / when done.
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!isImportActivity || entry.status === 'completed' || entry.status === 'failed') {
+      return
+    }
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [isImportActivity, entry.status])
+
+  const startedMs = entry.added ? new Date(entry.added).getTime() : null
+  const elapsedMs = startedMs ? now - startedMs : 0
+  const stepsDone = entry.steps?.length ?? 0
+  // ETA : linear extrapolation from steps done. Requires ≥ 2 steps
+  // to be somewhat meaningful — before that we show "-".
+  const etaMs =
+    stepsDone >= 2 && stepsDone < EXPECTED_TOTAL_STEPS && elapsedMs > 0
+      ? (elapsedMs / stepsDone) * (EXPECTED_TOTAL_STEPS - stepsDone)
+      : null
 
   return (
     <div className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950 px-4 py-3">
@@ -90,12 +128,24 @@ export function QueueItem({
         </div>
 
         {/* Stats — bytes hidden for import activities (no meaningful
-            size), replaced by step count. */}
+            size), replaced by elapsed / ETA / step count. */}
         <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
           {isImportActivity ? (
-            <span>
-              {entry.steps?.length ?? 0} étape(s) — depuis {entry.added ? new Date(entry.added).toLocaleTimeString('fr-FR') : '?'}
-            </span>
+            <>
+              <span title={entry.added ? new Date(entry.added).toLocaleString('fr-FR') : ''}>
+                ⏱ {formatDuration(elapsedMs)}
+              </span>
+              <span className="text-zinc-700">|</span>
+              <span>ETA : {etaMs ? `~${formatDuration(etaMs)}` : '-'}</span>
+              <span className="text-zinc-700">|</span>
+              <span>{stepsDone}/{EXPECTED_TOTAL_STEPS} étapes</span>
+              {entry.issueId && (
+                <>
+                  <span className="text-zinc-700">|</span>
+                  <span>issue #{entry.issueId}</span>
+                </>
+              )}
+            </>
           ) : (
             <>
               <span>{formatBytes(entry.size - entry.sizeLeft)} / {formatBytes(entry.size)}</span>
@@ -110,6 +160,41 @@ export function QueueItem({
             </>
           )}
         </div>
+
+        {/* Step timeline for import activities — one pill per step,
+            colour-coded (done = green, running = violet, error = red). */}
+        {isImportActivity && entry.steps && entry.steps.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {entry.steps.map((s, idx) => {
+              const isLast = idx === entry.steps!.length - 1
+              const isRunning =
+                isLast && entry.status !== 'completed' && entry.status !== 'failed'
+              const isError = s.step === 'error'
+              const bg = isError
+                ? 'bg-red-500/15 text-red-300 border-red-500/40'
+                : isRunning
+                  ? 'bg-violet-500/20 text-violet-200 border-violet-500/60'
+                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+              const Icon = isError ? AlertCircle : isRunning ? Loader2 : Check
+              return (
+                <span
+                  key={idx}
+                  className={
+                    'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] leading-4 ' + bg
+                  }
+                  title={s.hint ? `${s.label} — ${s.hint}` : s.label}
+                >
+                  <Icon
+                    className={
+                      'size-3 ' + (isRunning ? 'animate-spin' : '')
+                    }
+                  />
+                  {s.label}
+                </span>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Status */}

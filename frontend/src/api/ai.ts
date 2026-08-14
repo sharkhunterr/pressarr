@@ -13,8 +13,18 @@ export interface AISettings {
   enrichmentMode: 'remplace' | 'complete' | 'propose'
   enrichmentVisionPages: number[]
   enrichmentVisionCrop: 'full' | 'top' | 'bottom' | 'top_bottom'
+  /** Enable the 3rd deterministic source alongside torrent + LLM vision. */
+  pythonOcrEnabled: boolean
+  /** Which engine to use for the deterministic OCR : tesseract |
+   *  rapidocr | easyocr. Availability is probed via
+   *  /ai/python-ocr/engines (missing deps grey out). */
+  pythonOcrEngine: 'tesseract' | 'rapidocr' | 'easyocr'
   textModel: string
   visionModel: string
+  /** Per-step overrides — null falls back to ``textModel``. Chaque
+   *  étape (torrent-analysis, arbiter) accepte son propre modèle. */
+  torrentModel: string | null
+  arbiterModel: string | null
   textPrompt: string
   visionPrompt: string
   arbiterPrompt: string
@@ -25,6 +35,15 @@ export interface AISettings {
   rankerConfidenceThreshold: number
   rankerPrompt: string
 }
+
+export interface PythonOCRProbeEntry {
+  engine: 'tesseract' | 'rapidocr' | 'easyocr'
+  available: boolean
+  error: string | null
+}
+
+export const probePythonOCREngines = () =>
+  apiFetch<PythonOCRProbeEntry[]>('/ai/python-ocr/engines')
 
 export interface OllamaModelsProbe {
   reachable: boolean
@@ -126,6 +145,10 @@ export const refreshBatch = (
     includeMetadata?: boolean
     includeAiText?: boolean
     includeAiVision?: boolean
+    /** Fine-grained toggles pour les steps du pipeline. Null =
+     *  fallback (cohérent avec la source parente). */
+    includePythonOcr?: boolean | null
+    includeAiArbiter?: boolean | null
     applyResult?: boolean
     force?: boolean
   },
@@ -137,6 +160,8 @@ export const refreshBatch = (
       includeMetadata: body.includeMetadata ?? true,
       includeAiText: body.includeAiText ?? true,
       includeAiVision: body.includeAiVision ?? true,
+      includePythonOcr: body.includePythonOcr ?? null,
+      includeAiArbiter: body.includeAiArbiter ?? null,
       applyResult: body.applyResult ?? true,
       force: body.force ?? true,
     }),
@@ -166,18 +191,32 @@ export const listRankerRuns = (params?: {
   return apiFetch<RankerRun[]>(`/ai/runs/ranker${qs ? `?${qs}` : ''}`)
 }
 
-// --- Custom vision crop rectangle (drawn visually by user) -----------
+// --- Custom vision crop zones (drawn visually by user) ---------------
 
-export interface CropRect {
+export interface CropZone {
   x: number
   y: number
   w: number
   h: number
+  /** Clockwise rotation in degrees {0, 90, 180, 270} applied to
+   *  the rendered crop before it hits the vision model. Useful for
+   *  narrow vertical bands (e.g. Paris Match tarif strip) whose
+   *  text is printed at 90°. Default 0. */
+  rotation?: number
+  /** Optional free-form label surfaced in History runs
+   *  ("masthead", "tarif", ...). */
+  label?: string | null
+  /** Zone tag from a fixed vocabulary — pilots the vision prompt.
+   *  number | date | title | subtitle | price | publisher | issn | all | custom */
+  tag?: 'number' | 'date' | 'title' | 'subtitle' | 'price' | 'publisher' | 'issn' | 'all' | 'custom'
+  /** Free-text hint used only when tag === "custom".
+   *  Injected into the vision prompt for that specific zone. */
+  customTag?: string | null
 }
 
 export interface CropRectResponse {
   magazineId: number
-  rect: CropRect | null
+  zones: CropZone[]
 }
 
 export const getMagazineCrop = (magazineId: number) =>
@@ -185,11 +224,11 @@ export const getMagazineCrop = (magazineId: number) =>
 
 export const setMagazineCrop = (
   magazineId: number,
-  rect: CropRect | null,
+  zones: CropZone[],
 ) =>
   apiFetch<CropRectResponse>(`/ai/magazine/${magazineId}/crop`, {
     method: 'PUT',
-    body: JSON.stringify(rect),
+    body: JSON.stringify({ zones }),
   })
 
 /** URL directe vers le PNG de la couverture (sert dans <img>) —
@@ -199,6 +238,18 @@ export const magazineCoverPreviewUrl = (magazineId: number) => {
   const apiKey = localStorage.getItem('pressarr_api_key') ?? ''
   const key = apiKey ? `&apikey=${encodeURIComponent(apiKey)}` : ''
   return `/api/v1/ai/magazine/${magazineId}/cover-preview?t=${Date.now()}${key}`
+}
+
+/** URL directe vers le PNG de la couverture d'UNE issue précise.
+ *  Utilisé par le crop editor pour naviguer entre issues et
+ *  valider que les zones tombent bien partout. */
+export const issueCoverPreviewUrl = (magazineId: number, issueId: number) => {
+  const apiKey = localStorage.getItem('pressarr_api_key') ?? ''
+  const key = apiKey ? `&apikey=${encodeURIComponent(apiKey)}` : ''
+  return (
+    `/api/v1/ai/magazine/${magazineId}/issue-cover-preview` +
+    `?issueId=${issueId}${key}`
+  )
 }
 
 export const listProposals = (params?: {

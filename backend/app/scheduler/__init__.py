@@ -119,4 +119,28 @@ def _register_tasks() -> None:
         replace_existing=True,
     )
 
+    # Nettoyage périodique des activités « running » orphelines.
+    # Sans ça, un import qui se plante silencieusement (backend
+    # tué mid-run, worker crashé) reste marqué en cours jusqu'à
+    # la prochaine visite de la page /activity — potentiellement
+    # des heures. 5 min = compromis raisonnable entre réactivité
+    # UI et charge DB.
+    async def _cleanup_activities():
+        from app.services import activity_service
+        try:
+            n = await activity_service.cleanup_stale()
+            if n:
+                logger.info("[activity] auto-failed %d stale runs", n)
+        except Exception:  # noqa: BLE001
+            logger.warning("Activity cleanup failed (non-fatal)", exc_info=True)
+
+    scheduler.add_job(
+        _cleanup_activities,
+        "interval",
+        minutes=5,
+        id="activity_cleanup",
+        name="Activity stale cleanup",
+        replace_existing=True,
+    )
+
     logger.info("Registered %d scheduled tasks", len(scheduler.get_jobs()))

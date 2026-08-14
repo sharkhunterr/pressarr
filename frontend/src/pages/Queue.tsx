@@ -1,5 +1,15 @@
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, FileText, Inbox, Loader2, Trash2, X } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  FileText,
+  Inbox,
+  Loader2,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -28,7 +38,7 @@ interface UnifiedRow {
   key: string
   /** Visible source label rendered as the leading badge.
    *  Drives the colour treatment too. */
-  source: 'qbit' | 'jd2-pending' | 'jd2-completed'
+  source: 'qbit' | 'qbit-import' | 'jd2-pending' | 'jd2-completed'
   sourceLabel: string
   title: string
   subtitle?: string
@@ -46,6 +56,16 @@ interface UnifiedRow {
   onImport?: () => void
   onCancel?: () => void
   busy?: boolean
+  /** Post-download import telemetry — populated only for pressarr's
+   *  internal import tracker items. Drives the step timeline, live
+   *  elapsed and ETA below the progress bar. */
+  importPayload?: {
+    steps: Array<{ step: string; label: string; hint?: string | null; at: string }>
+    addedIso: string | null
+    status: string  // 'importing' | 'completed' | 'failed'
+    statusMessage: string | null
+    issueId: number | null
+  }
 }
 
 function formatBytes(b: number): string {
@@ -75,31 +95,50 @@ function qbitToRow(
   onCancel: () => void,
   onImport: () => void,
 ): UnifiedRow {
-  const progress =
-    entry.size > 0
+  const isImport = entry.protocol === 'import'
+  // Progress semantics differ :
+  //   - torrent/nzb : bytes-based, backend gives sizeLeft
+  //   - import      : backend already writes 0..100 in ``progress``
+  //                   (steps traversed / expected). NEVER multiply
+  //                   again (bug historique : 42.9 × 100 = 4290 %).
+  const progress = isImport
+    ? Math.round(entry.progress ?? 0)
+    : entry.size > 0
       ? Math.round(((entry.size - entry.sizeLeft) / entry.size) * 100)
-      : entry.progress * 100 || null
+      : null
   const chips: string[] = []
   if (entry.issueNumber !== null) chips.push(`#${entry.issueNumber}`)
-  if (entry.protocol) chips.push(entry.protocol)
+  if (entry.protocol && !isImport) chips.push(entry.protocol)
   return {
     key: `qbit-${entry.id}`,
-    source: 'qbit',
-    sourceLabel: entry.downloadClient || 'qBittorrent',
+    source: isImport ? 'qbit-import' : 'qbit',
+    sourceLabel: isImport
+      ? 'Import IA'
+      : (entry.downloadClient || 'qBittorrent'),
     title: entry.magazineTitle || entry.title,
     subtitle: entry.magazineTitle ? entry.title : undefined,
     status: entry.status,
     progress: typeof progress === 'number' ? progress : null,
-    sizeBytes: entry.size,
-    speedBytesPerSec: entry.speed,
+    // Bytes only meaningful for real downloads.
+    sizeBytes: isImport ? undefined : entry.size,
+    speedBytesPerSec: isImport ? undefined : entry.speed,
     errorMessage:
       entry.status === 'failed' && entry.errorMessage
         ? entry.errorMessage
         : undefined,
     chips,
     onRemove,
-    onCancel,
-    onImport: entry.status === 'completed' ? onImport : undefined,
+    onCancel: isImport ? undefined : onCancel,
+    onImport: !isImport && entry.status === 'completed' ? onImport : undefined,
+    importPayload: isImport
+      ? {
+          steps: entry.steps ?? [],
+          addedIso: entry.added ?? null,
+          status: entry.status,
+          statusMessage: entry.statusMessage,
+          issueId: entry.issueId,
+        }
+      : undefined,
   }
 }
 
@@ -152,8 +191,81 @@ function completedFolderToRow(
 
 const SOURCE_STYLE: Record<UnifiedRow['source'], string> = {
   qbit: 'bg-amber-500/15 text-amber-200 ring-amber-500/30',
+  'qbit-import': 'bg-violet-500/15 text-violet-200 ring-violet-500/30',
   'jd2-pending': 'bg-sky-500/15 text-sky-200 ring-sky-500/30',
   'jd2-completed': 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/30',
+}
+
+/** Total step budget expected for the pipeline — used to compute a
+ *  best-effort ETA. Not exact (some steps skipped, some very fast),
+ *  but gives the operator a realistic ballpark. */
+const EXPECTED_TOTAL_STEPS = 12
+
+/** Human "5m 23s" for import activity elapsed/ETA. */
+function formatDuration(ms: number): string {
+  if (ms < 0 || !Number.isFinite(ms)) return '-'
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return rem ? `${m}m ${rem}s` : `${m}m`
+}
+
+/** Live-updating counter that re-renders every second while the
+ *  import is still running. Cheap : one interval per import row. */
+function useLiveElapsed(startedIso: string | null, isRunning: boolean): number {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!isRunning) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [isRunning])
+  if (!startedIso) return 0
+  return Math.max(0, now - new Date(startedIso).getTime())
+}
+
+/** Step-timeline strip rendered under an import row's progress bar.
+ *  Green = done, violet spin = current, red = error. */
+function StepTimeline({
+  steps,
+  isDone,
+  isFailed,
+}: {
+  steps: Array<{ step: string; label: string; hint?: string | null }>
+  isDone: boolean
+  isFailed: boolean
+}) {
+  if (!steps.length) return null
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {steps.map((s, idx) => {
+        const isLast = idx === steps.length - 1
+        const isRunning = isLast && !isDone && !isFailed
+        const isError = s.step === 'error'
+        const bg = isError
+          ? 'bg-red-500/15 text-red-300 border-red-500/40'
+          : isRunning
+            ? 'bg-violet-500/20 text-violet-200 border-violet-500/60'
+            : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+        const Icon = isError ? AlertCircle : isRunning ? Loader2 : Check
+        return (
+          <span
+            key={`${idx}-${s.step}`}
+            className={
+              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] leading-4 ' +
+              bg
+            }
+            title={s.hint ? `${s.label} — ${s.hint}` : s.label}
+          >
+            <Icon
+              className={'size-3 ' + (isRunning ? 'animate-spin' : '')}
+            />
+            <span className="max-w-[180px] truncate">{s.label}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -168,8 +280,29 @@ const STATUS_STYLE: Record<string, string> = {
 
 function UnifiedRow({ row }: { row: UnifiedRow }) {
   const statusKey = row.status.toLowerCase()
+  const imp = row.importPayload
+  const isRunningImport = !!imp && imp.status !== 'completed' && imp.status !== 'failed'
+  const elapsedMs = useLiveElapsed(imp?.addedIso ?? null, isRunningImport)
+  const stepsDone = imp?.steps.length ?? 0
+  const etaMs =
+    imp && stepsDone >= 2 && stepsDone < EXPECTED_TOTAL_STEPS && elapsedMs > 0
+      ? (elapsedMs / stepsDone) * (EXPECTED_TOTAL_STEPS - stepsDone)
+      : null
+
+  // Progress cap : cheap defense against a backend regression sending
+  // >100 %. Prefer clamp over displaying "1430 %" ever again.
+  const progressClamped =
+    typeof row.progress === 'number'
+      ? Math.min(100, Math.max(0, row.progress))
+      : null
+
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2.5">
+    <div className={
+      'rounded-md border px-3 py-2.5 ' +
+      (row.source === 'qbit-import'
+        ? 'border-violet-500/30 bg-violet-500/[0.03]'
+        : 'border-zinc-800 bg-zinc-950')
+    }>
       <div className="flex flex-wrap items-start gap-2">
         <Badge
           className={`text-[10px] uppercase tracking-wider ring-1 ${SOURCE_STYLE[row.source]}`}
@@ -198,24 +331,55 @@ function UnifiedRow({ row }: { row: UnifiedRow }) {
           {row.subtitle && (
             <p className="mt-0.5 truncate text-xs text-zinc-500">{row.subtitle}</p>
           )}
+          {imp?.statusMessage && (
+            <p className="mt-0.5 text-xs text-violet-300 break-words">
+              {imp.statusMessage}
+            </p>
+          )}
           {row.errorMessage && (
             <p className="mt-0.5 truncate text-xs text-red-400">
               {row.errorMessage}
             </p>
           )}
 
-          {row.progress !== null && (
+          {progressClamped !== null && (
             <div className="mt-2 flex items-center gap-3">
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
                 <div
                   className="h-full rounded-full bg-[#7C3AED] transition-all"
-                  style={{ width: `${row.progress}%` }}
+                  style={{ width: `${progressClamped}%` }}
                 />
               </div>
               <span className="w-9 text-right text-xs text-zinc-400">
-                {row.progress}%
+                {progressClamped}%
               </span>
             </div>
+          )}
+
+          {imp && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+              <span title={imp.addedIso ? new Date(imp.addedIso).toLocaleString('fr-FR') : ''}>
+                ⏱ {formatDuration(elapsedMs)}
+              </span>
+              <span className="text-zinc-700">·</span>
+              <span>ETA : {etaMs ? `~${formatDuration(etaMs)}` : '-'}</span>
+              <span className="text-zinc-700">·</span>
+              <span>{stepsDone}/{EXPECTED_TOTAL_STEPS} étapes</span>
+              {imp.issueId && (
+                <>
+                  <span className="text-zinc-700">·</span>
+                  <span>issue #{imp.issueId}</span>
+                </>
+              )}
+            </div>
+          )}
+
+          {imp && (
+            <StepTimeline
+              steps={imp.steps}
+              isDone={imp.status === 'completed'}
+              isFailed={imp.status === 'failed'}
+            />
           )}
 
           {(row.sizeBytes || row.speedBytesPerSec) && (

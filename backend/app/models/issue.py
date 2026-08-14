@@ -37,6 +37,10 @@ class Issue(Base):
     is_special: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_forecast: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cover_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # ISSN spécifique à ce numéro — souvent identique à celui du
+    # magazine parent, mais certains hors-série ou éditions
+    # internationales ont leur propre ISSN. Format ``NNNN-NNNC``.
+    issn: Mapped[str | None] = mapped_column(String(9), nullable=True)
     added_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

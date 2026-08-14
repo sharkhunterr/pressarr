@@ -345,7 +345,7 @@ async def process_downloaded_file(
                     ),
                     "arbiter": "ai_arbiter",
                     "skip": "ai_skipped",
-                    "cache": "ai_skipped",  # cache-hit ≈ skip for UI purpose
+                    "cache": "ai_cache_hit",  # résultat AI précédent réutilisé — pas un fallback
                 }
                 _act.push_step(
                     activity_id,
@@ -430,6 +430,7 @@ async def process_downloaded_file(
             # Need a parseable title for fuzzy matching
             if not parsed.title:
                 logger.warning("Could not parse title from %s", file_path.name)
+                _act.mark_error(activity_id, "Nom de fichier illisible")
                 return {"success": False, "issue_id": None, "message": "Unparseable filename"}
 
             _act.push_step(activity_id, "match")
@@ -456,6 +457,7 @@ async def process_downloaded_file(
                         "source_path": str(file_path),
                     },
                 )
+                _act.mark_error(activity_id, f"Aucun magazine ne correspond à « {parsed.title} »")
                 return {"success": False, "issue_id": None, "message": f"No matching magazine for '{parsed.title}'"}
 
             matched_title, match_score = match
@@ -569,6 +571,15 @@ async def process_downloaded_file(
                     "Skipping %s — quality %s not an upgrade over %s",
                     file_path.name, parsed.quality, existing_file.quality,
                 )
+                # Marque le tracker comme terminé (état neutre, pas une
+                # erreur) pour que la queue affiche « Déjà importé »
+                # au lieu de rester bloqué en « IMPORTING » 30 s+.
+                _act.push_step(
+                    activity_id,
+                    "skipped_no_upgrade",
+                    hint=f"qualité {parsed.quality or 'inconnue'} ≤ existante ({existing_file.quality or 'inconnue'})",
+                )
+                _act.mark_done(activity_id, hint="Déjà importé — pas de gain qualité")
                 return {"success": False, "issue_id": issue.id, "message": "Not a quality upgrade"}
 
         # Remove old file
@@ -628,6 +639,7 @@ async def process_downloaded_file(
                 "magazine_title": magazine.title,
             },
         )
+        _act.mark_error(activity_id, str(e))
         return {"success": False, "issue_id": issue.id, "message": str(e)}
 
     # 7. If another issue already owns a file at the same path, deduplicate

@@ -34,6 +34,7 @@ class IssueResource(CamelModel):
     is_forecast: bool
     cover_path: str | None = None
     added_at: datetime
+    issn: str | None = None
     file: IssueFileResource | None = None
 
 
@@ -48,6 +49,7 @@ class IssueUpdateRequest(CamelModel):
     monitored: bool | None = None
     is_special: bool | None = None
     status: str | None = None
+    issn: str | None = None
     # File fields (applied when issue has a file)
     quality: str | None = None
     format: str | None = None
