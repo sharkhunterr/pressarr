@@ -659,6 +659,75 @@ def _collect_importable_files(save_path: Path) -> list[Path]:
     return []
 
 
+async def _mirror_download_to_activity(item, cfg: dict) -> None:
+    """Miroir de l'état torrent → Activity DB (kind=download).
+
+    Créé la première fois qu'un torrent est vu par le monitor.
+    Update la progression à chaque tick. mark_done quand le torrent
+    passe en completed (l'import prend le relais avec sa propre
+    activity kind=import). Dédup via external_id=download_id — le
+    même torrent qu'on croise 100 fois n'est pas 100 rows.
+    """
+    from app.services import activity_service as _asvc
+
+    download_id = item.download_id
+    if not download_id:
+        return
+
+    grab = _grab_registry.get(download_id)
+    aid = await _asvc.create(
+        kind="download",
+        title=item.name or "Torrent",
+        subtitle=f"{cfg['name']} · {item.status}",
+        magazine_id=(grab.magazine_id if grab and grab.magazine_id else None),
+        issue_id=(grab.issue_id if grab and grab.issue_id else None),
+        external_id=download_id,
+        payload={
+            "download_id": download_id,
+            "download_client": cfg["name"],
+            "protocol": "torrent",
+            "size": item.size,
+        },
+    )
+
+    # Cas terminal — le torrent est fini. mark_done, l'import prendra
+    # la suite avec sa propre activity.
+    if item.status == "completed":
+        try:
+            await _asvc.mark_done(
+                aid, hint=f"{item.name} — attend import"
+            )
+        except Exception:
+            logger.debug("mark_done download failed", exc_info=True)
+        return
+
+    if item.status in ("failed", "error"):
+        try:
+            await _asvc.mark_error(aid, f"status={item.status}")
+        except Exception:
+            pass
+        return
+
+    # En cours — update progress + status_message.
+    try:
+        progress_pct = float(item.progress or 0.0) * 100
+        speed_kb = int((item.speed or 0) / 1024)
+        eta_s = int(item.eta or 0)
+        eta_str = ""
+        if eta_s > 0 and eta_s < 86400 * 30:
+            if eta_s > 3600:
+                eta_str = f" · ETA {eta_s // 3600}h{(eta_s % 3600) // 60:02d}"
+            else:
+                eta_str = f" · ETA {eta_s // 60}m{eta_s % 60:02d}s"
+        await _asvc.update_progress(
+            aid,
+            progress_pct,
+            status_message=f"{item.status} — {speed_kb} KB/s{eta_str}",
+        )
+    except Exception:
+        logger.debug("update_progress download failed", exc_info=True)
+
+
 async def monitor_downloads(db: AsyncSession) -> None:
     """Poll all download clients, detect completed downloads, trigger import."""
     # Ensure grab registry + processed set are loaded from disk
@@ -697,6 +766,15 @@ async def monitor_downloads(db: AsyncSession) -> None:
             for item in items:
                 if item.download_id:
                     seen_download_ids.add(item.download_id)
+                # Miroir vers Activity DB — chaque torrent actif est
+                # tracké dans /activity avec sa progression live. Sinon
+                # entre le grab et l'import, l'utilisateur ne voit rien.
+                if item.download_id and item.download_id not in _processed_downloads:
+                    try:
+                        await _mirror_download_to_activity(item, cfg)
+                    except Exception:
+                        logger.debug("mirror download failed", exc_info=True)
+
                 # Skip already-processed/dismissed downloads entirely
                 if item.download_id and item.download_id in _processed_downloads:
                     continue
