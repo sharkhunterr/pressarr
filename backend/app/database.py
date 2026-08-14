@@ -34,7 +34,17 @@ async def init_database(db_path: str) -> None:
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA busy_timeout=5000")
+        # 30 s au lieu de 5 s — le pack dispatch (analyse IA sur N
+        # fichiers pendant plusieurs minutes) + le monitor scheduler
+        # (tous les 30 s) + les writes ai_enrichment_run + les imports
+        # se battaient pour la même DB. 5 s ne suffisait pas quand
+        # plusieurs writers arrivaient simultanément.
+        cursor.execute("PRAGMA busy_timeout=30000")
+        # NORMAL synchronous : sync uniquement au checkpoint WAL, pas
+        # à chaque commit. Baisse la durée des writes de ~10× sur
+        # SSD. Trade-off : perte des writes des dernières ms en cas
+        # de coupure de courant — pour de l'observabilité c'est OK.
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
     async_session_factory = async_sessionmaker(
