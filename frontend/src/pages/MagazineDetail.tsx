@@ -906,6 +906,8 @@ export default function MagazineDetail() {
         rows.map((r) => (r.id === updated.id ? updated : r)),
       )
       toast.success(t('issues.grabbed'))
+      queryClient.invalidateQueries({ queryKey: ['activity-counters'] })
+      queryClient.invalidateQueries({ queryKey: ['activity-list'] })
     } catch {
       toast.error(t('issues.grabError'))
     } finally {
@@ -986,6 +988,12 @@ export default function MagazineDetail() {
         setSearchDialogOpen(false)
       }
       invalidateIssues()
+      // Fait apparaître l'activité tout de suite dans la sidebar +
+      // page /activity sans attendre le prochain poll (5 s sidebar,
+      // 4 s page — la fenêtre "recent terminal" backend fait le reste
+      // si le grab a été très rapide).
+      queryClient.invalidateQueries({ queryKey: ['activity-counters'] })
+      queryClient.invalidateQueries({ queryKey: ['activity-list'] })
     } catch {
       toast.error(t('issues.grabError'))
     } finally {

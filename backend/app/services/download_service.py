@@ -231,10 +231,11 @@ async def grab_release(
     # Auto-clean à la fin (mark_done) ou en erreur (mark_error).
     from app.services import activity_service as _asvc
     activity_id: int | None = None
+    _activity_title = (f"Grab · {title}")[:200] if title else "Grab release"
     try:
         activity_id = await _asvc.create(
             kind="grab",
-            title=f"Grab · {title}"[:200] if title else "Grab release",
+            title=_activity_title,
             subtitle=f"{protocol} · {client_record.name}",
             magazine_id=resolved_magazine_id,
             issue_id=issue.id if issue else None,
@@ -245,8 +246,9 @@ async def grab_release(
                 "guid": guid,
             },
         )
+        logger.info("Grab activity created id=%s title=%r", activity_id, _activity_title)
     except Exception:
-        logger.debug("Activity mirror (grab) failed", exc_info=True)
+        logger.warning("Activity mirror (grab) failed", exc_info=True)
 
     # Send to download client
     try:

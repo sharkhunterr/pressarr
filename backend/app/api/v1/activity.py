@@ -42,6 +42,7 @@ class ActivityResource(CamelModel):
 class ActivityCountersResource(CamelModel):
     queued: int = 0
     running: int = 0
+    recent: int = 0  # terminées dans VISIBLE_S dernières secondes
     total: int = 0
 
 

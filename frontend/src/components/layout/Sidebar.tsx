@@ -135,7 +135,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 {showBadge && (
                   <span
                     className="rounded-full bg-purple-500 text-white text-[10px] font-semibold px-1.5 min-w-[18px] text-center"
-                    title={`${activityCountersQ.data?.running ?? 0} en cours · ${activityCountersQ.data?.queued ?? 0} en attente`}
+                    title={`${activityCountersQ.data?.running ?? 0} en cours · ${activityCountersQ.data?.queued ?? 0} en attente · ${activityCountersQ.data?.recent ?? 0} récentes`}
                   >
                     {activityBadge > 99 ? '99+' : activityBadge}
                   </span>

@@ -58,6 +58,10 @@ export interface Activity {
 export interface ActivityCounters {
   queued: number
   running: number
+  /** Activités terminées dans la dernière minute — comptent dans le
+   *  badge total pour que le sidebar capte les grabs très rapides
+   *  qui finissent entre deux polls. */
+  recent: number
   total: number
 }
 

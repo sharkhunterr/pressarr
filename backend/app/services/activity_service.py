@@ -31,7 +31,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Sequence
 
-from sqlalchemy import and_, desc, or_, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.exc import OperationalError
 
 from app import database as _db
@@ -462,16 +462,30 @@ async def cleanup_stale(*, older_than_s: int = STALE_S) -> int:
 
 
 async def counters() -> dict[str, int]:
-    """Compteurs pour le badge sidebar : running + queued (« en cours »)."""
+    """Compteurs pour le badge sidebar.
+
+    ``queued`` + ``running`` = « en cours réel ». On y ajoute les
+    activités terminées dans les ``VISIBLE_S`` dernières secondes
+    (recent success/failed/cancelled) pour que le badge sidebar
+    catch les grabs très rapides — sinon un grab qui dure 200 ms
+    n'apparaît jamais entre deux polls 5 s.
+    """
     async with _db.async_session_factory() as session:
-        rows = (await session.execute(
+        live_rows = (await session.execute(
             select(Activity.status)
             .where(Activity.status.in_(["queued", "running"]))
         )).all()
-    counts = {"queued": 0, "running": 0, "total": 0}
-    for (s,) in rows:
+        recent_cutoff = datetime.now() - timedelta(seconds=VISIBLE_S)
+        recent_count = (await session.execute(
+            select(func.count(Activity.id)).where(
+                Activity.status.in_(["success", "failed", "cancelled"]),
+                Activity.completed_at >= recent_cutoff,
+            )
+        )).scalar_one() or 0
+    counts = {"queued": 0, "running": 0, "recent": int(recent_count), "total": 0}
+    for (s,) in live_rows:
         counts[s] = counts.get(s, 0) + 1
-        counts["total"] += 1
+    counts["total"] = counts["queued"] + counts["running"] + counts["recent"]
     return counts
 
 

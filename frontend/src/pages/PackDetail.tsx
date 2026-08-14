@@ -540,6 +540,9 @@ function SearchTab({ pack, packId }: { pack: Pack; packId: number }) {
       )
       toast.success(t('packs.grabbed'))
       queryClient.invalidateQueries({ queryKey: ['pack', packId] })
+      queryClient.invalidateQueries({ queryKey: ['activity-counters'] })
+      queryClient.invalidateQueries({ queryKey: ['activity-list'] })
+      queryClient.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
     } catch {
       toast.error(t('packs.grabError'))
     } finally {

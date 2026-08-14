@@ -1,5 +1,6 @@
 """Magazine management API endpoints."""
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -24,6 +25,8 @@ from app.schemas.magazine import (
 from app.services import magazine_service
 from app.services.command_service import execute_command, register_command
 from app.services.smart_matcher import invalidate_pattern_cache
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/magazine", tags=["Magazines"])
 
@@ -653,11 +656,36 @@ async def grab_release(
     if release is None:
         raise HTTPException(404, "Release not found for this magazine")
 
+    # Activité — le user voit sa dispatch scène dans Activity comme un
+    # grab classique.
+    from app.services import activity_service as _asvc
+    _sc_activity: int | None = None
+    try:
+        _sc_activity = await _asvc.create(
+            kind="grab",
+            title=f"Grab scene · {release.title}"[:200],
+            subtitle=f"{release.source} → JDownloader",
+            magazine_id=magazine.id,
+            payload={
+                "release_id": release.id,
+                "release_title": release.title,
+                "source": release.source,
+                "source_url": release.source_url,
+            },
+        )
+    except Exception:
+        logger.warning("Activity mirror (scene grab) failed", exc_info=True)
+
     try:
         crawljob_path = dispatch_release(
             release=release, magazine=magazine, config=config
         )
     except JDownloaderDispatchError as e:
+        if _sc_activity is not None:
+            try:
+                await _asvc.mark_error(_sc_activity, str(e))
+            except Exception:
+                pass
         # Persist the failure on the row so the UI can show
         # *why* it didn't dispatch, then surface 502 so the
         # caller knows the action was not retried. Also emit
@@ -706,4 +734,12 @@ async def grab_release(
     )
     await db.commit()
     await db.refresh(release)
+    if _sc_activity is not None:
+        try:
+            await _asvc.mark_done(
+                _sc_activity,
+                hint=f"Crawljob écrit ({crawljob_path.name}) — JDownloader va prendre le relais",
+            )
+        except Exception:
+            pass
     return serialise_release(release)
