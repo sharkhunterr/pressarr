@@ -19,7 +19,9 @@ import {
   listPackDispatchFiles,
   reanalyzePackDispatchFile,
   resolvePackDispatchFile,
+  updatePackDispatchMetadata,
   type PackDispatchFile,
+  type PackDispatchMetadataOverrides,
 } from '@/api/packs'
 import { getMagazines, type Magazine } from '@/api/magazines'
 import { Badge } from '@/components/ui/badge'
@@ -367,14 +369,63 @@ function DispatchDetailModal({
   const [newFrequency, setNewFrequency] = useState('weekly')
   const [newIssn, setNewIssn] = useState('')
 
+  // Édition des metadata extraites (title, N°, année, mois, jour, ISSN).
+  // Pré-rempli depuis extractedMetadata au chargement. Envoyé dans
+  // metadataOverrides du resolve pour override l'IA si nécessaire.
+  const [editMode, setEditMode] = useState(false)
+  const [metaTitle, setMetaTitle] = useState('')
+  const [metaNumber, setMetaNumber] = useState('')
+  const [metaYear, setMetaYear] = useState('')
+  const [metaMonth, setMetaMonth] = useState('')
+  const [metaDay, setMetaDay] = useState('')
+  const [metaIssn, setMetaIssn] = useState('')
+
+  const buildMetadataOverrides = (): PackDispatchMetadataOverrides => {
+    const orig = file?.extractedMetadata ?? {}
+    const overrides: PackDispatchMetadataOverrides = {}
+    const t = metaTitle.trim()
+    if (t && t !== (orig.title ?? '')) overrides.title = t
+    const n = metaNumber.trim()
+    if (n && Number(n) !== (orig.issue_number ?? null)) overrides.issue_number = Number(n)
+    const y = metaYear.trim()
+    if (y && Number(y) !== (orig.year ?? null)) overrides.year = Number(y)
+    const mo = metaMonth.trim()
+    if (mo && Number(mo) !== (orig.month ?? null)) overrides.month = Number(mo)
+    const d = metaDay.trim()
+    if (d && Number(d) !== (orig.day ?? null)) overrides.day = Number(d)
+    const is = metaIssn.trim()
+    if (is !== (orig.issn ?? '')) overrides.issn = is || null
+    return overrides
+  }
+
+  const saveMetadataOnly = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error('no file')
+      const overrides = buildMetadataOverrides()
+      if (Object.keys(overrides).length === 0) throw new Error('Aucun changement')
+      return updatePackDispatchMetadata(packId, file.id, overrides)
+    },
+    onSuccess: () => {
+      toast.success('Metadata mises à jour')
+      qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
+      setEditMode(false)
+    },
+    onError: (e: Error) => toast.error(`Échec : ${e.message}`),
+  })
+
   const resolve = useMutation({
     mutationFn: () => {
       if (!file) throw new Error('no file')
+      const overrides = editMode ? buildMetadataOverrides() : undefined
+      const withOverrides = overrides && Object.keys(overrides).length > 0
+        ? { metadataOverrides: overrides }
+        : {}
       if (action === 'assign_existing') {
         if (!magazineId) throw new Error('Sélectionne un magazine')
         return resolvePackDispatchFile(packId, file.id, {
           action: 'assign_existing',
           magazineId: Number(magazineId),
+          ...withOverrides,
         })
       }
       return resolvePackDispatchFile(packId, file.id, {
@@ -384,6 +435,7 @@ function DispatchDetailModal({
           frequency: newFrequency,
           issn: newIssn.trim() || null,
         },
+        ...withOverrides,
       })
     },
     onSuccess: () => {
@@ -399,6 +451,14 @@ function DispatchDetailModal({
   // Pré-remplit quand on ouvre : suggère le match auto ou la proposition.
   useMemo(() => {
     if (!file) return
+    setEditMode(false)
+    const ex = file.extractedMetadata ?? {}
+    setMetaTitle(ex.title ?? '')
+    setMetaNumber(ex.issue_number != null ? String(ex.issue_number) : '')
+    setMetaYear(ex.year != null ? String(ex.year) : '')
+    setMetaMonth(ex.month != null ? String(ex.month) : '')
+    setMetaDay(ex.day != null ? String(ex.day) : '')
+    setMetaIssn(ex.issn ?? '')
     if (file.matchedMagazineId) {
       setAction('assign_existing')
       setMagazineId(String(file.matchedMagazineId))
@@ -430,22 +490,61 @@ function DispatchDetailModal({
         </DialogHeader>
 
         <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-          {/* Analyse IA */}
+          {/* Analyse IA — éditable */}
           <section className="space-y-2">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">
-              Analyse IA
+            <div className="flex items-center justify-between">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">
+                {editMode ? 'Édition metadata' : 'Analyse IA'}
+              </div>
+              {file.status !== 'imported' && file.status !== 'ignored' && (
+                <div className="flex items-center gap-1.5">
+                  {editMode && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => saveMetadataOnly.mutate()}
+                      disabled={saveMetadataOnly.isPending}
+                    >
+                      {saveMetadataOnly.isPending ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Check className="size-3.5" />
+                      )}
+                      Enregistrer
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setEditMode((v) => !v)}
+                  >
+                    {editMode ? 'Annuler' : 'Éditer'}
+                  </Button>
+                </div>
+              )}
             </div>
-            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 grid grid-cols-2 gap-2 text-sm">
-              <Field label="Titre extrait" value={ex?.title} />
-              <Field label="Numéro" value={ex?.issue_number ?? '—'} />
-              <Field label="Année" value={ex?.year ?? '—'} />
-              <Field label="Mois" value={ex?.month ?? '—'} />
-              <Field label="Jour" value={ex?.day ?? '—'} />
-              <Field label="ISSN" value={ex?.issn ?? '—'} />
-              <Field label="Source" value={ex?.source ?? '—'} />
-              <Field label="Run IA" value={file.aiRunId ?? '—'} />
-            </div>
-            {file.matchedMagazineId && (
+            {editMode ? (
+              <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 grid grid-cols-2 gap-2 text-sm">
+                <MetaEdit label="Titre" value={metaTitle} onChange={setMetaTitle} />
+                <MetaEdit label="Numéro" value={metaNumber} onChange={setMetaNumber} numeric />
+                <MetaEdit label="Année" value={metaYear} onChange={setMetaYear} numeric />
+                <MetaEdit label="Mois" value={metaMonth} onChange={setMetaMonth} numeric />
+                <MetaEdit label="Jour" value={metaDay} onChange={setMetaDay} numeric />
+                <MetaEdit label="ISSN" value={metaIssn} onChange={setMetaIssn} placeholder="1234-5678" />
+              </div>
+            ) : (
+              <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 grid grid-cols-2 gap-2 text-sm">
+                <Field label="Titre extrait" value={ex?.title} />
+                <Field label="Numéro" value={ex?.issue_number ?? '—'} />
+                <Field label="Année" value={ex?.year ?? '—'} />
+                <Field label="Mois" value={ex?.month ?? '—'} />
+                <Field label="Jour" value={ex?.day ?? '—'} />
+                <Field label="ISSN" value={ex?.issn ?? '—'} />
+                <Field label="Source" value={ex?.source ?? '—'} />
+                <Field label="Run IA" value={file.aiRunId ?? '—'} />
+              </div>
+            )}
+            {file.matchedMagazineId && !editMode && (
               <div className="rounded bg-emerald-500/10 border border-emerald-500/30 p-2 text-xs text-emerald-300 flex items-center gap-2">
                 <Check className="size-3.5" />
                 Match auto : <strong>{file.matchedMagazineTitle}</strong>{' '}
@@ -593,6 +692,40 @@ function Field({ label, value }: { label: string; value: unknown }) {
     <div>
       <div className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</div>
       <div className="text-zinc-200 truncate">{value === '' || value == null ? '—' : String(value)}</div>
+    </div>
+  )
+}
+
+function MetaEdit({
+  label,
+  value,
+  onChange,
+  numeric,
+  placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  numeric?: boolean
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <label className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</label>
+      <Input
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value
+          if (numeric) {
+            // Autorise vide ou digits uniquement
+            if (v === '' || /^\d+$/.test(v)) onChange(v)
+          } else {
+            onChange(v)
+          }
+        }}
+        placeholder={placeholder}
+        className="h-7 bg-zinc-900 border-zinc-700 text-zinc-100 text-sm"
+      />
     </div>
   )
 }

@@ -282,6 +282,7 @@ async def push_step(
                 step_with_at = {**step, "at": step.get("at") or datetime.now().isoformat()}
                 steps.append(step_with_at)
                 row.steps = _dump_steps(steps)
+                row.updated_at = datetime.now()
                 if status_message is not None:
                     row.status_message = status_message
                 else:
@@ -309,6 +310,7 @@ async def update_progress(
                 if not row:
                     return
                 row.progress = clamped
+                row.updated_at = datetime.now()
                 if status_message is not None:
                     row.status_message = status_message
                 await session.commit()
@@ -542,10 +544,16 @@ async def cleanup_stale(*, older_than_s: int = STALE_S) -> int:
         nonlocal n
         async with _write_lock:
             async with _session_factory()() as session:
+                # Kill uniquement les activités dont la dernière mise à
+                # jour (push_step / update_progress) date de > cutoff.
+                # Un pack_dispatch qui tourne 30 min mais pousse un step
+                # toutes les 3 min est vivant → survit. Sans ce fix,
+                # cleanup_stale utilisait started_at et tuait des runs
+                # actifs long.
                 rows = (await session.execute(
                     select(Activity).where(
                         Activity.status == "running",
-                        Activity.started_at < cutoff,
+                        Activity.updated_at < cutoff,
                     )
                 )).scalars().all()
                 for row in rows:

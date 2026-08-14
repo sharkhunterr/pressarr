@@ -9,6 +9,7 @@ from app.dependencies import get_config, get_db
 from app.schemas.pack import (
     PackCreateResource,
     PackDispatchFileResource,
+    PackDispatchMetadataUpdate,
     PackDispatchResolveRequest,
     PackPatternCreateResource,
     PackPatternResource,
@@ -321,6 +322,7 @@ async def resolve_dispatch(
             action=body.action,
             magazine_id=body.magazine_id,
             magazine_data=body.magazine_data,
+            metadata_overrides=body.metadata_overrides,
             config=config,
         )
     except ValueError as e:
@@ -330,6 +332,41 @@ async def resolve_dispatch(
     except RuntimeError as e:
         raise HTTPException(500, str(e)) from e
     # Re-fetch avec relations
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select as _select
+    from app.models.pack_dispatch_file import PackDispatchFile as _PDF
+    row = (
+        await db.execute(
+            _select(_PDF)
+            .options(selectinload(_PDF.matched_magazine))
+            .where(_PDF.id == file_id)
+        )
+    ).scalar_one()
+    return _dispatch_row_to_resource(row)
+
+
+@router.patch(
+    "/{pack_id}/dispatch/{file_id}",
+    response_model=PackDispatchFileResource,
+)
+async def update_dispatch_metadata(
+    pack_id: int,
+    file_id: int,
+    body: PackDispatchMetadataUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Édition manuelle des metadata extraites (title, N°, date, ISSN).
+    Utile quand l'IA a mal détecté et que l'utilisateur veut corriger
+    avant de valider (assign/create)."""
+    overrides = body.model_dump(exclude_none=True)
+    if not overrides:
+        raise HTTPException(400, "no fields to update")
+    try:
+        await pack_dispatch_service.update_dispatch_metadata(
+            db, file_id=file_id, overrides=overrides,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     from sqlalchemy.orm import selectinload
     from sqlalchemy import select as _select
     from app.models.pack_dispatch_file import PackDispatchFile as _PDF

@@ -92,6 +92,14 @@ class Activity(Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
+    # Timestamp de la dernière mise à jour (push_step / update_progress /
+    # mark_done / mark_error). Sert au cleanup_stale : une activité qui
+    # PUSH régulièrement (dispatch pack qui tourne 30 min sur 32
+    # fichiers) ne doit pas être force-failed juste parce que
+    # started_at > cutoff. Défault = started_at à la création.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (

@@ -132,3 +132,19 @@ class PackDispatchResolveRequest(CamelModel):
     action: str  # assign_existing | create_magazine | ignore
     magazine_id: int | None = None
     magazine_data: dict | None = None
+    # Metadata éditées manuellement avant résolution — override le
+    # extracted_metadata de l'analyse IA. Utile quand l'IA a mal
+    # détecté (ex. date erronée). Champs supportés : title, issue_number,
+    # year, month, day, issn.
+    metadata_overrides: dict | None = None
+
+
+class PackDispatchMetadataUpdate(CamelModel):
+    """Édition manuelle des metadata extraites d'un fichier de dispatch.
+    Merge shallow — seuls les champs fournis sont écrasés."""
+    title: str | None = None
+    issue_number: int | None = None
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    issn: str | None = None

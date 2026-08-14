@@ -400,9 +400,12 @@ async def process_pack_download(
                 )
             ).scalar_one_or_none()
             if existing is not None:
-                # Reprise d'un run précédent : on garde la row si déjà
-                # résolue, sinon on réinitialise pour ré-analyse.
-                if existing.status in ("imported", "ignored"):
+                # Reprise d'un run précédent : on skip TOUT ce qui a
+                # déjà été analysé ou résolu — ne ré-analyse QUE les
+                # rows encore en pending_analysis ou error.
+                if existing.status in (
+                    "imported", "ignored", "pending_user", "analyzed"
+                ):
                     continue
                 existing.status = "pending_analysis"
                 existing.error_message = None
@@ -547,6 +550,7 @@ async def resolve_dispatch_file(
     magazine_id: int | None,
     magazine_data: dict[str, Any] | None,
     config,
+    metadata_overrides: dict[str, Any] | None = None,
 ) -> PackDispatchFile:
     """Applique la décision de l'utilisateur sur un fichier pending_user.
 
@@ -562,6 +566,21 @@ async def resolve_dispatch_file(
         raise ValueError(f"dispatch file {file_id} not found")
     if row.status in ("imported", "ignored"):
         raise ValueError(f"file already resolved (status={row.status})")
+
+    # Applique les overrides metadata AVANT résolution — permet à
+    # l'utilisateur d'éditer les champs mal détectés en un seul geste.
+    if metadata_overrides:
+        current = {}
+        if row.extracted_metadata:
+            try:
+                current = json.loads(row.extracted_metadata)
+            except Exception:
+                current = {}
+        for k, v in metadata_overrides.items():
+            if v is not None:
+                current[k] = v
+        current["source"] = "user_edit"
+        row.extracted_metadata = json.dumps(current, default=str)
 
     if action == "ignore":
         row.status = "ignored"
@@ -646,6 +665,61 @@ async def reanalyze_dispatch_file(
     row.match_source = source
     row.status = "analyzed" if mag is None else "pending_user"
     row.analyzed_at = datetime.now()
+    await db.commit()
+    return row
+
+
+async def update_dispatch_metadata(
+    db: AsyncSession,
+    file_id: int,
+    overrides: dict[str, Any],
+) -> PackDispatchFile:
+    """Merge shallow des overrides utilisateur dans extracted_metadata.
+
+    Sert quand l'IA a mal détecté (ex. date erronée détectée : 20 août
+    au lieu de 14 août). L'utilisateur corrige directement dans l'UI
+    dispatch au lieu de re-lancer l'analyse ou d'attendre l'import.
+
+    Recalcule aussi le match magazine (utile si le titre a changé) —
+    mais uniquement si aucune décision manuelle n'a encore été prise.
+    """
+    row = await db.get(PackDispatchFile, file_id)
+    if row is None:
+        raise ValueError(f"dispatch file {file_id} not found")
+    if row.status in ("imported", "ignored"):
+        raise ValueError(f"file already resolved (status={row.status})")
+
+    # Merge shallow dans extracted_metadata.
+    current = {}
+    if row.extracted_metadata:
+        try:
+            current = json.loads(row.extracted_metadata)
+        except Exception:
+            current = {}
+    for k, v in overrides.items():
+        if v is not None:
+            current[k] = v
+    # Tag comme edit manuel pour observabilité.
+    current["source"] = "user_edit"
+    row.extracted_metadata = json.dumps(current, default=str)
+
+    # Ré-évalue le match si titre a changé.
+    if "title" in overrides or "issn" in overrides:
+        mag, score, source = await _match_to_magazine(db, current)
+        if mag is not None:
+            row.matched_magazine_id = mag.id
+            row.match_score = score
+            row.match_source = source
+        else:
+            row.matched_magazine_id = None
+            row.match_score = None
+            row.match_source = None
+
+    # Fait passer en pending_user pour que le user confirme le résultat
+    # (le status pending_analysis / analyzed n'a plus de sens après un
+    # edit manuel — c'est prêt à être résolu).
+    if row.status in ("pending_analysis", "analyzed", "error"):
+        row.status = "pending_user"
     await db.commit()
     return row
 

@@ -99,6 +99,15 @@ export interface PackDispatchFile {
   resolvedAt: string | null
 }
 
+export interface PackDispatchMetadataOverrides {
+  title?: string
+  issue_number?: number
+  year?: number
+  month?: number
+  day?: number
+  issn?: string | null
+}
+
 export interface PackDispatchResolveBody {
   action: 'assign_existing' | 'create_magazine' | 'ignore'
   magazineId?: number
@@ -111,6 +120,9 @@ export interface PackDispatchResolveBody {
     monitored?: boolean
     issn?: string | null
   }
+  /** Overrides éditables sur les metadata extraites — permet à
+   *  l'utilisateur de corriger les erreurs d'IA avant résolution. */
+  metadataOverrides?: PackDispatchMetadataOverrides
 }
 
 // CRUD
@@ -198,6 +210,18 @@ export const resolvePackDispatchFile = (
 export const reanalyzePackDispatchFile = (packId: number, fileId: number) =>
   apiFetch<PackDispatchFile>(`/pack/${packId}/dispatch/${fileId}/reanalyze`, {
     method: 'POST',
+  })
+
+/** Édite les metadata extraites d'un fichier dispatch (title, N°,
+ *  date, ISSN). Merge shallow — seuls les champs fournis écrasent. */
+export const updatePackDispatchMetadata = (
+  packId: number,
+  fileId: number,
+  overrides: PackDispatchMetadataOverrides,
+) =>
+  apiFetch<PackDispatchFile>(`/pack/${packId}/dispatch/${fileId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(overrides),
   })
 
 export const deletePackDispatchFile = (packId: number, fileId: number) =>
