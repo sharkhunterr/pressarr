@@ -64,13 +64,20 @@ export function MagazineCard({ magazine }: MagazineCardProps) {
             </Badge>
           ) : <div />}
 
-          {/* Monitored badge (right) */}
-          <Badge
-            variant={magazine.monitored ? 'default' : 'secondary'}
-            className={magazine.monitored ? 'bg-[#7C3AED] text-white' : ''}
-          >
-            {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            {magazine.isPlaceholder && (
+              <Badge className="bg-amber-500/90 text-amber-950 text-[10px] px-1.5 py-0.5 border border-amber-300/60">
+                À compléter
+              </Badge>
+            )}
+            {/* Monitored badge (right) */}
+            <Badge
+              variant={magazine.monitored ? 'default' : 'secondary'}
+              className={magazine.monitored ? 'bg-[#7C3AED] text-white' : ''}
+            >
+              {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
+            </Badge>
+          </div>
         </div>
 
         {/* Next issue date badge (bottom) */}

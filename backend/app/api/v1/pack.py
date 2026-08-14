@@ -9,7 +9,7 @@ from app.dependencies import get_config, get_db
 from app.schemas.pack import (
     PackCreateResource,
     PackDispatchFileResource,
-    PackDispatchPreviewResource,
+    PackDispatchResolveRequest,
     PackPatternCreateResource,
     PackPatternResource,
     PackResource,
@@ -18,7 +18,7 @@ from app.schemas.pack import (
     PackStatistics,
     PackUpdateResource,
 )
-from app.services import pack_service
+from app.services import pack_dispatch_service, pack_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,42 +39,7 @@ async def list_packs(
     result = []
     for pack in packs:
         stats = await pack_service.get_statistics(db, pack.id)
-        resource = PackResource(
-            id=pack.id,
-            name=pack.name,
-            name_slug=pack.name_slug,
-            description=pack.description,
-            search_query=pack.search_query,
-            recurrence=pack.recurrence,
-            auto_search=pack.auto_search,
-            auto_grab=pack.auto_grab,
-            auto_import=pack.auto_import,
-            monitored=pack.monitored,
-            quality_profile_id=pack.quality_profile_id,
-            root_folder_id=pack.root_folder_id,
-            added_at=pack.added_at,
-            last_searched_at=pack.last_searched_at,
-            patterns=[
-                PackPatternResource(
-                    id=p.id,
-                    pack_id=p.pack_id,
-                    pattern=p.pattern,
-                    source=p.source,
-                    uploader=p.uploader,
-                    last_seen_at=p.last_seen_at,
-                    created_at=p.created_at,
-                )
-                for p in pack.patterns
-            ],
-            rules=[
-                PackRuleResource(
-                    id=r.id, pack_id=r.pack_id, rule_type=r.rule_type, pattern=r.pattern
-                )
-                for r in pack.rules
-            ],
-            statistics=PackStatistics(**stats),
-        )
-        result.append(resource)
+        result.append(_pack_to_resource(pack, stats))
     return result
 
 
@@ -89,6 +54,10 @@ def _pack_to_resource(pack, stats: dict) -> PackResource:
         auto_search=pack.auto_search,
         auto_grab=pack.auto_grab,
         auto_import=pack.auto_import,
+        deep_ai_analysis=pack.deep_ai_analysis,
+        auto_create_missing_magazines=pack.auto_create_missing_magazines,
+        preview_before_import=pack.preview_before_import,
+        default_new_magazine_frequency=pack.default_new_magazine_frequency,
         monitored=pack.monitored,
         quality_profile_id=pack.quality_profile_id,
         root_folder_id=pack.root_folder_id,
@@ -260,268 +229,173 @@ async def grab_pack(
     return result
 
 
-# ---- Dispatch ----
+# ---- Dispatch (new pipeline via pack_dispatch_service) ----
 
 
-@router.post("/{pack_id}/dispatch/preview", response_model=PackDispatchPreviewResource)
-async def preview_dispatch(
-    pack_id: int,
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-):
-    """Preview how files from a completed pack download will be dispatched."""
-    pack = await pack_service.get_pack(db, pack_id)
-    if pack is None:
-        raise HTTPException(404, "Pack not found")
+def _dispatch_row_to_resource(row) -> PackDispatchFileResource:
+    """Sérialise un ``PackDispatchFile`` pour l'API."""
+    import json as _json
 
-    download_id = body.get("downloadId", "")
-
-    # Resolve files from download client
-    from app.services.download_service import _resolve_download_path
-
-    save_path = await _resolve_download_path(db, download_id)
-    if not save_path:
-        raise HTTPException(404, f"Download {download_id} not found or path unavailable")
-
-    files = pack_service.collect_pack_files(save_path)
-    if not files:
-        raise HTTPException(404, "No supported files found in download")
-
-    files_preview = await pack_service.preview_dispatch(db, pack_id, files, pack.rules)
-    matched = sum(1 for f in files_preview if f["matched_magazine_id"])
-    excluded = sum(1 for f in files_preview if f["excluded"])
-
-    return PackDispatchPreviewResource(
-        pack_id=pack_id,
-        download_id=download_id,
-        torrent_name=save_path.name,
-        files=[PackDispatchFileResource(**f) for f in files_preview],
-        total_files=len(files_preview),
-        matched_files=matched,
-        excluded_files=excluded,
-        unmatched_files=len(files_preview) - matched - excluded,
-    )
-
-
-@router.post("/{pack_id}/dispatch/execute")
-async def execute_dispatch(
-    pack_id: int,
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    config=Depends(get_config),
-):
-    """Execute file dispatch using user-confirmed assignments."""
-    pack = await pack_service.get_pack(db, pack_id)
-    if pack is None:
-        raise HTTPException(404, "Pack not found")
-
-    download_id = body.get("downloadId", "")
-    assignments = body.get("assignments", [])
-
-    from app.services.download_service import (
-        _grab_registry,
-        _processed_downloads,
-        _resolve_download_path,
-        _save_registry,
-    )
-
-    save_path = await _resolve_download_path(db, download_id)
-    if not save_path:
-        raise HTTPException(404, f"Download {download_id} not found")
-
-    files = pack_service.collect_pack_files(save_path)
-    file_paths_by_name = {f.name: f for f in files}
-
-    results = await pack_service.dispatch_files(db, assignments, file_paths_by_name, config)
-    await db.commit()
-
-    imported = sum(1 for r in results if r.get("success"))
-
-    # Create history event
-    from app.services.history_service import create_event
-
-    await create_event(
-        db,
-        event_type="import",
-        pack_id=pack_id,
-        details=f"Pack dispatch: {imported}/{len(results)} files imported",
-        data={
-            "pack_name": pack.name,
-            "total_files": len(results),
-            "imported_files": imported,
-        },
-    )
-    await db.commit()
-
-    # Mark download as processed
-    _processed_downloads.add(download_id)
-    _grab_registry.pop(download_id, None)
-    _save_registry()
-
-    # Notify frontend
-    try:
-        from app.api.v1.websocket import manager as ws_manager
-
-        await ws_manager.broadcast("library:updated", {})
-    except Exception:
-        pass
-
-    return {"results": results, "imported": imported, "total": len(results)}
-
-
-# ─── Reimport post-hoc (fichier skippé/échoué) ────────────────────────
-# Le user visualise ses fichiers via GET /history?packId=… (onglet
-# Fichiers). Pour chaque ligne en erreur, il peut relancer un import
-# avec :
-#   - un magazine EXISTANT (magazineId) → routing direct
-#   - un magazine à créer (createMagazine: {title, ...}) → magazine
-#     créé à la volée avec les root_folder + quality_profile du pack,
-#     puis fichier processé.
-# L'issue est créée automatiquement par process_downloaded_file si
-# elle n'existe pas déjà (parse_magazine_filename → issue_number/date).
-@router.post("/{pack_id}/reimport")
-async def reimport_pack_file(
-    pack_id: int,
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    config=Depends(get_config),
-):
-    """Re-process un fichier d'un pack téléchargé sous un magazine
-    choisi (existant OU créé à la volée)."""
-    pack = await pack_service.get_pack(db, pack_id)
-    if pack is None:
-        raise HTTPException(404, "Pack not found")
-
-    download_id = body.get("downloadId", "")
-    filename = body.get("filename", "")
-    magazine_id = body.get("magazineId")
-    create_magazine_data = body.get("createMagazine")
-
-    if not filename:
-        raise HTTPException(400, "filename required")
-    if not magazine_id and not create_magazine_data:
-        raise HTTPException(400, "magazineId OR createMagazine required")
-
-    # Résout le fichier physique via le download_client.
-    from app.services import magazine_service
-    from app.services.download_service import _resolve_download_path
-
-    save_path = await _resolve_download_path(db, download_id)
-    if not save_path:
-        raise HTTPException(
-            404,
-            f"Download {download_id} unavailable — le torrent a peut-être "
-            f"été supprimé du client, ou le fichier n'existe plus sur disque.",
-        )
-
-    files = pack_service.collect_pack_files(save_path)
-    file_paths_by_name = {f.name: f for f in files}
-    if filename not in file_paths_by_name:
-        raise HTTPException(
-            404,
-            f"Fichier '{filename}' introuvable dans {save_path}. "
-            f"Il a peut-être déjà été importé ailleurs.",
-        )
-
-    # Crée le magazine si demandé, hérite root_folder/quality du pack.
-    if create_magazine_data and not magazine_id:
+    extracted = None
+    if row.extracted_metadata:
         try:
-            create_data = {
-                **create_magazine_data,
-                "root_folder_id": pack.root_folder_id,
-                "quality_profile_id": pack.quality_profile_id,
-            }
-            new_mag = await magazine_service.create_magazine(db, create_data)
-            magazine_id = new_mag.id
-            await db.commit()
-        except ValueError as e:
-            raise HTTPException(409, str(e)) from e
-
-    # Dispatch simple : 1 assignment.
-    results = await pack_service.dispatch_files(
-        db,
-        [{"filename": filename, "magazine_id": magazine_id, "skip": False}],
-        file_paths_by_name,
-        config,
+            extracted = _json.loads(row.extracted_metadata)
+        except Exception:
+            extracted = None
+    proposed = None
+    if row.proposed_magazine_data:
+        try:
+            proposed = _json.loads(row.proposed_magazine_data)
+        except Exception:
+            proposed = None
+    matched_title = None
+    if row.matched_magazine is not None:
+        matched_title = row.matched_magazine.title
+    return PackDispatchFileResource(
+        id=row.id,
+        pack_id=row.pack_id,
+        download_id=row.download_id,
+        filename=row.filename,
+        path=row.path,
+        size=row.size,
+        status=row.status,
+        error_message=row.error_message,
+        ai_run_id=row.ai_run_id,
+        extracted_metadata=extracted,
+        matched_magazine_id=row.matched_magazine_id,
+        matched_magazine_title=matched_title,
+        match_score=row.match_score,
+        match_source=row.match_source,
+        proposed_magazine_data=proposed,
+        user_action=row.user_action,
+        user_action_magazine_id=row.user_action_magazine_id,
+        resolved_issue_id=row.resolved_issue_id,
+        created_at=row.created_at,
+        analyzed_at=row.analyzed_at,
+        resolved_at=row.resolved_at,
     )
-    await db.commit()
-
-    from app.services.history_service import create_event
-
-    imported = sum(1 for r in results if r.get("success"))
-    await create_event(
-        db,
-        event_type="import" if imported else "unmatched",
-        pack_id=pack_id,
-        magazine_id=magazine_id,
-        details=f"Reimport manuel: {filename}",
-        data={
-            "pack_name": pack.name,
-            "reimport": True,
-            "results": results,
-        },
-    )
-    await db.commit()
-
-    try:
-        from app.api.v1.websocket import manager as ws_manager
-        await ws_manager.broadcast("library:updated", {})
-    except Exception:
-        pass
-
-    return {
-        "success": bool(imported),
-        "magazine_id": magazine_id,
-        "result": results[0] if results else None,
-    }
 
 
-# ─── Pending files (fichiers du pack encore sur disque) ────────────
-# Ré-scan le save_path du dernier download pour lister ce qui n'a pas
-# été importé (utile après un auto_import silencieux qui a skip la
-# majorité des fichiers < fuzzy threshold).
-@router.get("/{pack_id}/pending-files")
-async def list_pending_files(
+@router.get("/{pack_id}/dispatch", response_model=list[PackDispatchFileResource])
+async def list_dispatch(
     pack_id: int,
-    download_id: str = "",
+    status: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Liste les fichiers du pack encore présents sur disque (pas
-    importés). Utilisé par PackFilesTab pour proposer un reimport
-    ciblé.
+    """Liste des fichiers de dispatch (analysés / pending / imported / …).
+    Alimente l'onglet Dispatch de PackDetail."""
+    from sqlalchemy.orm import selectinload
 
-    Si `download_id` est omis, on cherche le dernier download connu
-    du pack via _grab_registry.
-    """
-    pack = await pack_service.get_pack(db, pack_id)
-    if pack is None:
-        raise HTTPException(404, "Pack not found")
+    from app.models.pack_dispatch_file import PackDispatchFile as _PDF
+    from sqlalchemy import select as _select
 
-    from app.services.download_service import (
-        _grab_registry,
-        _resolve_download_path,
-        ensure_registry_loaded,
+    stmt = (
+        _select(_PDF)
+        .options(selectinload(_PDF.matched_magazine))
+        .where(_PDF.pack_id == pack_id)
     )
+    if status:
+        stmt = stmt.where(_PDF.status == status)
+    stmt = stmt.order_by(_PDF.created_at.desc())
+    rows = list((await db.execute(stmt)).scalars().all())
+    return [_dispatch_row_to_resource(r) for r in rows]
 
-    ensure_registry_loaded()
-    if not download_id:
-        # Prend le download_id le plus récent qui correspond à ce pack.
-        candidates = [
-            did for did, info in _grab_registry.items()
-            if info.pack_id == pack_id
-        ]
-        if not candidates:
-            return {"downloadId": None, "files": []}
-        download_id = candidates[-1]  # ordre insertion, dernier = plus récent
 
-    save_path = await _resolve_download_path(db, download_id)
-    if not save_path:
-        return {"downloadId": download_id, "files": []}
+@router.post(
+    "/{pack_id}/dispatch/{file_id}/resolve",
+    response_model=PackDispatchFileResource,
+)
+async def resolve_dispatch(
+    pack_id: int,
+    file_id: int,
+    body: PackDispatchResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Applique l'action utilisateur sur un fichier pending_user :
+    assign_existing / create_magazine / ignore."""
+    try:
+        row = await pack_dispatch_service.resolve_dispatch_file(
+            db,
+            file_id=file_id,
+            action=body.action,
+            magazine_id=body.magazine_id,
+            magazine_data=body.magazine_data,
+            config=config,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(500, str(e)) from e
+    # Re-fetch avec relations
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select as _select
+    from app.models.pack_dispatch_file import PackDispatchFile as _PDF
+    row = (
+        await db.execute(
+            _select(_PDF)
+            .options(selectinload(_PDF.matched_magazine))
+            .where(_PDF.id == file_id)
+        )
+    ).scalar_one()
+    return _dispatch_row_to_resource(row)
 
-    files = pack_service.collect_pack_files(save_path)
-    files_preview = await pack_service.preview_dispatch(db, pack_id, files, pack.rules)
-    return {
-        "downloadId": download_id,
-        "savePath": str(save_path),
-        "files": files_preview,
-    }
+
+@router.post(
+    "/{pack_id}/dispatch/{file_id}/reanalyze",
+    response_model=PackDispatchFileResource,
+)
+async def reanalyze_dispatch(
+    pack_id: int,
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Relance l'analyse IA sur un fichier — utile après ajustement des
+    zones de crop / changement de modèle."""
+    from app.database import async_session_factory
+    try:
+        await pack_dispatch_service.reanalyze_dispatch_file(
+            db,
+            file_id=file_id,
+            config=config,
+            session_factory=async_session_factory,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select as _select
+    from app.models.pack_dispatch_file import PackDispatchFile as _PDF
+    row = (
+        await db.execute(
+            _select(_PDF)
+            .options(selectinload(_PDF.matched_magazine))
+            .where(_PDF.id == file_id)
+        )
+    ).scalar_one()
+    return _dispatch_row_to_resource(row)
+
+
+@router.delete("/{pack_id}/dispatch/{file_id}", status_code=204)
+async def delete_dispatch(
+    pack_id: int,
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retire une row dispatch (le fichier reste sur disque)."""
+    ok = await pack_dispatch_service.delete_dispatch_file(db, file_id)
+    if not ok:
+        raise HTTPException(404, "Dispatch file not found")
+
+
+# ─── Anciens endpoints (compat) — supprimés ────────────────────────────
+# Les routes suivantes sont retirées car remplacées par le nouveau
+# pipeline persistent :
+#   POST /pack/{id}/dispatch/preview   → GET /pack/{id}/dispatch
+#   POST /pack/{id}/dispatch/execute   → POST /pack/{id}/dispatch/{file_id}/resolve
+#   POST /pack/{id}/reimport           → POST /pack/{id}/dispatch/{file_id}/resolve
+#   GET  /pack/{id}/pending-files      → GET /pack/{id}/dispatch?status=pending_user
+
+

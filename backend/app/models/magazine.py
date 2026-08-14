@@ -104,6 +104,13 @@ class Magazine(Base):
     enrichment_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )
+    # Placeholder = magazine créé automatiquement (auto_create_missing_magazines
+    # d'un pack) sur des metadata partielles. L'UI doit inviter l'utilisateur
+    # à compléter (frequency, root folder, quality profile). Basculé à False
+    # dès que l'utilisateur passe par le formulaire d'édition.
+    is_placeholder: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")

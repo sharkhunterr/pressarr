@@ -708,6 +708,9 @@ export default function MagazineDetail() {
       releaseWeekday: editReleaseWeekday,
       useLatestIssueCover: editUseLatestCover,
       issn: editIssn.trim() || null,
+      // Passer par le formulaire d'édition retire le flag placeholder :
+      // le user a explicitement validé les infos.
+      isPlaceholder: false,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
   }
@@ -1048,6 +1051,11 @@ export default function MagazineDetail() {
                   <Badge variant={magazine.monitored ? 'default' : 'secondary'} className={magazine.monitored ? 'bg-[#7C3AED] hover:bg-[#7C3AED] text-white' : ''}>
                     {magazine.monitored ? t('library.monitored') : t('library.unmonitored')}
                   </Badge>
+                  {magazine.isPlaceholder && (
+                    <Badge className="bg-amber-500/90 text-amber-950 border border-amber-300/60 text-[10px]">
+                      À compléter
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 mt-1 text-sm text-zinc-400 flex-wrap">
                   {magazine.publisher && (
@@ -1229,6 +1237,31 @@ export default function MagazineDetail() {
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* Placeholder banner — magazine auto-créé par un pack.
+          Invite l'utilisateur à finaliser frequency + root folder +
+          quality. Clic sur "Compléter" ouvre le modal d'édition. */}
+      {magazine.isPlaceholder && (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-amber-200">
+              Magazine créé automatiquement — à finaliser
+            </div>
+            <div className="text-xs text-amber-300/80 mt-1">
+              Ce magazine a été créé par un pack. Vérifie et complète
+              la fréquence, le root folder, la qualité et le titre
+              avant de laisser tourner les auto-grabs.
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={openEdit}
+            className="bg-amber-500 text-amber-950 hover:bg-amber-400 shrink-0"
+          >
+            Compléter
+          </Button>
         </div>
       )}
 

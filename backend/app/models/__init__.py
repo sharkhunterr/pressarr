@@ -15,6 +15,7 @@ from app.models.magazine_rule import MagazineRule
 from app.models.metadata_cache import MetadataCache
 from app.models.notification import Notification
 from app.models.pack import Pack
+from app.models.pack_dispatch_file import PackDispatchFile
 from app.models.pack_pattern import PackPattern
 from app.models.pack_rule import PackRule
 from app.models.quality_profile import QualityProfile, QualityProfileItem
@@ -26,7 +27,7 @@ __all__ = [
     "DownloadClient", "Notification",
     "History", "Blocklist",
     "RootFolder", "IndexerConfig", "MetadataCache",
-    "Pack", "PackPattern", "PackRule",
+    "Pack", "PackPattern", "PackRule", "PackDispatchFile",
     "MagazinePattern", "MagazineRule", "MagazineRelease",
     "AIEnrichmentRun", "AIRankerRun", "AIEnrichmentProposal",
     "Activity",

@@ -676,17 +676,28 @@ async def _process_completed_item(db: AsyncSession, item, cfg: dict) -> None:
 async def _process_pack_download(
     db: AsyncSession, item, grab: _GrabInfo, cfg: dict
 ) -> None:
-    """Process a completed pack download — dispatch files to magazines."""
+    """Process a completed pack download via the new pack_dispatch_service.
+
+    L'ancien flux (preview_dispatch + dispatch_files + broadcast WS) est
+    remplacé par un pipeline unique qui :
+      - extrait les archives (zip/rar/7z/tar) le cas échéant,
+      - crée une row ``pack_dispatch_file`` par fichier,
+      - lance l'IA (deep par défaut, shallow si toggle OFF),
+      - décide seul si auto-import possible, sinon laisse en pending_user.
+
+    Le frontend ne reçoit plus un modal éphémère — il retrouve tout
+    dans l'onglet Dispatch du pack (persistant), avec badge count des
+    pending_user.
+    """
+    from app.database import async_session_factory
     from app.dependencies import get_config
-    from app.services.pack_service import (
-        collect_pack_files,
-        dispatch_files,
-        get_pack,
-        preview_dispatch,
-    )
+    from app.services.pack_dispatch_service import process_pack_download
 
     pack_id = grab.pack_id
-    logger.info("Monitor: processing pack download %s for pack_id=%d", item.download_id, pack_id)
+    logger.info(
+        "Monitor: pack download %s → pack_dispatch_service (pack_id=%d)",
+        item.download_id, pack_id,
+    )
 
     save_path = _resolve_save_path(
         item, remote_path=cfg["remote_path"], local_path=cfg["local_path"]
@@ -695,106 +706,51 @@ async def _process_pack_download(
         logger.warning("Monitor: pack download path not found for %s", item.download_id)
         return
 
-    files = collect_pack_files(save_path)
-    if not files:
-        logger.warning("Monitor: no supported files in pack download %s", save_path)
-        if item.download_id:
-            _processed_downloads.add(item.download_id)
-            _grab_registry.pop(item.download_id, None)
-            _save_registry()
-        return
-
-    pack = await get_pack(db, pack_id)
-    if not pack:
-        logger.warning("Monitor: pack %d not found, falling back to normal import", pack_id)
-        return
-
-    config = get_config()
-
-    if pack.auto_import:
-        # Auto dispatch: preview then import automatically
-        preview = await preview_dispatch(db, pack_id, files, pack.rules)
-        assignments = [
-            {
-                "filename": f["filename"],
-                "magazine_id": f["matched_magazine_id"],
-                "skip": f["excluded"] or not f["matched_magazine_id"],
-            }
-            for f in preview
-        ]
-        file_paths_by_name = {f.name: f for f in files}
-        results = await dispatch_files(db, assignments, file_paths_by_name, config)
-        imported = sum(1 for r in results if r.get("success"))
-        logger.info(
-            "Monitor: pack auto-dispatch completed — %d/%d files imported",
-            imported, len(results),
+    try:
+        stats = await process_pack_download(
+            db,
+            pack_id=pack_id,
+            download_id=item.download_id or "",
+            save_path=save_path,
+            config=get_config(),
+            session_factory=async_session_factory,
         )
-        await db.commit()
+    except Exception:
+        logger.exception("Monitor: pack dispatch failed for pack_id=%d", pack_id)
+        return
 
-        # Create history event
+    # History event pour trace
+    try:
         await create_event(
             db,
             event_type="import",
             pack_id=pack_id,
-            details=f"Pack auto-import: {imported}/{len(results)} files",
+            details=(
+                f"Pack dispatch: {stats['auto_imported']}/{stats['files']} "
+                f"auto-importés · {stats['pending_user']} en attente"
+            ),
             data={
-                "pack_name": pack.name,
-                "total_files": len(results),
-                "imported_files": imported,
-                "results": results[:20],
+                "pack_id": pack_id,
+                "download_id": item.download_id,
+                **stats,
             },
         )
         await db.commit()
+    except Exception:
+        logger.warning("history event pack dispatch failed", exc_info=True)
 
-        try:
-            from app.api.v1.websocket import manager as ws_manager
-            await ws_manager.broadcast("library:updated", {})
-        except Exception:
-            pass
-    else:
-        # Manual dispatch: send preview to frontend via WebSocket
-        preview = await preview_dispatch(db, pack_id, files, pack.rules)
-        matched = sum(1 for f in preview if f["matched_magazine_id"])
-        excluded = sum(1 for f in preview if f["excluded"])
-        try:
-            from app.api.v1.websocket import manager as ws_manager
-            # camelCase keys pour aligner sur le rest de l'API HTTP
-            # (CamelModel converti automatiquement, mais ici on écrit
-            # un dict brut) — le FE `PackDispatchPreview` attend camel.
-            # Sans conversion, le PackDispatchWatcher recevait les
-            # snake_case et Zod-alike sur types => plusieurs champs
-            # `undefined` dans le modal (packId, matchedFiles, etc.).
-            def _snake_to_camel(k: str) -> str:
-                parts = k.split("_")
-                return parts[0] + "".join(w.capitalize() for w in parts[1:])
-            def _rekey(d: dict) -> dict:
-                return {_snake_to_camel(k): v for k, v in d.items()}
-            await ws_manager.broadcast(
-                "pack:dispatch_ready",
-                {
-                    "packId": pack_id,
-                    "packName": pack.name,
-                    "downloadId": item.download_id,
-                    "torrentName": item.name or "",
-                    "totalFiles": len(preview),
-                    "matchedFiles": matched,
-                    "excludedFiles": excluded,
-                    "unmatchedFiles": len(preview) - matched - excluded,
-                    # Les files gardent leur shape original mais camelCase
-                    # pour matcher PackDispatchFile côté FE.
-                    "files": [_rekey(f) for f in preview],
-                },
-            )
-        except Exception:
-            logger.warning("WebSocket broadcast failed for pack dispatch", exc_info=True)
-        logger.info(
-            "Monitor: pack dispatch ready — %d files, %d matched, %d excluded",
-            len(preview), matched, excluded,
+    try:
+        from app.api.v1.websocket import manager as ws_manager
+        await ws_manager.broadcast(
+            "pack:dispatch_ready",
+            {"packId": pack_id, "downloadId": item.download_id, **stats},
         )
-        # Don't mark as processed yet — wait for user dispatch action
-        return
+        await ws_manager.broadcast("library:updated", {})
+    except Exception:
+        pass
 
-    # Mark as processed after auto-import
+    # Le download est traité (auto ou en attente user). On le retire de
+    # la registry pour ne pas re-triggerer au prochain tick monitor.
     if item.download_id:
         _processed_downloads.add(item.download_id)
         _grab_registry.pop(item.download_id, None)

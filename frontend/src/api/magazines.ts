@@ -44,6 +44,9 @@ export interface Magazine {
    *  to the right day even without any real issue as seed. Null
    *  = infer from last real issue / monitoring start date. */
   releaseWeekday: number | null
+  /** true = magazine auto-créé par un pack sur des metadata partielles ;
+   *  invite l'utilisateur à compléter (frequency, root folder, quality). */
+  isPlaceholder: boolean
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {

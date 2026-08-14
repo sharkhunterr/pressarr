@@ -190,6 +190,13 @@ def _migrate_add_columns(connection) -> None:
         # Per-issue ISSN — souvent identique au magazine parent, parfois
         # distinct pour les hors-série / éditions internationales.
         ("issue", "issn", "VARCHAR(9)"),
+        # Magazine placeholder (auto-créé par un pack, en attente user).
+        ("magazine", "is_placeholder", "BOOLEAN NOT NULL DEFAULT 0"),
+        # Pack — nouveaux toggles pipeline dispatch.
+        ("pack", "deep_ai_analysis", "BOOLEAN NOT NULL DEFAULT 1"),
+        ("pack", "auto_create_missing_magazines", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("pack", "preview_before_import", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("pack", "default_new_magazine_frequency", "VARCHAR(20) NOT NULL DEFAULT 'weekly'"),
     ]
     for table, column, col_type in migrations:
         try:

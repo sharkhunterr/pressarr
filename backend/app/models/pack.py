@@ -22,6 +22,26 @@ class Pack(Base):
     auto_search: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     auto_grab: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Deep analysis = full IA pipeline (torrent → python-OCR → vision → arbiter)
+    # sur chaque fichier extrait. False = parser filename uniquement (10× plus
+    # rapide, moins précis).
+    deep_ai_analysis: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    # ON = matches faibles/absents → magazine placeholder auto-créé + import.
+    # OFF = ces fichiers restent en pending_user pour décision manuelle.
+    auto_create_missing_magazines: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    # ON = rien n'est jamais auto-importé, tous les fichiers passent par
+    # l'onglet Dispatch pour validation utilisateur.
+    preview_before_import: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    # Fréquence par défaut appliquée aux magazines placeholder auto-créés.
+    default_new_magazine_frequency: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="weekly", server_default="weekly"
+    )
     monitored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     quality_profile_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("quality_profile.id"), nullable=False

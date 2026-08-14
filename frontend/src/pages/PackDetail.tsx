@@ -28,6 +28,7 @@ import {
   addPackRule,
   deletePackRule,
   grabPackRelease,
+  listPackDispatchFiles,
   type Pack,
 } from '@/api/packs'
 import {
@@ -37,7 +38,7 @@ import {
   type SearchResult,
 } from '@/api/search'
 import { HistoryModal } from '@/components/HistoryModal'
-import { PackFilesTab } from '@/components/PackFilesTab'
+import { PackDispatchTab } from '@/components/PackDispatchTab'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -108,6 +109,10 @@ export default function PackDetail() {
   const [editDescription, setEditDescription] = useState('')
   const [editSearchQuery, setEditSearchQuery] = useState('')
   const [editRecurrence, setEditRecurrence] = useState('monthly')
+  const [editDeepAi, setEditDeepAi] = useState(true)
+  const [editAutoCreate, setEditAutoCreate] = useState(false)
+  const [editPreviewBeforeImport, setEditPreviewBeforeImport] = useState(false)
+  const [editDefaultFreq, setEditDefaultFreq] = useState('weekly')
 
   // Delete modal
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -119,6 +124,16 @@ export default function PackDetail() {
     queryKey: ['pack', packId],
     queryFn: () => getPack(packId),
   })
+
+  // Badge de l'onglet Dispatch — combien de fichiers attendent une
+  // action utilisateur.
+  const pendingDispatchQ = useQuery({
+    queryKey: ['pack-dispatch', packId, 'pending_user'],
+    queryFn: () => listPackDispatchFiles(packId, 'pending_user'),
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
+  })
+  const pendingDispatchCount = pendingDispatchQ.data?.length ?? 0
 
   const toggleMonitored = useCallback(async () => {
     if (!pack) return
@@ -134,6 +149,10 @@ export default function PackDetail() {
     setEditDescription(pack.description || '')
     setEditSearchQuery(pack.searchQuery)
     setEditRecurrence(pack.recurrence)
+    setEditDeepAi(pack.deepAiAnalysis ?? true)
+    setEditAutoCreate(pack.autoCreateMissingMagazines ?? false)
+    setEditPreviewBeforeImport(pack.previewBeforeImport ?? false)
+    setEditDefaultFreq(pack.defaultNewMagazineFrequency ?? 'weekly')
     setEditOpen(true)
   }
 
@@ -144,6 +163,10 @@ export default function PackDetail() {
         description: editDescription.trim() || undefined,
         searchQuery: editSearchQuery.trim(),
         recurrence: editRecurrence,
+        deepAiAnalysis: editDeepAi,
+        autoCreateMissingMagazines: editAutoCreate,
+        previewBeforeImport: editPreviewBeforeImport,
+        defaultNewMagazineFrequency: editDefaultFreq,
       })
       toast.success(t('packs.updated'))
       setEditOpen(false)
@@ -225,7 +248,15 @@ export default function PackDetail() {
           <TabsTrigger value="search">{t('packs.tabSearch')}</TabsTrigger>
           <TabsTrigger value="patterns">{t('packs.tabPatterns')}</TabsTrigger>
           <TabsTrigger value="rules">{t('packs.tabRules')}</TabsTrigger>
-          <TabsTrigger value="files">{t('packs.tabFiles', 'Fichiers')}</TabsTrigger>
+          <TabsTrigger value="dispatch">
+            Dispatch
+            {pendingDispatchCount > 0 && (
+              <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40 text-[10px] px-1.5 py-0.5">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                {pendingDispatchCount}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="history">{t('packs.tabHistory')}</TabsTrigger>
         </TabsList>
 
@@ -245,8 +276,8 @@ export default function PackDetail() {
           <RulesTab pack={pack} packId={packId} />
         </TabsContent>
 
-        <TabsContent value="files">
-          <PackFilesTab packId={packId} />
+        <TabsContent value="dispatch">
+          <PackDispatchTab packId={packId} />
         </TabsContent>
 
         <TabsContent value="history">
@@ -291,6 +322,50 @@ export default function PackDetail() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="pt-2 border-t border-zinc-800 space-y-3">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">
+                Pipeline dispatch
+              </div>
+              <ToggleRow
+                label="Analyse IA profonde"
+                hint="Pipeline complet (torrent → OCR Python → vision IA → arbitre) sur chaque fichier extrait. Off = parser filename seul, plus rapide mais moins précis."
+                checked={editDeepAi}
+                onChange={setEditDeepAi}
+              />
+              <ToggleRow
+                label="Créer magazines manquants"
+                hint="Si un fichier ne matche aucun magazine, en créer un automatiquement (placeholder à compléter). Sinon le fichier reste en attente d'action utilisateur."
+                checked={editAutoCreate}
+                onChange={setEditAutoCreate}
+              />
+              <ToggleRow
+                label="Toujours valider avant import"
+                hint="ON = aucun fichier n'est jamais auto-importé, tout va dans l'onglet Dispatch pour validation manuelle."
+                checked={editPreviewBeforeImport}
+                onChange={setEditPreviewBeforeImport}
+              />
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Fréquence par défaut (magazines auto-créés)
+                </label>
+                <Select value={editDefaultFreq} onValueChange={setEditDefaultFreq}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Quotidien</SelectItem>
+                    <SelectItem value="weekly">Hebdomadaire</SelectItem>
+                    <SelectItem value="biweekly">Bimensuel</SelectItem>
+                    <SelectItem value="monthly">Mensuel</SelectItem>
+                    <SelectItem value="bimonthly">Bimestriel</SelectItem>
+                    <SelectItem value="quarterly">Trimestriel</SelectItem>
+                    <SelectItem value="annual">Annuel</SelectItem>
+                    <SelectItem value="irregular">Irrégulier</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>{t('common.cancel')}</Button>
@@ -323,6 +398,32 @@ export default function PackDetail() {
           packId={packId}
         />
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Toggle row (edit modal helper)
+// ---------------------------------------------------------------------------
+
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-zinc-100">{label}</div>
+        <div className="text-xs text-zinc-500">{hint}</div>
+      </div>
+      <Switch checked={checked} onCheckedChange={(v) => onChange(v === true)} />
     </div>
   )
 }

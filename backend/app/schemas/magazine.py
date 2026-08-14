@@ -80,6 +80,7 @@ class MagazineResource(CamelModel):
     last_metadata_refresh: datetime | None = None
     excluded_days: list[int] | None = None
     release_weekday: int | None = None
+    is_placeholder: bool = False
     patterns: list[MagazinePatternResource] = []
     rules: list[MagazineRuleResource] = []
     statistics: MagazineStatistics = MagazineStatistics()
@@ -134,6 +135,7 @@ class MagazineCreateResource(CamelModel):
 
 class MagazineUpdateResource(CamelModel):
     title: str | None = None
+    issn: str | None = None
     frequency: str | None = None
     monitored: bool | None = None
     monitoring_start_date: date | None = None
@@ -144,6 +146,7 @@ class MagazineUpdateResource(CamelModel):
     release_weekday: int | None = None
     use_latest_issue_cover: bool | None = None
     cover_issue_id: int | None = None
+    is_placeholder: bool | None = None
 
 
 class SourceInfo(CamelModel):

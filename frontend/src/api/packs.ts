@@ -34,6 +34,17 @@ export interface Pack {
   autoSearch: boolean
   autoGrab: boolean
   autoImport: boolean
+  /** Pipeline IA complet (torrent → python-OCR → vision → arbiter)
+   *  sur chaque fichier. False = parser filename seul (10× plus rapide,
+   *  moins précis). */
+  deepAiAnalysis: boolean
+  /** Si aucun magazine ne matche fortement, créer un placeholder à la
+   *  volée + auto-import. False = fichier reste en pending_user. */
+  autoCreateMissingMagazines: boolean
+  /** ON = rien n'est jamais auto-importé, tout va en pending_user. */
+  previewBeforeImport: boolean
+  /** Fréquence appliquée aux magazines placeholder auto-créés. */
+  defaultNewMagazineFrequency: string
   monitored: boolean
   qualityProfileId: number
   rootFolderId: number
@@ -44,86 +55,63 @@ export interface Pack {
   statistics: PackStatistics
 }
 
+/** Nouveau : fichier extrait d'un pack + analyse IA + décision. */
 export interface PackDispatchFile {
+  id: number
+  packId: number
+  downloadId: string
   filename: string
-  parsedTitle: string | null
-  parsedDate: string | null
+  path: string
+  size: number
+  status:
+    | 'pending_analysis'
+    | 'analyzed'
+    | 'pending_user'
+    | 'imported'
+    | 'ignored'
+    | 'error'
+  errorMessage: string | null
+  aiRunId: number | null
+  extractedMetadata: {
+    title?: string | null
+    issue_number?: number | null
+    year?: number | null
+    month?: number | null
+    day?: number | null
+    issn?: string | null
+    source?: string
+    run_id?: number | null
+  } | null
   matchedMagazineId: number | null
   matchedMagazineTitle: string | null
-  matchScore: number
-  excluded: boolean
-  excludeReason: string | null
+  matchScore: number | null
+  matchSource: 'parser' | 'fuzzy' | 'vision' | 'arbiter' | 'issn' | 'manual' | null
+  proposedMagazineData: {
+    title?: string
+    issn?: string | null
+    frequency?: string
+  } | null
+  userAction: 'assign_existing' | 'create_magazine' | 'ignore' | null
+  userActionMagazineId: number | null
+  resolvedIssueId: number | null
+  createdAt: string
+  analyzedAt: string | null
+  resolvedAt: string | null
 }
 
-export interface PackDispatchPreview {
-  packId: number
-  /** Populé uniquement par le broadcast WebSocket (rendre le nom du
-   *  pack dispo dans le toast/modal sans re-fetch). */
-  packName?: string
-  downloadId: string
-  torrentName: string
-  files: PackDispatchFile[]
-  totalFiles: number
-  matchedFiles: number
-  excludedFiles: number
-  unmatchedFiles: number
-}
-
-// ─── Post-hoc reimport (fichiers d'un pack déjà téléchargé) ────
-export interface PackPendingFile {
-  filename: string
-  parsed_title: string | null
-  parsed_number: string | null
-  matched_magazine_id: number | null
-  matched_magazine_title: string | null
-  match_score: number
-  excluded: boolean
-  exclude_reason: string | null
-}
-
-export interface PackPendingFilesResponse {
-  downloadId: string | null
-  savePath?: string
-  files: PackPendingFile[]
-}
-
-export const getPackPendingFiles = (packId: number, downloadId?: string) => {
-  const q = downloadId ? `?download_id=${encodeURIComponent(downloadId)}` : ''
-  return apiFetch<PackPendingFilesResponse>(`/pack/${packId}/pending-files${q}`)
-}
-
-export interface PackReimportBody {
-  downloadId: string
-  filename: string
-  /** ID d'un magazine existant. Prioritaire sur createMagazine. */
+export interface PackDispatchResolveBody {
+  action: 'assign_existing' | 'create_magazine' | 'ignore'
   magazineId?: number
-  /** Créer un magazine à la volée. root_folder + quality hérités du pack. */
-  createMagazine?: {
+  magazineData?: {
     title: string
     frequency?: string
     publisher?: string
     country?: string
     language?: string
     monitored?: boolean
+    issn?: string | null
   }
 }
-
-export interface PackReimportResult {
-  success: boolean
-  magazine_id: number | null
-  result: {
-    filename: string
-    success?: boolean
-    message?: string
-    issue_id?: number | null
-  } | null
-}
-
-export const reimportPackFile = (packId: number, body: PackReimportBody) =>
-  apiFetch<PackReimportResult>(`/pack/${packId}/reimport`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
 
 // CRUD
 export const getPacks = () =>
@@ -188,22 +176,29 @@ export const grabPackRelease = (
     body: JSON.stringify({ downloadUrl, title, protocol, guid, indexer }),
   })
 
-// Dispatch
-export const previewPackDispatch = (packId: number, downloadId: string) =>
-  apiFetch<PackDispatchPreview>(`/pack/${packId}/dispatch/preview`, {
+// Dispatch (nouveau pipeline persistent)
+export const listPackDispatchFiles = (
+  packId: number,
+  status?: PackDispatchFile['status'],
+) => {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+  return apiFetch<PackDispatchFile[]>(`/pack/${packId}/dispatch${qs}`)
+}
+
+export const resolvePackDispatchFile = (
+  packId: number,
+  fileId: number,
+  body: PackDispatchResolveBody,
+) =>
+  apiFetch<PackDispatchFile>(`/pack/${packId}/dispatch/${fileId}/resolve`, {
     method: 'POST',
-    body: JSON.stringify({ downloadId }),
+    body: JSON.stringify(body),
   })
 
-export const executePackDispatch = (
-  packId: number,
-  downloadId: string,
-  assignments: Array<{ filename: string; magazineId: number | null; skip: boolean }>,
-) =>
-  apiFetch<{ results: Array<{ success: boolean; message?: string }>; imported: number; total: number }>(
-    `/pack/${packId}/dispatch/execute`,
-    {
-      method: 'POST',
-      body: JSON.stringify({ downloadId, assignments }),
-    },
-  )
+export const reanalyzePackDispatchFile = (packId: number, fileId: number) =>
+  apiFetch<PackDispatchFile>(`/pack/${packId}/dispatch/${fileId}/reanalyze`, {
+    method: 'POST',
+  })
+
+export const deletePackDispatchFile = (packId: number, fileId: number) =>
+  apiFetch<void>(`/pack/${packId}/dispatch/${fileId}`, { method: 'DELETE' })

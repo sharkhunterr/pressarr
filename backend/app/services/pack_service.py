@@ -1,26 +1,25 @@
-"""Pack management service layer."""
+"""Pack management service — CRUD, patterns, rules, statistics.
+
+Le pipeline d'extraction + analyse IA + dispatch a été déplacé dans
+``pack_dispatch_service`` (bien plus riche que l'ancien fuzzy match sur
+filename). Ce module ne contient plus que la gestion des packs eux-mêmes.
+"""
 
 import logging
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.history import History
-from app.models.magazine import Magazine
 from app.models.pack import Pack
 from app.models.pack_pattern import PackPattern
 from app.models.pack_rule import PackRule
-from app.parser.magazine_parser import fuzzy_match_title, parse_magazine_filename
 from app.services.magazine_service import generate_title_slug
 
 logger = logging.getLogger(__name__)
-
-# Supported file extensions for pack dispatch
-_SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".cbr", ".cbz"}
 
 
 # ---- CRUD ----
@@ -73,6 +72,10 @@ async def create_pack(db: AsyncSession, data: dict) -> Pack:
         auto_search=data.get("auto_search", False),
         auto_grab=data.get("auto_grab", False),
         auto_import=data.get("auto_import", False),
+        deep_ai_analysis=data.get("deep_ai_analysis", True),
+        auto_create_missing_magazines=data.get("auto_create_missing_magazines", False),
+        preview_before_import=data.get("preview_before_import", False),
+        default_new_magazine_frequency=data.get("default_new_magazine_frequency", "weekly"),
         monitored=data.get("monitored", True),
         quality_profile_id=data["quality_profile_id"],
         root_folder_id=data["root_folder_id"],
@@ -245,118 +248,6 @@ def apply_rules(
     return False, None
 
 
-# ---- Dispatch logic ----
-
-
-def collect_pack_files(directory: Path) -> list[Path]:
-    """Collect all importable files in a pack download directory."""
-    files = []
-    if directory.is_file():
-        if directory.suffix.lower() in _SUPPORTED_EXTENSIONS:
-            files.append(directory)
-    elif directory.is_dir():
-        for f in sorted(directory.rglob("*")):
-            if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS:
-                files.append(f)
-    return files
-
-
-async def preview_dispatch(
-    db: AsyncSession,
-    pack_id: int,
-    file_paths: list[Path],
-    rules: list[PackRule],
-) -> list[dict]:
-    """Preview how pack files will be dispatched to magazines.
-
-    For each file: parse filename → apply rules → fuzzy match magazine.
-    """
-    mag_result = await db.execute(select(Magazine))
-    magazines = list(mag_result.scalars().all())
-    known_titles = [m.title for m in magazines]
-
-    dispatch_files = []
-    for file_path in file_paths:
-        parsed = parse_magazine_filename(file_path.name)
-
-        excluded = False
-        exclude_reason = None
-        if parsed.title:
-            excluded, exclude_reason = apply_rules(parsed.title, rules)
-
-        matched_magazine_id = None
-        matched_magazine_title = None
-        match_score = 0.0
-        if not excluded and parsed.title and known_titles:
-            match = fuzzy_match_title(parsed.title, known_titles, threshold=60.0)
-            if match:
-                matched_title, score = match
-                magazine = next(
-                    (m for m in magazines if m.title == matched_title), None
-                )
-                if magazine:
-                    matched_magazine_id = magazine.id
-                    matched_magazine_title = magazine.title
-                    match_score = score
-
-        dispatch_files.append(
-            {
-                "filename": file_path.name,
-                "parsed_title": parsed.title,
-                "parsed_number": parsed.number,
-                "parsed_year": parsed.year,
-                "parsed_month": parsed.month,
-                "parsed_day": parsed.day,
-                "matched_magazine_id": matched_magazine_id,
-                "matched_magazine_title": matched_magazine_title,
-                "match_score": match_score,
-                "excluded": excluded,
-                "exclude_reason": exclude_reason,
-            }
-        )
-
-    return dispatch_files
-
-
-async def dispatch_files(
-    db: AsyncSession,
-    assignments: list[dict],
-    file_paths_by_name: dict[str, Path],
-    config,
-) -> list[dict]:
-    """Import each assigned file to its magazine/issue."""
-    from app.services.import_service import process_downloaded_file
-
-    results = []
-    for assignment in assignments:
-        if assignment.get("skip"):
-            results.append(
-                {
-                    "filename": assignment["filename"],
-                    "success": False,
-                    "message": "Skipped by user",
-                }
-            )
-            continue
-
-        file_path = file_paths_by_name.get(assignment["filename"])
-        if not file_path or not file_path.exists():
-            results.append(
-                {
-                    "filename": assignment["filename"],
-                    "success": False,
-                    "message": "File not found",
-                }
-            )
-            continue
-
-        result = await process_downloaded_file(
-            db,
-            file_path,
-            config,
-            magazine_id=assignment.get("magazine_id"),
-            issue_id=assignment.get("issue_id"),
-        )
-        results.append({"filename": assignment["filename"], **result})
-
-    return results
+# NOTE : Extraction, listing des fichiers, preview/dispatch et import
+# sont maintenant gérés par ``pack_dispatch_service`` — pipeline complet
+# avec IA vision + arbiter + création de magazine placeholder.
