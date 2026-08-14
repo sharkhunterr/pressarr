@@ -127,17 +127,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _load_registry()
 
     # Cleanup boot orphelins : toute activité restée "running" en DB
-    # au moment du boot n'a AUCUNE chance d'aboutir (le process qui
-    # l'exécutait est mort). Seuil 0 : on tue tout ce qui traîne dès
-    # le premier tick pour ne pas laisser un import factice à 8 %
-    # « en cours » sur la page Activity.
+    # au moment du boot n'a AUCUNE chance de continuer telle quelle
+    # (le process qui l'exécutait est mort). MAIS : les pack_dispatch
+    # peuvent durer 15-30 min sur 32 fichiers, et le monitor peut les
+    # relancer si on retire leur download_id de _processed_downloads.
+    #
+    # Stratégie :
+    #   1. Kill uniquement les activités avec > STALE_S (15 min) de
+    #      running — un dispatch récent (< 15 min) qui vient d'être
+    #      interrompu par un reload peut potentiellement reprendre.
+    #   2. Pour chaque pack_dispatch fraîchement killé : retire son
+    #      download_id de _processed_downloads pour que le monitor
+    #      re-fire le dispatch au prochain tick.
     try:
         from app.services import activity_service
-        n = await activity_service.cleanup_stale(older_than_s=0)
-        if n:
+        interrupted = await activity_service.mark_interrupted_at_boot()
+        if interrupted:
             logger.info(
-                "Startup cleanup: force-failed %d orphan running activities",
-                n,
+                "Startup: marked %d interrupted activities + reset pack "
+                "downloads so monitor re-fires the dispatch",
+                interrupted,
             )
     except Exception:  # noqa: BLE001
         logger.warning("Startup activity cleanup failed (non-fatal)", exc_info=True)

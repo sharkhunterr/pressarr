@@ -565,6 +565,80 @@ async def cleanup_stale(*, older_than_s: int = STALE_S) -> int:
     return n
 
 
+async def mark_interrupted_at_boot() -> int:
+    """Au boot : marque les activités "running" comme "cancelled" +
+    reset les download_id de packs interrompus pour que le monitor
+    re-fire la dispatch au prochain tick.
+
+    Le process qui exécutait ces activités est mort (crash / reload
+    dev / restart). On les marque `cancelled` (pas `failed` — c'est
+    plus juste : ce n'est pas une vraie erreur, c'est une interruption
+    externe), status_message explicite pour le user.
+
+    Pour les pack_dispatch spécifiquement : on retire leur download_id
+    du set ``_processed_downloads`` de download_service. Sans ça, le
+    monitor tick considère le download comme déjà traité et ne
+    re-déclenche jamais la dispatch → l'utilisateur reste bloqué avec
+    32 fichiers en pending sur disque et zéro activité.
+
+    Retourne le nombre d'activités traitées.
+    """
+    from app.services import download_service as _ds
+
+    now = datetime.now()
+    n = 0
+    reset_download_ids: list[str] = []
+
+    async def _do():
+        nonlocal n
+        async with _write_lock:
+            async with _session_factory()() as session:
+                rows = (await session.execute(
+                    select(Activity).where(Activity.status == "running")
+                )).scalars().all()
+                for row in rows:
+                    row.status = "cancelled"
+                    row.completed_at = now
+                    row.status_message = (
+                        "Interrompue — process redémarré, "
+                        "sera relancée par le monitor si applicable"
+                    )
+                    if not row.error_message:
+                        row.error_message = None
+                    n += 1
+                    # Pack dispatch : extract download_id pour reset.
+                    if row.kind == "pack_dispatch":
+                        try:
+                            payload = _load_payload(row.payload)
+                            did = payload.get("download_id")
+                            if isinstance(did, str) and did:
+                                reset_download_ids.append(did)
+                        except Exception:
+                            pass
+                if n:
+                    await session.commit()
+
+    await _retry_on_lock(_do)
+
+    # Reset processed downloads pour que le monitor re-fire.
+    if reset_download_ids:
+        try:
+            _ds.ensure_registry_loaded()
+            for did in reset_download_ids:
+                _ds._processed_downloads.discard(did)
+            _ds._save_registry()
+            logger.info(
+                "[activity] reset %d pack download_ids from _processed_downloads",
+                len(reset_download_ids),
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to reset pack downloads", exc_info=True)
+
+    if n:
+        logger.info("[activity] marked %d running activities as cancelled at boot", n)
+    return n
+
+
 async def counters() -> dict[str, int]:
     """Compteurs pour le badge sidebar.
 
