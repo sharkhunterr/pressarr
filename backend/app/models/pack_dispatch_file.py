@@ -51,7 +51,7 @@ class PackDispatchFile(Base):
 
     # Analyse IA — pointeur vers le run qui a produit la décision.
     ai_run_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("enrichment_run.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("ai_enrichment_run.id", ondelete="SET NULL"), nullable=True
     )
     # Snapshot des metadata extraites (title, number, year, month, day, issn…).
     # Cache pour affichage rapide sans join sur enrichment_run.
