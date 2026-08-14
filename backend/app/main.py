@@ -105,6 +105,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await conn.run_sync(_migrate_add_columns)
     logger.info("Database tables ensured")
 
+    # Dedicated activity DB (isolated from the main app DB) — évite
+    # que les writes activity soient bloqués par le monitor scheduler
+    # ou le pack dispatch qui tiennent la DB principale en lock.
+    from app.services.activity_service import init_activity_db
+    await init_activity_db(str(config.db_path))
+
     # Auto-generate API key on first start
     if not config.api_key:
         key = config.generate_api_key()

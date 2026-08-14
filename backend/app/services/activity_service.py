@@ -31,13 +31,76 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Sequence
 
-from sqlalchemy import and_, desc, func, or_, select
+from pathlib import Path
+
+from sqlalchemy import and_, desc, event, func, or_, select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app import database as _db
 from app.models.activity import Activity
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Dedicated activity DB (isolated from main app DB) ──────────────
+#
+# Activity writes concurrent avec le monitor scheduler + les
+# pack_dispatch tenaient la DB principale en lock → create() tombait
+# en "database is locked" malgré 8 retries × 2.4 s. Solution : activity
+# vit dans SON PROPRE fichier SQLite. Zéro contention, zéro race avec
+# le reste de l'app (magazines / issues / downloads). Perte assumée :
+# les FK vers magazine/issue deviennent purement informatives
+# (SQLite ne les vérifie pas cross-DB). C'est un tradeoff acceptable
+# pour de l'observabilité qui n'a pas besoin d'intégrité relationnelle.
+_activity_engine = None
+_activity_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+async def init_activity_db(main_db_path: str) -> None:
+    """Init le moteur SQLite dédié activity. Fichier séparé à côté de
+    la DB principale : ``pressarr.db`` → ``pressarr-activity.db``.
+    Crée la table si absente."""
+    global _activity_engine, _activity_session_factory
+
+    p = Path(main_db_path)
+    activity_path = p.with_name(p.stem + "-activity.db")
+    _activity_engine = create_async_engine(
+        f"sqlite+aiosqlite:///{activity_path}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+
+    @event.listens_for(_activity_engine.sync_engine, "connect")
+    def _set_activity_pragmas(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=15000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
+
+    _activity_session_factory = async_sessionmaker(
+        _activity_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    # Crée la table Activity dans la nouvelle DB si absente.
+    async with _activity_engine.begin() as conn:
+        await conn.run_sync(Activity.metadata.create_all, tables=[Activity.__table__])
+    logger.info("Activity DB initialized: %s", activity_path)
+
+
+def _session_factory():
+    """Retourne le factory dédié — fallback sur la DB principale au cas
+    où init_activity_db n'a pas été appelé (ex. tests unitaires)."""
+    if _activity_session_factory is not None:
+        return _activity_session_factory
+    return _db.async_session_factory
 
 
 # Fenêtre pendant laquelle une activité terminée reste visible dans la
@@ -157,7 +220,7 @@ async def create(
 
     async def _do() -> None:
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = Activity(
                     kind=kind,
                     status=status,
@@ -185,7 +248,7 @@ async def find_by_external_id(
 ) -> int | None:
     """Cherche une activité par ``payload.external_id``. Renvoie l'id
     ou None."""
-    async with _db.async_session_factory() as session:
+    async with _session_factory()() as session:
         filters = [Activity.kind == kind]
         if live_only:
             filters.append(Activity.status.in_(["queued", "running"]))
@@ -209,7 +272,7 @@ async def push_step(
     """Append une step à la liste et mets à jour la status_message."""
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -239,7 +302,7 @@ async def update_progress(
     clamped = max(0.0, min(100.0, float(progress)))
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -264,7 +327,7 @@ async def update_meta(
     """Patch metadata (bind late, e.g. après enrichissement IA)."""
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -289,7 +352,7 @@ async def update_meta(
 async def mark_done(activity_id: int, hint: str | None = None) -> None:
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -335,7 +398,7 @@ async def mark_error(activity_id: int, message: str) -> None:
 
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -366,7 +429,7 @@ async def set_status(activity_id: int, status: str) -> None:
     """
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -382,7 +445,7 @@ async def set_status(activity_id: int, status: str) -> None:
 async def cancel(activity_id: int) -> None:
     async def _do():
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 row = (await session.execute(
                     select(Activity).where(Activity.id == activity_id)
                 )).scalars().first()
@@ -396,7 +459,7 @@ async def cancel(activity_id: int) -> None:
 
 
 async def get(activity_id: int) -> Activity | None:
-    async with _db.async_session_factory() as session:
+    async with _session_factory()() as session:
         return (await session.execute(
             select(Activity).where(Activity.id == activity_id)
         )).scalars().first()
@@ -420,7 +483,7 @@ async def list_activities(
     même quand on filtre par status=running. Comme ça une activité
     qui vient de finir ne disparaît pas brutalement de la vue.
     """
-    async with _db.async_session_factory() as session:
+    async with _session_factory()() as session:
         filters: list[Any] = []
         if kind:
             filters.append(Activity.kind == kind)
@@ -478,7 +541,7 @@ async def cleanup_stale(*, older_than_s: int = STALE_S) -> int:
     async def _do():
         nonlocal n
         async with _write_lock:
-            async with _db.async_session_factory() as session:
+            async with _session_factory()() as session:
                 rows = (await session.execute(
                     select(Activity).where(
                         Activity.status == "running",
@@ -511,7 +574,7 @@ async def counters() -> dict[str, int]:
     catch les grabs très rapides — sinon un grab qui dure 200 ms
     n'apparaît jamais entre deux polls 5 s.
     """
-    async with _db.async_session_factory() as session:
+    async with _session_factory()() as session:
         live_rows = (await session.execute(
             select(Activity.status)
             .where(Activity.status.in_(["queued", "running"]))
