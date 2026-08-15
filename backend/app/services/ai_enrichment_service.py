@@ -1730,12 +1730,58 @@ class AIEnrichmentService:
         )
 
 
+# Mois français → numéro (accents mixed, minuscule stripped).
+_FR_MONTHS = {
+    "janvier": 1, "fevrier": 2, "février": 2, "mars": 3, "avril": 4,
+    "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "août": 8,
+    "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12,
+    "décembre": 12,
+    "jan": 1, "fev": 2, "fév": 2, "mar": 3, "avr": 4,
+    "jun": 6, "jui": 7, "juil": 7, "aou": 8, "aoû": 8,
+    "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12, "déc": 12,
+}
+
+
+def _coerce_int_or_none(v: Any) -> int | None:
+    """Retourne int(v) ou None. Tolère les strings de digits, les noms
+    de mois français ('Août' → 8), et les tokens comme '25th' → 25."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):  # avant int, bool est subclass
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v) if v.is_integer() else None
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if not s:
+            return None
+        # Nom de mois français ?
+        if s in _FR_MONTHS:
+            return _FR_MONTHS[s]
+        # Digits (avec suffixe éventuel : "25th", "N°594")
+        import re as _re
+        m = _re.search(r"\d+", s)
+        if m:
+            try:
+                return int(m.group(0))
+            except ValueError:
+                pass
+    return None
+
+
 def merge_ai_into_parsed(parsed, ai_final: dict[str, Any], mode: str) -> Any:
     """Apply AI extraction to a Parsed dataclass per autorité mode.
 
     ``parsed`` : the object returned by ``parse_magazine_filename``.
     Fields we override : title, number, year, month, day, is_hs
     (mapped to `is_special` on Issue downstream), series_number.
+
+    Coercion int() automatique pour number / year / month / day —
+    le vision LLM renvoie parfois "Août" au lieu de 8, ou "25th" au
+    lieu de 25. Sans coerce, ces strings finissent stockées en DB
+    comme text et cassent tout query numérique / template filename.
 
     ``mode`` :
       - ``remplace``  : any AI non-null value wins over parsed
@@ -1746,20 +1792,32 @@ def merge_ai_into_parsed(parsed, ai_final: dict[str, Any], mode: str) -> Any:
     if mode in ("propose", "skipped_fallback") or not ai_final:
         return parsed
 
-    field_map = {
-        "title": "title",
+    # Champs numériques → coerce int (accept strings comme "Août"/"14th").
+    numeric_map = {
         "issue_number": "number",
         "year": "year",
         "month": "month",
         "day": "day",
     }
-    for ai_key, parsed_key in field_map.items():
+    for ai_key, parsed_key in numeric_map.items():
         ai_val = ai_final.get(ai_key)
         if ai_val is None:
             continue
+        coerced = _coerce_int_or_none(ai_val)
+        if coerced is None:
+            continue
         current = getattr(parsed, parsed_key, None)
         if mode == "remplace":
-            setattr(parsed, parsed_key, ai_val)
+            setattr(parsed, parsed_key, coerced)
         elif mode == "complete" and current is None:
-            setattr(parsed, parsed_key, ai_val)
+            setattr(parsed, parsed_key, coerced)
+
+    # Title : string (pas de coerce).
+    ai_title = ai_final.get("title")
+    if isinstance(ai_title, str) and ai_title.strip():
+        current = getattr(parsed, "title", None)
+        if mode == "remplace":
+            parsed.title = ai_title.strip()
+        elif mode == "complete" and not current:
+            parsed.title = ai_title.strip()
     return parsed
