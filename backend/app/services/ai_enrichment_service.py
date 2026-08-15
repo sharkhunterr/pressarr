@@ -41,6 +41,29 @@ from app.services.ai_ollama_adapter import (
 logger = logging.getLogger(__name__)
 
 
+def _scrub_surrogates(v: Any) -> Any:
+    """Nettoie récursivement les surrogates non-pairés (\\ud800-\\udfff).
+
+    Le vision LLM renvoie parfois des emojis coupés ou des chars
+    Windows-1252 orphelins → SQLite refuse le write avec
+    ``UnicodeEncodeError: surrogates not allowed``. Cette fonction
+    passe une string dans encode-replace-decode pour remplacer tout
+    orphelin par '\\ufffd'.
+    """
+    if isinstance(v, str):
+        return v.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(v, dict):
+        return {k: _scrub_surrogates(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_scrub_surrogates(x) for x in v]
+    return v
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    """json.dumps avec scrub des surrogates + ensure_ascii=False."""
+    return json.dumps(_scrub_surrogates(obj), ensure_ascii=False, default=str)
+
+
 ProgressCb = Callable[[str, str], None]
 
 
@@ -1607,8 +1630,8 @@ class AIEnrichmentService:
             ).scalars().first()
             if row is None:
                 return
-            row.steps_json = json.dumps(steps, ensure_ascii=False)
-            row.final_json = json.dumps(final, ensure_ascii=False)
+            row.steps_json = _safe_json_dumps(steps)
+            row.final_json = _safe_json_dumps(final)
             row.applied_mode = applied_mode
             row.total_elapsed_ms = elapsed_ms
             row.status = status
@@ -1670,8 +1693,8 @@ class AIEnrichmentService:
                         )
                     ).scalars().first()
                     if row:
-                        row.steps_json = json.dumps(steps, ensure_ascii=False)
-                        row.final_json = json.dumps(final, ensure_ascii=False)
+                        row.steps_json = _safe_json_dumps(steps)
+                        row.final_json = _safe_json_dumps(final)
                         row.applied_mode = applied_mode
                         row.total_elapsed_ms = elapsed_ms
                         row.status = status

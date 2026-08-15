@@ -526,83 +526,113 @@ async def process_pack_download(
                 )
             except Exception:
                 pass
+            # ISOLATION : chaque fichier travaille sur SA propre session.
+            # Une exception sur un fichier (UnicodeError vision, FK, ...)
+            # ne poison plus la session partagée → les 31 suivants
+            # continuent sans "PendingRollbackError" en cascade.
+            row_id = row.id
+            file_ok = False
             try:
                 extracted = (
-                    await _analyze_file_deep(file_path, config, session_factory)
+                    await _analyze_file_deep(
+                        file_path, config, session_factory,
+                        magazine_id=row.matched_magazine_id,
+                    )
                     if pack.deep_ai_analysis
                     else await _analyze_file_shallow(file_path)
                 )
-                row.extracted_metadata = _safe_json_dumps(extracted)
-                row.ai_run_id = extracted.get("run_id")
-
-                mag, score, source = await _match_to_magazine(db, extracted)
-                if mag is not None:
-                    row.matched_magazine_id = mag.id
-                    row.match_score = score
-                    row.match_source = source
-
-                # Badge de confiance : confirmed / doubt / rejected
-                row.confidence = _eval_confidence(extracted, mag, source, score)
-
+                # Fresh session pour cet update — évite la contamination
+                # d'un rollback précédent sur la session partagée.
+                async with session_factory() as sess:
+                    r = await sess.get(PackDispatchFile, row_id)
+                    if r is None:
+                        raise RuntimeError("dispatch row disparue en cours d'analyse")
+                    r.extracted_metadata = _safe_json_dumps(extracted)
+                    r.ai_run_id = extracted.get("run_id")
+                    mag, score, source = await _match_to_magazine(sess, extracted)
+                    if mag is not None:
+                        r.matched_magazine_id = mag.id
+                        r.match_score = score
+                        r.match_source = source
+                    r.confidence = _eval_confidence(extracted, mag, source, score)
+                    r.status = "analyzed"
+                    r.analyzed_at = datetime.now()
+                    await sess.commit()
                 stats["analyzed"] += 1
-                row.status = "analyzed"
-                row.analyzed_at = datetime.now()
-                await db.commit()
 
                 # ── 5. Décision ──────────────────────────────────
-                if pack.preview_before_import:
-                    row.status = "pending_user"
-                    stats["pending_user"] += 1
-                elif mag is not None and (score or 0) >= MATCH_STRONG_THRESHOLD:
-                    ok, issue_id, msg = await _import_file_to_magazine(
-                        db, file_path, mag.id, config,
-                    )
-                    if ok:
-                        row.status = "imported"
-                        row.resolved_issue_id = issue_id
-                        row.resolved_at = datetime.now()
-                        row.user_action = "assign_existing"
-                        row.user_action_magazine_id = mag.id
-                        stats["auto_imported"] += 1
+                async with session_factory() as sess:
+                    r = await sess.get(PackDispatchFile, row_id)
+                    if r is None:
+                        raise RuntimeError("dispatch row disparue en résolution")
+                    if pack.preview_before_import:
+                        r.status = "pending_user"
+                        stats["pending_user"] += 1
+                    elif r.matched_magazine_id is not None and (r.match_score or 0) >= MATCH_STRONG_THRESHOLD:
+                        ok, issue_id, msg = await _import_file_to_magazine(
+                            sess, file_path, r.matched_magazine_id, config,
+                        )
+                        if ok:
+                            r.status = "imported"
+                            r.resolved_issue_id = issue_id
+                            r.resolved_at = datetime.now()
+                            r.user_action = "assign_existing"
+                            r.user_action_magazine_id = r.matched_magazine_id
+                            stats["auto_imported"] += 1
+                        else:
+                            r.status = "error"
+                            r.error_message = (msg or "Import failed")[:400]
+                    elif pack.auto_create_missing_magazines and extracted.get("title"):
+                        placeholder = await _create_placeholder_magazine(
+                            sess, pack, extracted,
+                        )
+                        ok, issue_id, msg = await _import_file_to_magazine(
+                            sess, file_path, placeholder.id, config,
+                        )
+                        if ok:
+                            r.status = "imported"
+                            r.resolved_issue_id = issue_id
+                            r.resolved_at = datetime.now()
+                            r.user_action = "create_magazine"
+                            r.user_action_magazine_id = placeholder.id
+                            stats["auto_imported"] += 1
+                            stats["placeholder_created"] += 1
+                        else:
+                            r.status = "error"
+                            r.error_message = (msg or "Import failed")[:400]
                     else:
-                        row.status = "error"
-                        row.error_message = msg or "Import failed"
-                elif pack.auto_create_missing_magazines and extracted.get("title"):
-                    placeholder = await _create_placeholder_magazine(
-                        db, pack, extracted,
-                    )
-                    ok, issue_id, msg = await _import_file_to_magazine(
-                        db, file_path, placeholder.id, config,
-                    )
-                    if ok:
-                        row.status = "imported"
-                        row.resolved_issue_id = issue_id
-                        row.resolved_at = datetime.now()
-                        row.user_action = "create_magazine"
-                        row.user_action_magazine_id = placeholder.id
-                        stats["auto_imported"] += 1
-                        stats["placeholder_created"] += 1
-                    else:
-                        row.status = "error"
-                        row.error_message = msg or "Import failed"
-                else:
-                    # Aucun match assez fort + pas d'auto-create → user tranche.
-                    row.status = "pending_user"
-                    if extracted.get("title"):
-                        row.proposed_magazine_data = json.dumps({
-                            "title": extracted.get("title"),
-                            "issn": extracted.get("issn"),
-                            "frequency": pack.default_new_magazine_frequency,
-                        })
-                    stats["pending_user"] += 1
-                await db.commit()
+                        r.status = "pending_user"
+                        if extracted.get("title"):
+                            r.proposed_magazine_data = _safe_json_dumps({
+                                "title": extracted.get("title"),
+                                "issn": extracted.get("issn"),
+                                "frequency": pack.default_new_magazine_frequency,
+                            })
+                        stats["pending_user"] += 1
+                    await sess.commit()
+                file_ok = True
             except Exception as exc:
                 logger.exception("Pack dispatch analyse fichier %s a échoué", row.filename)
-                row.status = "error"
-                row.error_message = f"{type(exc).__name__}: {exc}"
-                await db.commit()
+                # Best-effort write d'erreur dans une session FRESH — la
+                # session courante peut être aborted, on l'ignore.
+                try:
+                    async with session_factory() as sess:
+                        r = await sess.get(PackDispatchFile, row_id)
+                        if r is not None:
+                            r.status = "error"
+                            msg = f"{type(exc).__name__}: {exc}"
+                            r.error_message = msg[:400]
+                            r.confidence = "rejected"
+                            await sess.commit()
+                except Exception:
+                    logger.warning("Failed to persist error state for row %d", row_id, exc_info=True)
 
-        await db.commit()
+        # Rollback la session partagée au cas où — sinon un
+        # PendingRollbackError peut trainer.
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         summary = (
             f"{stats['analyzed']} analysés · "
             f"{stats['auto_imported']} importés · "
