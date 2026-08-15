@@ -9,6 +9,9 @@ import {
   FileText,
   Loader2,
   RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
   Sparkles,
   Trash2,
   X,
@@ -204,11 +207,23 @@ function DispatchRow({
 
   const reanalyze = useMutation({
     mutationFn: () => reanalyzePackDispatchFile(packId, file.id),
-    onSuccess: () => {
-      toast.success(`${file.filename} — analyse relancée`)
+    onMutate: () => {
+      // Toast immédiat — l'analyse deep prend 30-60 s, sinon le user
+      // clique et rien de visible ne se passe pendant ce temps.
+      toast.loading(`${file.filename} — analyse IA en cours…`, {
+        id: `reanalyze-${file.id}`,
+      })
+    },
+    onSuccess: (res) => {
+      toast.success(
+        `${file.filename} — ${res.confidence === 'confirmed' ? 'confirmé' : res.confidence === 'rejected' ? 'rejeté' : 'à valider'}`,
+        { id: `reanalyze-${file.id}` },
+      )
       qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
     },
-    onError: (e: Error) => toast.error(`Échec : ${e.message}`),
+    onError: (e: Error) => toast.error(`Échec : ${e.message}`, {
+      id: `reanalyze-${file.id}`,
+    }),
   })
 
   const ignore = useMutation({
@@ -315,15 +330,23 @@ function DispatchRow({
               Résoudre
             </Button>
           )}
-          {(file.status === 'analyzed' || file.status === 'error' || file.status === 'imported') && (
+          {file.status !== 'imported' && file.status !== 'ignored' && (
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={() => reanalyze.mutate()}
               disabled={reanalyze.isPending}
-              title="Relancer analyse IA"
+              title={
+                file.matchedMagazineId
+                  ? 'Relancer analyse IA avec les zones du magazine matché'
+                  : 'Relancer analyse IA'
+              }
             >
-              <Sparkles className="size-3.5 text-purple-400" />
+              {reanalyze.isPending ? (
+                <Loader2 className="size-3.5 animate-spin text-purple-400" />
+              ) : (
+                <Sparkles className="size-3.5 text-purple-400" />
+              )}
             </Button>
           )}
           {file.status !== 'imported' && file.status !== 'ignored' && (
@@ -713,19 +736,27 @@ function Field({ label, value }: { label: string; value: unknown }) {
 function ConfidenceBadge({ value }: { value: 'confirmed' | 'doubt' | 'rejected' }) {
   const cfg = {
     confirmed: {
-      cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40',
-      label: '✓ Confirmé',
+      Icon: ShieldCheck,
+      cls: 'text-emerald-400',
+      title: 'Confirmé — extraction fiable',
     },
     doubt: {
-      cls: 'bg-amber-500/15 text-amber-200 border border-amber-500/40',
-      label: '⚠ Doute',
+      Icon: ShieldAlert,
+      cls: 'text-amber-400',
+      title: 'Doute — à valider',
     },
     rejected: {
-      cls: 'bg-red-500/15 text-red-300 border border-red-500/40',
-      label: '✕ Rejeté',
+      Icon: ShieldX,
+      cls: 'text-red-400',
+      title: 'Rejeté — extraction non fiable',
     },
   }[value]
-  return <Badge className={cfg.cls + ' text-[10px]'}>{cfg.label}</Badge>
+  const { Icon } = cfg
+  return (
+    <span title={cfg.title} className="inline-flex">
+      <Icon className={`size-4 ${cfg.cls}`} strokeWidth={2.25} />
+    </span>
+  )
 }
 
 function MetaEdit({
