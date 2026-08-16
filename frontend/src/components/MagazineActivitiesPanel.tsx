@@ -13,6 +13,7 @@ import { listActivities, type Activity } from '@/api/activity'
 interface Props {
   magazineId?: number
   issueId?: number
+  packId?: number
   /** Nombre max d'items à afficher (défaut 5). */
   limit?: number
 }
@@ -26,13 +27,14 @@ const KIND_LABEL: Record<string, string> = {
   scheduled: 'Planifiée',
 }
 
-export function MagazineActivitiesPanel({ magazineId, issueId, limit = 5 }: Props) {
+export function MagazineActivitiesPanel({ magazineId, issueId, packId, limit = 5 }: Props) {
   const q = useQuery({
-    queryKey: ['activities-panel', { magazineId, issueId, limit }],
+    queryKey: ['activities-panel', { magazineId, issueId, packId, limit }],
     queryFn: () =>
       listActivities({
         magazineId,
         issueId,
+        packId,
         limit,
         // status omis → renvoie « en cours + terminées récentes »
       }),
@@ -41,6 +43,8 @@ export function MagazineActivitiesPanel({ magazineId, issueId, limit = 5 }: Prop
   })
 
   const items: Activity[] = q.data ?? []
+
+  const contextLabel = packId ? 'ce pack' : 'ce magazine'
 
   return (
     <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3">
@@ -62,7 +66,7 @@ export function MagazineActivitiesPanel({ magazineId, issueId, limit = 5 }: Prop
         </div>
       ) : items.length === 0 ? (
         <p className="text-xs text-zinc-500 italic py-2">
-          Aucune activité récente pour ce magazine.
+          Aucune activité récente pour {contextLabel}.
         </p>
       ) : (
         <ul className="divide-y divide-zinc-800/60">

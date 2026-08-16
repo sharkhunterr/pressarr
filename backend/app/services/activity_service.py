@@ -475,6 +475,7 @@ async def list_activities(
     statuses: list[str] | None = None,
     magazine_id: int | None = None,
     issue_id: int | None = None,
+    pack_id: int | None = None,
     include_recent_terminal: bool = True,
     limit: int = 100,
 ) -> list[Activity]:
@@ -508,6 +509,13 @@ async def list_activities(
             filters.append(Activity.magazine_id == magazine_id)
         if issue_id is not None:
             filters.append(Activity.issue_id == issue_id)
+        if pack_id is not None:
+            # Pas de FK direct pack_id sur Activity (activities packs
+            # étaient traitées comme metadata dans payload JSON). On
+            # cherche le substring "pack_id": <n> dans payload —
+            # même pattern que find_by_external_id.
+            needle_json = f'"pack_id": {pack_id}'
+            filters.append(Activity.payload.ilike(f"%{needle_json}%"))
 
         stmt = select(Activity)
         if filters:

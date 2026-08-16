@@ -70,6 +70,7 @@ export const listActivities = (params?: {
   status?: ActivityStatus | ActivityStatus[] | 'history'
   magazineId?: number
   issueId?: number
+  packId?: number
   limit?: number
 }) => {
   const s = new URLSearchParams()
@@ -81,6 +82,7 @@ export const listActivities = (params?: {
   }
   if (params?.magazineId !== undefined) s.set('magazineId', String(params.magazineId))
   if (params?.issueId !== undefined) s.set('issueId', String(params.issueId))
+  if (params?.packId !== undefined) s.set('packId', String(params.packId))
   if (params?.limit !== undefined) s.set('limit', String(params.limit))
   const qs = s.toString()
   return apiFetch<Activity[]>(`/activity${qs ? `?${qs}` : ''}`)

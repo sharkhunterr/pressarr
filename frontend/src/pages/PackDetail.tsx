@@ -37,7 +37,9 @@ import {
   searchAnnasArchive,
   type SearchResult,
 } from '@/api/search'
-import { HistoryModal } from '@/components/HistoryModal'
+import { HistoryList } from '@/components/HistoryList'
+import { MagazineActivitiesPanel } from '@/components/MagazineActivitiesPanel'
+import { listActivities } from '@/api/activity'
 import { PackDispatchTab } from '@/components/PackDispatchTab'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -118,7 +120,6 @@ export default function PackDetail() {
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   // History modal
-  const [historyOpen, setHistoryOpen] = useState(false)
 
   const { data: pack, isLoading } = useQuery({
     queryKey: ['pack', packId],
@@ -134,6 +135,17 @@ export default function PackDetail() {
     refetchIntervalInBackground: false,
   })
   const pendingDispatchCount = pendingDispatchQ.data?.length ?? 0
+
+  // Compteur activités running pour ce pack (badge sur l'onglet).
+  const packActivityQ = useQuery({
+    queryKey: ['pack-activities', packId, 'running'],
+    queryFn: () => listActivities({ packId, status: 'running', limit: 20 }),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  })
+  const packActivityRunningCount = (packActivityQ.data ?? []).filter(
+    (a) => a.status === 'running' || a.status === 'queued',
+  ).length
 
   const toggleMonitored = useCallback(async () => {
     if (!pack) return
@@ -257,6 +269,15 @@ export default function PackDetail() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="activity">
+            Activités
+            {packActivityRunningCount > 0 && (
+              <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-violet-500/20 text-violet-200 border border-violet-500/40 text-[10px] px-1.5 py-0.5">
+                <span className="size-1.5 rounded-full bg-violet-400 animate-pulse" />
+                {packActivityRunningCount}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="history">{t('packs.tabHistory')}</TabsTrigger>
         </TabsList>
 
@@ -280,11 +301,15 @@ export default function PackDetail() {
           <PackDispatchTab packId={packId} />
         </TabsContent>
 
+        <TabsContent value="activity">
+          <div className="pt-4">
+            <MagazineActivitiesPanel packId={packId} limit={30} />
+          </div>
+        </TabsContent>
+
         <TabsContent value="history">
           <div className="pt-4">
-            <Button variant="outline" onClick={() => setHistoryOpen(true)}>
-              {t('packs.tabHistory')}
-            </Button>
+            <HistoryList packId={packId} pageSize={20} />
           </div>
         </TabsContent>
       </Tabs>
@@ -389,15 +414,6 @@ export default function PackDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* History Modal */}
-      {historyOpen && (
-        <HistoryModal
-          open={historyOpen}
-          onOpenChange={setHistoryOpen}
-          packId={packId}
-        />
-      )}
     </div>
   )
 }

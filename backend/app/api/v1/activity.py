@@ -61,6 +61,7 @@ async def list_activities(
     status: str | None = Query(None),
     magazine_id: int | None = Query(None, alias="magazineId"),
     issue_id: int | None = Query(None, alias="issueId"),
+    pack_id: int | None = Query(None, alias="packId"),
     limit: int = Query(100, ge=1, le=500),
 ):
     """Liste des activités filtrées.
@@ -102,6 +103,7 @@ async def list_activities(
         statuses=statuses,
         magazine_id=magazine_id,
         issue_id=issue_id,
+        pack_id=pack_id,
         include_recent_terminal=include_recent,
         limit=limit,
     )

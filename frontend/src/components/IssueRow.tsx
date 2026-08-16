@@ -120,8 +120,21 @@ export function IssueRow({
       </TableCell>
       <TableCell>
         {issue.title && (
-          <span className="text-zinc-300 text-sm">{issue.title}</span>
+          <div className="text-zinc-300 text-sm truncate max-w-[240px]" title={issue.title}>
+            {issue.title}
+          </div>
         )}
+        {issue.subtitle && (
+          <div
+            className="text-zinc-500 text-xs italic truncate max-w-[240px]"
+            title={issue.subtitle}
+          >
+            {issue.subtitle}
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="text-zinc-400 text-xs whitespace-nowrap">
+        {issue.price ? issue.price : <span className="text-zinc-700">—</span>}
       </TableCell>
       <TableCell className="font-mono text-xs text-zinc-400">
         {issue.issn ? issue.issn : <span className="text-zinc-700">—</span>}

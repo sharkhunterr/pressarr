@@ -1399,6 +1399,7 @@ export default function MagazineDetail() {
                     <TableHead className="text-zinc-400">{t('issues.number')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.date')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.issueTitle')}</TableHead>
+                    <TableHead className="text-zinc-400">Prix</TableHead>
                     <TableHead className="text-zinc-400">ISSN</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.status')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.fileInfo')}</TableHead>
