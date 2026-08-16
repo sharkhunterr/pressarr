@@ -327,40 +327,86 @@ async def _analyze_file_deep(
 async def _match_to_magazine(
     db: AsyncSession,
     extracted: dict[str, Any],
+    filename: str | None = None,
 ) -> tuple[Magazine | None, float | None, str | None]:
     """Trouve le meilleur magazine existant pour les metadata extraites.
 
     Priorité :
       1. ISSN exact match — infaillible si le magazine parent a l'ISSN.
-      2. Fuzzy match sur title (fuzzywuzzy / RapidFuzz).
+      2. Fuzzy match sur title (fuzzywuzzy / RapidFuzz), avec application
+         des rules include/exclude du candidat magazine — retente le
+         fuzzy suivant si le meilleur match est exclu par ses propres
+         rules (bug typique : "Madame Figaro" fuzzy-match "Le Figaro"
+         qui a un exclude rule "madame").
+
+    Le texte évalué contre les rules combine title extrait + filename
+    (les rules opérateur sont souvent écrites contre le nom de fichier).
 
     Retourne (magazine, score, source) — tous None si aucun candidat.
     """
+    from app.services.magazine_service import apply_rules as _apply_rules
+    from sqlalchemy.orm import selectinload
+
     issn = (extracted.get("issn") or "").strip()
     title = (extracted.get("title") or "").strip()
 
+    # Texte évalué par les rules : title + filename → couvre les 2
+    # conventions d'écriture des rules opérateur.
+    rule_probe = " ".join(x for x in [title, filename] if x).strip()
+
     if issn:
-        stmt = select(Magazine).where(Magazine.issn == issn)
+        stmt = (
+            select(Magazine)
+            .options(selectinload(Magazine.rules))
+            .where(Magazine.issn == issn)
+        )
         mag = (await db.execute(stmt)).scalar_one_or_none()
         if mag:
-            return mag, 100.0, "issn"
+            # ISSN est une identité forte — mais on respecte quand
+            # même une exclude rule évidente (l'opérateur a explicitement
+            # dit "jamais ce type de contenu pour ce magazine").
+            excluded, reason = _apply_rules(rule_probe, list(mag.rules or []))
+            if excluded:
+                logger.info(
+                    "Match ISSN rejeté par rule magazine %s : %s",
+                    mag.title, reason,
+                )
+            else:
+                return mag, 100.0, "issn"
 
     if not title:
         return None, None, None
 
-    stmt = select(Magazine)
+    stmt = select(Magazine).options(selectinload(Magazine.rules))
     mags = list((await db.execute(stmt)).scalars().all())
     if not mags:
         return None, None, None
-    known = [m.title for m in mags]
-    hit = fuzzy_match_title(title, known, threshold=MATCH_WEAK_THRESHOLD)
-    if hit is None:
-        return None, None, None
-    matched_title, score = hit
-    mag = next((m for m in mags if m.title == matched_title), None)
-    if mag is None:
-        return None, None, None
-    return mag, float(score), "fuzzy"
+
+    # Boucle : essaie du meilleur au moins bon, en excluant ceux dont
+    # les rules rejettent le match. rapidfuzz.extract renvoie top-N.
+    from rapidfuzz import process, fuzz
+    known = [(m.title, m) for m in mags]
+    candidates = process.extract(
+        title,
+        [t for t, _ in known],
+        scorer=fuzz.WRatio,
+        limit=5,
+        score_cutoff=MATCH_WEAK_THRESHOLD,
+    )
+    for matched_title, score, _idx in candidates:
+        mag = next((m for t, m in known if t == matched_title), None)
+        if mag is None:
+            continue
+        excluded, reason = _apply_rules(rule_probe, list(mag.rules or []))
+        if excluded:
+            logger.info(
+                "Fuzzy match %s (%.1f%%) rejeté par rule magazine %s : %s",
+                matched_title, score, mag.title, reason,
+            )
+            continue
+        return mag, float(score), "fuzzy"
+
+    return None, None, None
 
 
 async def _create_placeholder_magazine(
@@ -584,7 +630,9 @@ async def process_pack_download(
                         raise RuntimeError("dispatch row disparue en cours d'analyse")
                     r.extracted_metadata = _safe_json_dumps(extracted)
                     r.ai_run_id = extracted.get("run_id")
-                    mag, score, source = await _match_to_magazine(sess, extracted)
+                    mag, score, source = await _match_to_magazine(
+                        sess, extracted, filename=r.filename,
+                    )
                     if mag is not None:
                         r.matched_magazine_id = mag.id
                         r.match_score = score
@@ -839,7 +887,9 @@ async def reanalyze_dispatch_file(
         row.error_message = None
         row.extracted_metadata = _safe_json_dumps(extracted)
         row.ai_run_id = extracted.get("run_id")
-        mag, score, source = await _match_to_magazine(db, extracted)
+        mag, score, source = await _match_to_magazine(
+            db, extracted, filename=row.filename,
+        )
         row.matched_magazine_id = mag.id if mag else row.matched_magazine_id
         row.match_score = score if mag else row.match_score
         row.match_source = source if mag else row.match_source
@@ -914,7 +964,9 @@ async def update_dispatch_metadata(
 
     # Ré-évalue le match si titre a changé.
     if "title" in overrides or "issn" in overrides:
-        mag, score, source = await _match_to_magazine(db, current)
+        mag, score, source = await _match_to_magazine(
+            db, current, filename=row.filename,
+        )
         if mag is not None:
             row.matched_magazine_id = mag.id
             row.match_score = score
