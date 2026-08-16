@@ -213,6 +213,11 @@ def _migrate_add_columns(connection) -> None:
         # Prix en STRING (formats libres : "3.50€", "US $ 5.99", "Gratuit").
         ("issue", "subtitle", "VARCHAR(500)"),
         ("issue", "price", "VARCHAR(32)"),
+        # Provenance de l'import — sert au reanalyze IA + affichage UI
+        # + diagnostic. Default 'torrent' (mode historique).
+        ("issue_file", "source_type", "VARCHAR(16) NOT NULL DEFAULT 'torrent'"),
+        ("issue_file", "source_pack_id", "INTEGER REFERENCES pack(id) ON DELETE SET NULL"),
+        ("issue_file", "source_release_title", "VARCHAR(500)"),
         # Pack — nouveaux toggles pipeline dispatch.
         ("pack", "deep_ai_analysis", "BOOLEAN NOT NULL DEFAULT 1"),
         ("pack", "auto_create_missing_magazines", "BOOLEAN NOT NULL DEFAULT 0"),

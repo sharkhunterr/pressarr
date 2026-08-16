@@ -166,21 +166,45 @@ export function IssueRow({
       </TableCell>
       <TableCell className="text-zinc-400 text-sm">
         {issue.file ? (
-          <div className="flex items-center gap-2">
-            <span className="uppercase text-zinc-300">{issue.file.format}</span>
-            {issue.file.quality && issue.file.quality !== 'unknown' && (
-              <>
-                <span className="text-zinc-500">|</span>
-                <span>{issue.file.quality}</span>
-              </>
-            )}
-            <span className="text-zinc-500">|</span>
-            <span>{formatBytes(issue.file.size)}</span>
-            {issue.file.releaseGroup && (
-              <>
-                <span className="text-zinc-500">|</span>
-                <span className="text-zinc-500">{issue.file.releaseGroup}</span>
-              </>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="uppercase text-zinc-300">{issue.file.format}</span>
+              {issue.file.quality && issue.file.quality !== 'unknown' && (
+                <>
+                  <span className="text-zinc-500">|</span>
+                  <span>{issue.file.quality}</span>
+                </>
+              )}
+              <span className="text-zinc-500">|</span>
+              <span>{formatBytes(issue.file.size)}</span>
+              {issue.file.releaseGroup && (
+                <>
+                  <span className="text-zinc-500">|</span>
+                  <span className="text-zinc-500">{issue.file.releaseGroup}</span>
+                </>
+              )}
+              {issue.file.sourceType === 'pack' && issue.file.sourcePackName && (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-fuchsia-500/15 text-fuchsia-200 border border-fuchsia-500/30 text-[10px] px-1.5 py-0.5"
+                  title={`Importé depuis le pack ${issue.file.sourcePackName}`}
+                >
+                  📦 pack
+                </span>
+              )}
+            </div>
+            {(issue.file.sourceReleaseTitle || issue.file.sourcePackName) && (
+              <div
+                className="text-[10px] text-zinc-500 truncate max-w-[280px]"
+                title={
+                  issue.file.sourceType === 'pack'
+                    ? `Pack : ${issue.file.sourcePackName ?? '?'} · fichier : ${issue.file.originalFilename}`
+                    : `Release : ${issue.file.sourceReleaseTitle ?? issue.file.originalFilename}`
+                }
+              >
+                {issue.file.sourceType === 'pack'
+                  ? `📦 ${issue.file.sourcePackName ?? '?'}`
+                  : `↓ ${issue.file.sourceReleaseTitle ?? issue.file.originalFilename}`}
+              </div>
             )}
           </div>
         ) : isInQueue ? (

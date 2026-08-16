@@ -19,7 +19,7 @@ async def list_issues(
     magazine_id: int | None = None,
     status: str | None = None,
 ) -> list[Issue]:
-    query = select(Issue).options(selectinload(Issue.file))
+    query = select(Issue).options(selectinload(Issue.file).selectinload(IssueFile.source_pack))
     if magazine_id is not None:
         query = query.where(Issue.magazine_id == magazine_id)
     if status is not None:
@@ -31,7 +31,7 @@ async def list_issues(
 
 async def get_issue(db: AsyncSession, issue_id: int) -> Issue | None:
     result = await db.execute(
-        select(Issue).options(selectinload(Issue.file)).where(Issue.id == issue_id)
+        select(Issue).options(selectinload(Issue.file).selectinload(IssueFile.source_pack)).where(Issue.id == issue_id)
     )
     return result.scalars().first()
 

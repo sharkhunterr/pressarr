@@ -1,6 +1,9 @@
 """Issue and issue file Pydantic schemas."""
 
 from datetime import date, datetime
+from typing import Any
+
+from pydantic import model_validator
 
 from app.schemas import CamelModel
 
@@ -16,6 +19,34 @@ class IssueFileResource(CamelModel):
     release_group: str | None = None
     language: str | None = None
     imported_at: datetime
+    # Origine de l'import — utile pour l'UI ("Importé depuis pack X
+    # le 15/08/2026") et pour reanalyze IA (savoir quel torrent_name
+    # utiliser : original_filename pour un fichier de pack,
+    # source_release_title pour un torrent standalone).
+    source_type: str = "torrent"
+    source_pack_id: int | None = None
+    source_pack_name: str | None = None
+    source_release_title: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extract_pack_name(cls, data: Any) -> Any:
+        """Extrait le nom du pack depuis la relation ``source_pack``
+        pour éviter de forcer l'appelant à composer manuellement le
+        dict avant sérialisation. Fonctionne quand data est un ORM
+        object (IssueFile chargé avec selectinload) ou un dict."""
+        if hasattr(data, "source_pack"):
+            pack = getattr(data, "source_pack", None)
+            if pack is not None and not getattr(data, "source_pack_name", None):
+                data.source_pack_name = getattr(pack, "name", None)
+        elif isinstance(data, dict):
+            pack = data.get("source_pack")
+            if pack is not None and not data.get("source_pack_name"):
+                data["source_pack_name"] = (
+                    pack.get("name") if isinstance(pack, dict)
+                    else getattr(pack, "name", None)
+                )
+        return data
 
 
 class IssueResource(CamelModel):

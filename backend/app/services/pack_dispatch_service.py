@@ -454,17 +454,30 @@ async def _import_file_to_magazine(
     file_path: Path,
     magazine_id: int,
     config,
+    *,
+    pack_id: int | None = None,
+    pack_release_title: str | None = None,
 ) -> tuple[bool, int | None, str]:
     """Importe le fichier en tant qu'issue du magazine. Réutilise
     ``process_downloaded_file`` — même code path que les grabs individuels
     donc bénéficie de l'IA enrichment, quality upgrade, blocklist, etc.
+
+    ``pack_id`` + ``pack_release_title`` : quand fournis, tags le
+    ``IssueFile`` créé avec source_type='pack' + pack context. Permet
+    à l'UI d'afficher "Importé depuis pack X" et au reanalyze IA de
+    savoir qu'il travaille sur un fichier de pack (pas sur un torrent
+    standalone).
 
     Retourne (success, issue_id, message).
     """
     from app.services.import_service import process_downloaded_file
 
     result = await process_downloaded_file(
-        db, file_path, config, magazine_id=magazine_id, issue_id=None,
+        db, file_path, config,
+        magazine_id=magazine_id, issue_id=None,
+        source_type="pack" if pack_id else "torrent",
+        source_pack_id=pack_id,
+        source_release_title=pack_release_title,
     )
     return (
         bool(result.get("success")),
@@ -654,6 +667,8 @@ async def process_pack_download(
                     elif r.matched_magazine_id is not None and (r.match_score or 0) >= MATCH_STRONG_THRESHOLD:
                         ok, issue_id, msg = await _import_file_to_magazine(
                             sess, file_path, r.matched_magazine_id, config,
+                            pack_id=pack.id,
+                            pack_release_title=pack.name,
                         )
                         if ok:
                             r.status = "imported"
@@ -671,6 +686,8 @@ async def process_pack_download(
                         )
                         ok, issue_id, msg = await _import_file_to_magazine(
                             sess, file_path, placeholder.id, config,
+                            pack_id=pack.id,
+                            pack_release_title=pack.name,
                         )
                         if ok:
                             r.status = "imported"
@@ -811,6 +828,8 @@ async def resolve_dispatch_file(
 
     ok, issue_id, msg = await _import_file_to_magazine(
         db, file_path, target_magazine_id, config,
+        pack_id=pack.id,
+        pack_release_title=pack.name,
     )
     if not ok:
         row.status = "error"

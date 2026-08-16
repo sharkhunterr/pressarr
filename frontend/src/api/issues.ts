@@ -11,6 +11,12 @@ export interface IssueFile {
   releaseGroup: string | null
   language: string | null
   importedAt: string
+  /** Origine du fichier : torrent | pack | scene | ia | aa | manual */
+  sourceType: string
+  sourcePackId: number | null
+  sourcePackName: string | null
+  /** Titre du release/pack tel qu'il apparaît côté indexer. */
+  sourceReleaseTitle: string | null
 }
 
 export interface Issue {

@@ -273,6 +273,10 @@ async def process_downloaded_file(
     config,
     magazine_id: int | None = None,
     issue_id: int | None = None,
+    *,
+    source_type: str = "torrent",
+    source_pack_id: int | None = None,
+    source_release_title: str | None = None,
 ) -> dict:
     """Full import pipeline: parse → match → rename → move → update DB → cover → notify.
 
@@ -711,6 +715,9 @@ async def process_downloaded_file(
         original_filename=file_path.name,
         release_group=parsed.release_group,
         language=parsed.language if parsed.language != "unknown" else None,
+        source_type=source_type,
+        source_pack_id=source_pack_id,
+        source_release_title=source_release_title,
     )
     db.add(issue_file)
 
@@ -914,7 +921,8 @@ async def import_file_for_issue(
         await db.delete(conflicting)
         await db.flush()
 
-    # 7. Create IssueFile record
+    # 7. Create IssueFile record — source_type par défaut torrent
+    # (utilisé par le scene importer + reimport manuel).
     issue_file = IssueFile(
         issue_id=issue.id,
         magazine_id=issue.magazine_id,
