@@ -833,6 +833,10 @@ async def reanalyze_dispatch_file(
             magazine_id=row.matched_magazine_id,
             activity_id=activity_id,
         )
+        # Reset l'error_message de la précédente tentative — si on est
+        # arrivé jusqu'ici sans exception, l'analyse a réussi et
+        # l'ancien message n'a plus de sens.
+        row.error_message = None
         row.extracted_metadata = _safe_json_dumps(extracted)
         row.ai_run_id = extracted.get("run_id")
         mag, score, source = await _match_to_magazine(db, extracted)
