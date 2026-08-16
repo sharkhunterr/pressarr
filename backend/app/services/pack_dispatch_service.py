@@ -752,6 +752,8 @@ async def reanalyze_dispatch_file(
 ) -> PackDispatchFile:
     """Relance l'analyse IA (deep) sur un fichier — utile quand l'utilisateur
     ajuste les zones de crop ou change de modèle."""
+    from app.services import activity_service
+
     row = await db.get(PackDispatchFile, file_id)
     if row is None:
         raise ValueError(f"dispatch file {file_id} not found")
@@ -762,30 +764,77 @@ async def reanalyze_dispatch_file(
         await db.commit()
         return row
 
-    # Reanalyze : si un magazine était déjà matché, réutilise ses
-    # zones custom (2ᵉ passe ciblée = extraction plus fiable). Sinon
-    # passe générique.
-    extracted = await _analyze_file_deep(
-        file_path, config, session_factory,
-        magazine_id=row.matched_magazine_id,
-    )
-    row.extracted_metadata = _safe_json_dumps(extracted)
-    row.ai_run_id = extracted.get("run_id")
-    mag, score, source = await _match_to_magazine(db, extracted)
-    row.matched_magazine_id = mag.id if mag else row.matched_magazine_id
-    row.match_score = score if mag else row.match_score
-    row.match_source = source if mag else row.match_source
-    # Re-évalue confiance avec le magazine cible (peut avoir changé)
-    mag_for_conf = mag or (
-        await db.get(Magazine, row.matched_magazine_id)
-        if row.matched_magazine_id else None
-    )
-    row.confidence = _eval_confidence(
-        extracted, mag_for_conf, row.match_source, row.match_score,
-    )
-    row.status = "analyzed" if row.matched_magazine_id is None else "pending_user"
-    row.analyzed_at = datetime.now()
-    await db.commit()
+    # Activité visible pendant l'analyse (30-60 s IA vision). Sans ça
+    # le user clique le bouton étoile et rien n'apparaît dans /activity
+    # avant la fin — impression de "il se passe rien".
+    zone_hint = ""
+    if row.matched_magazine_id:
+        mag_prev = await db.get(Magazine, row.matched_magazine_id)
+        if mag_prev and (mag_prev.ai_crop_rect or "").strip():
+            zone_hint = f"avec zones custom {mag_prev.title}"
+        elif mag_prev:
+            zone_hint = f"pour {mag_prev.title}"
+    activity_id: int | None = None
+    try:
+        activity_id = await activity_service.create(
+            kind="ai_refresh",
+            title=f"Réanalyse · {row.filename}",
+            subtitle=zone_hint or "Analyse IA vision + arbitre",
+            payload={
+                "pack_id": row.pack_id,
+                "dispatch_file_id": file_id,
+                "matched_magazine_id": row.matched_magazine_id,
+            },
+        )
+    except Exception:
+        logger.debug("Activity mirror (reanalyze) failed", exc_info=True)
+
+    try:
+        # Reanalyze : si un magazine était déjà matché, réutilise ses
+        # zones custom (2ᵉ passe ciblée = extraction plus fiable). Sinon
+        # passe générique.
+        extracted = await _analyze_file_deep(
+            file_path, config, session_factory,
+            magazine_id=row.matched_magazine_id,
+        )
+        row.extracted_metadata = _safe_json_dumps(extracted)
+        row.ai_run_id = extracted.get("run_id")
+        mag, score, source = await _match_to_magazine(db, extracted)
+        row.matched_magazine_id = mag.id if mag else row.matched_magazine_id
+        row.match_score = score if mag else row.match_score
+        row.match_source = source if mag else row.match_source
+        # Re-évalue confiance avec le magazine cible (peut avoir changé)
+        mag_for_conf = mag or (
+            await db.get(Magazine, row.matched_magazine_id)
+            if row.matched_magazine_id else None
+        )
+        row.confidence = _eval_confidence(
+            extracted, mag_for_conf, row.match_source, row.match_score,
+        )
+        row.status = "analyzed" if row.matched_magazine_id is None else "pending_user"
+        row.analyzed_at = datetime.now()
+        await db.commit()
+    except Exception as exc:
+        if activity_id is not None:
+            try:
+                await activity_service.mark_error(activity_id, str(exc))
+            except Exception:
+                pass
+        raise
+
+    if activity_id is not None:
+        try:
+            hint = (
+                f"✓ {row.confidence or 'analysé'}"
+                if row.confidence != "rejected"
+                else "✕ extraction non fiable"
+            )
+            if mag:
+                hint += f" — {mag.title}"
+            await activity_service.mark_done(activity_id, hint=hint)
+        except Exception:
+            pass
+
     return row
 
 
