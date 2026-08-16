@@ -19,6 +19,10 @@ export interface Issue {
   number: number | null
   volume: number | null
   title: string | null
+  /** Sous-titre / accroche éditoriale sous le titre principal. */
+  subtitle: string | null
+  /** Prix affiché en couverture (format libre : "3,50 €", "US $ 5.99"). */
+  price: string | null
   publicationDate: string | null
   year: number | null
   month: number | null
@@ -58,6 +62,8 @@ export interface IssueUpdate {
   number?: number | null
   volume?: number | null
   title?: string | null
+  subtitle?: string | null
+  price?: string | null
   year?: number | null
   month?: number | null
   day?: number | null

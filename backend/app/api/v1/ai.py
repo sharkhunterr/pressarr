@@ -1096,16 +1096,30 @@ async def _run_batch_background(
                                                 conflict.id if conflict else "?",
                                             )
                                             new_number = None
-                                # Update fields (year/month/day/issn, puis number)
+                                # Update fields — utilise coerce int()
+                                # pour year/month/day (protège contre
+                                # les strings type 'Août' que le LLM
+                                # renvoie parfois).
+                                from app.services.ai_enrichment_service import (
+                                    _coerce_int_or_none,
+                                )
                                 for k_ai, k_iss in (
                                     ("year", "year"),
                                     ("month", "month"),
                                     ("day", "day"),
-                                    ("issn", "issn"),
                                 ):
-                                    v = res.final.get(k_ai)
+                                    v = _coerce_int_or_none(res.final.get(k_ai))
                                     if v is not None:
                                         setattr(iss, k_iss, v)
+                                # Champs string (title déjà géré ailleurs)
+                                for k_ai, k_iss in (
+                                    ("issn", "issn"),
+                                    ("subtitle", "subtitle"),
+                                    ("price", "price"),
+                                ):
+                                    v = res.final.get(k_ai)
+                                    if isinstance(v, str) and v.strip():
+                                        setattr(iss, k_iss, v.strip())
                                 if new_number is not None:
                                     iss.number = new_number
                                 await sess.commit()
@@ -1324,15 +1338,27 @@ async def accept_proposal(
             await session.execute(select(Issue).where(Issue.id == prop.issue_id))
         ).scalars().first()
         if issue:
+            from app.services.ai_enrichment_service import _coerce_int_or_none
+            # Champs numériques : coerce int() ("Août"→8, "25th"→25)
             for k_ai, k_issue in [
                 ("issue_number", "number"),
                 ("year", "year"),
                 ("month", "month"),
                 ("day", "day"),
             ]:
-                v = data.get(k_ai)
+                v = _coerce_int_or_none(data.get(k_ai))
                 if v is not None:
                     setattr(issue, k_issue, v)
+            # Champs string : subtitle, price, issn, title
+            for k_ai, k_issue in [
+                ("title", "title"),
+                ("subtitle", "subtitle"),
+                ("price", "price"),
+                ("issn", "issn"),
+            ]:
+                v = data.get(k_ai)
+                if isinstance(v, str) and v.strip():
+                    setattr(issue, k_issue, v.strip())
     prop.status = "accepted"
     prop.reviewed_at = datetime.utcnow()
     await session.commit()

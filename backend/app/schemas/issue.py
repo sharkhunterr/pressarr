@@ -24,6 +24,8 @@ class IssueResource(CamelModel):
     number: int | None = None
     volume: int | None = None
     title: str | None = None
+    subtitle: str | None = None
+    price: str | None = None
     publication_date: date | None = None
     year: int | None = None
     month: int | None = None
@@ -43,6 +45,8 @@ class IssueUpdateRequest(CamelModel):
     number: int | None = None
     volume: int | None = None
     title: str | None = None
+    subtitle: str | None = None
+    price: str | None = None
     year: int | None = None
     month: int | None = None
     day: int | None = None

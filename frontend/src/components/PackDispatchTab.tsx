@@ -400,6 +400,8 @@ function DispatchDetailModal({
   // metadataOverrides du resolve pour override l'IA si nécessaire.
   const [editMode, setEditMode] = useState(false)
   const [metaTitle, setMetaTitle] = useState('')
+  const [metaSubtitle, setMetaSubtitle] = useState('')
+  const [metaPrice, setMetaPrice] = useState('')
   const [metaNumber, setMetaNumber] = useState('')
   const [metaYear, setMetaYear] = useState('')
   const [metaMonth, setMetaMonth] = useState('')
@@ -411,6 +413,10 @@ function DispatchDetailModal({
     const overrides: PackDispatchMetadataOverrides = {}
     const t = metaTitle.trim()
     if (t && t !== (orig.title ?? '')) overrides.title = t
+    const s = metaSubtitle.trim()
+    if (s !== ((orig as { subtitle?: string }).subtitle ?? '')) overrides.subtitle = s || null
+    const p = metaPrice.trim()
+    if (p !== ((orig as { price?: string }).price ?? '')) overrides.price = p || null
     const n = metaNumber.trim()
     if (n && Number(n) !== (orig.issue_number ?? null)) overrides.issue_number = Number(n)
     const y = metaYear.trim()
@@ -478,8 +484,19 @@ function DispatchDetailModal({
   useMemo(() => {
     if (!file) return
     setEditMode(false)
-    const ex = file.extractedMetadata ?? {}
+    const ex = (file.extractedMetadata ?? {}) as {
+      title?: string
+      subtitle?: string
+      price?: string
+      issue_number?: number
+      year?: number
+      month?: number
+      day?: number
+      issn?: string
+    }
     setMetaTitle(ex.title ?? '')
+    setMetaSubtitle(ex.subtitle ?? '')
+    setMetaPrice(ex.price ?? '')
     setMetaNumber(ex.issue_number != null ? String(ex.issue_number) : '')
     setMetaYear(ex.year != null ? String(ex.year) : '')
     setMetaMonth(ex.month != null ? String(ex.month) : '')
@@ -551,8 +568,14 @@ function DispatchDetailModal({
             </div>
             {editMode ? (
               <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 grid grid-cols-2 gap-2 text-sm">
-                <MetaEdit label="Titre" value={metaTitle} onChange={setMetaTitle} />
+                <div className="col-span-2">
+                  <MetaEdit label="Titre" value={metaTitle} onChange={setMetaTitle} />
+                </div>
+                <div className="col-span-2">
+                  <MetaEdit label="Sous-titre" value={metaSubtitle} onChange={setMetaSubtitle} />
+                </div>
                 <MetaEdit label="Numéro" value={metaNumber} onChange={setMetaNumber} numeric />
+                <MetaEdit label="Prix" value={metaPrice} onChange={setMetaPrice} placeholder="3,50 €" />
                 <MetaEdit label="Année" value={metaYear} onChange={setMetaYear} numeric />
                 <MetaEdit label="Mois" value={metaMonth} onChange={setMetaMonth} numeric />
                 <MetaEdit label="Jour" value={metaDay} onChange={setMetaDay} numeric />
@@ -560,8 +583,16 @@ function DispatchDetailModal({
               </div>
             ) : (
               <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 grid grid-cols-2 gap-2 text-sm">
-                <Field label="Titre extrait" value={ex?.title} />
+                <div className="col-span-2">
+                  <Field label="Titre extrait" value={ex?.title} />
+                </div>
+                {(ex as { subtitle?: string })?.subtitle && (
+                  <div className="col-span-2">
+                    <Field label="Sous-titre" value={(ex as { subtitle?: string }).subtitle} />
+                  </div>
+                )}
                 <Field label="Numéro" value={ex?.issue_number ?? '—'} />
+                <Field label="Prix" value={(ex as { price?: string })?.price ?? '—'} />
                 <Field label="Année" value={ex?.year ?? '—'} />
                 <Field label="Mois" value={ex?.month ?? '—'} />
                 <Field label="Jour" value={ex?.day ?? '—'} />

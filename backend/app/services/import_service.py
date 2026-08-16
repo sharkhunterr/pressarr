@@ -565,14 +565,24 @@ async def process_downloaded_file(
                     await db.delete(forecast)
                 await db.flush()
 
-            # Create a new issue for this file
+            # Create a new issue for this file — coerce défensif au
+            # cas où parsed contient encore un ancien objet non-fixé
+            # (ceinture-bretelles avec merge_ai_into_parsed qui coerce
+            # déjà au boundary IA). SQLite ne vérifie pas les types
+            # de colonnes → une string stockée dans un Integer casse
+            # tous les filtres numériques + le filename template.
+            from app.services.ai_enrichment_service import _coerce_int_or_none
             issue = Issue(
                 magazine_id=magazine.id,
-                number=parsed.number,
-                year=parsed.year,
-                month=parsed.month,
-                day=parsed.day,
-                is_special=parsed.is_special,
+                number=_coerce_int_or_none(parsed.number),
+                year=_coerce_int_or_none(parsed.year),
+                month=_coerce_int_or_none(parsed.month),
+                day=_coerce_int_or_none(parsed.day),
+                title=(getattr(parsed, "title", None) or None) if not isinstance(getattr(parsed, "title", None), str) or not getattr(parsed, "title", "").strip() else parsed.title.strip(),
+                subtitle=getattr(parsed, "subtitle", None),
+                price=getattr(parsed, "price", None),
+                issn=getattr(parsed, "issn", None),
+                is_special=bool(parsed.is_special),
                 status="available",
                 monitored=True,
             )

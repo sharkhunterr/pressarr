@@ -77,8 +77,11 @@ async def update_issue(
     if not issue:
         return None
 
-    # Issue-level fields
-    issue_fields = {"number", "volume", "title", "year", "month", "day", "monitored", "is_special"}
+    # Issue-level fields — subtitle/price/issn = strings, autres = int
+    issue_fields = {
+        "number", "volume", "title", "subtitle", "price",
+        "year", "month", "day", "monitored", "is_special", "issn",
+    }
     for field in issue_fields:
         if field in data and data[field] is not None:
             setattr(issue, field, data[field])

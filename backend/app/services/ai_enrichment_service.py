@@ -85,6 +85,34 @@ class EnrichmentResult:
     total_elapsed_ms: int = 0
 
 
+# ─── ZONE TAG → ISSUE FIELD MAPPING ───────────────────────────────────
+#
+# Chaque tag de zone (défini dans le sélecteur visuel côté frontend)
+# est routé vers un champ Issue précis. Le vision LLM extrait le
+# raw_text de la zone → routé directement vers le field sans regex
+# heuristique (promesse UI : ce que tu tagges, ça remplit CE champ).
+#
+# Pour ajouter un nouveau field extractible via zone :
+#   1. Ajoute la column dans app.models.issue.Issue + migration main.py
+#   2. Ajoute le tag ici dans TAG_TO_FIELD
+#   3. Ajoute le prompt vision dans _ZONE_TAG_FOCUS ci-dessous
+#   4. Ajoute le champ dans le JSON output de _build_arbiter_prompt
+#   5. Ajoute le mapping dans merge_ai_into_parsed
+#   6. Ajoute l'option dans le frontend ZONE_TAGS
+#
+TAG_TO_FIELD: dict[str, str | None] = {
+    "number":    "number",
+    "date":      "publication_date",  # split en year/month/day à l'ingestion
+    "title":     "title",
+    "subtitle":  "subtitle",
+    "price":     "price",
+    "issn":      "issn",
+    "publisher": None,  # remplit magazine.publisher, PAS l'issue
+    "all":       None,  # tag "tout" — le pipeline extrait tout ce qu'il peut
+    "custom":    None,  # consigne libre, pas de field cible
+}
+
+
 _ZONE_TAG_FOCUS: dict[str, str] = {
     # Le suffixe est concaténé au prompt vision de base pour orienter
     # le modèle sans réécrire tout le contrat JSON.
@@ -283,6 +311,8 @@ def _arbitrate(
     """
     out: dict[str, Any] = {
         "title": torrent.get("title"),
+        "subtitle": torrent.get("subtitle"),
+        "price": torrent.get("price"),
         "issue_number": torrent.get("issue_number"),
         "year": torrent.get("year"),
         "month": torrent.get("month"),
@@ -296,6 +326,19 @@ def _arbitrate(
         vd = entry.get("data") if isinstance(entry, dict) else {}
         if not isinstance(vd, dict):
             continue
+
+        # Route DIRECT tag→field : si l'utilisateur a défini une zone
+        # avec tag "subtitle" ou "price", son raw_text remplit
+        # directement le champ correspondant sans regex heuristique.
+        # C'est la promesse de l'UI zone tags : ce que tu tagges,
+        # ça remplit exactement CE champ, rien d'autre.
+        zone_tag = entry.get("tag") if isinstance(entry, dict) else None
+        raw_text = vd.get("raw_text") if isinstance(vd.get("raw_text"), str) else ""
+        raw_stripped = (raw_text or "").strip()
+        if zone_tag == "subtitle" and out["subtitle"] is None and raw_stripped:
+            out["subtitle"] = raw_stripped[:500]
+        elif zone_tag == "price" and out["price"] is None and raw_stripped:
+            out["price"] = raw_stripped[:32]
 
         # Title : le vision `title` structuré si présent + non pollué
         # (contient pas de "€" ou chiffre isolé qui trahit une erreur
@@ -353,6 +396,12 @@ def _arbitrate(
         rt = entry.get("raw_text") if isinstance(entry, dict) else None
         if not (isinstance(rt, str) and rt.strip()):
             continue
+        # Route direct tag→field pour python OCR aussi
+        zone_tag = entry.get("tag") if isinstance(entry, dict) else None
+        if zone_tag == "subtitle" and out["subtitle"] is None:
+            out["subtitle"] = rt.strip()[:500]
+        elif zone_tag == "price" and out["price"] is None:
+            out["price"] = rt.strip()[:32]
         text_pool = rt
         if out["issue_number"] is None:
             parsed_num = _extract_issue_number(text_pool)
@@ -479,15 +528,26 @@ def _build_arbiter_prompt(
         "8. La date doit être cohérente : year + month + day quand possible. "
         "Ignore les années < 1900 ou > 2100.\n\n"
         "Réponds avec un objet JSON strict :\n"
-        "{\"title\": str|null, \"issue_number\": int|null, "
+        "{\"title\": str|null, \"subtitle\": str|null, "
+        "\"issue_number\": int|null, "
         "\"year\": int|null, \"month\": int|null, \"day\": int|null, "
         "\"is_hs\": bool, \"series_number\": int|null, "
-        "\"issn\": str|null, "
+        "\"issn\": str|null, \"price\": str|null, "
         "\"confidence\": float}\n\n"
+        "`title` : le NOM du magazine (ex. « Le Figaro », « Paris Match »).\n"
+        "`subtitle` : sous-titre / accroche éditoriale visible sous le "
+        "titre (ex. « L'affaire Epstein — nos révélations »). null si "
+        "aucune zone tagged \"subtitle\" et aucun texte évident.\n"
+        "`price` : prix affiché tel quel avec devise (ex. « 3,50 € », "
+        "« US $ 5.99 », « CHF 4.50 »). GARDE le formatage original — "
+        "on n'essaie pas de parser en float. null si absent.\n"
         "`issn` : format canonique ``NNNN-NNNC`` (ex. « 0242-6056 »). "
         "Extrais-le d'un « ISSN 1234-5678 » ou d'un pattern brut "
         "4-3+1 chiffres. Sinon null.\n"
-        "`confidence` entre 0 et 1 = estimation globale de fiabilité."
+        "`confidence` entre 0 et 1 = estimation globale de fiabilité.\n"
+        "**IMPORTANT TYPES** : issue_number/year/month/day sont des "
+        "INT (ex. `8` pas `\"Août\"` pas `\"08\"`). Convertis les noms "
+        "de mois en numéros (Janvier=1..Décembre=12) avant de renvoyer."
     )
 
 
@@ -1812,12 +1872,21 @@ def merge_ai_into_parsed(parsed, ai_final: dict[str, Any], mode: str) -> Any:
         elif mode == "complete" and current is None:
             setattr(parsed, parsed_key, coerced)
 
-    # Title : string (pas de coerce).
-    ai_title = ai_final.get("title")
-    if isinstance(ai_title, str) and ai_title.strip():
-        current = getattr(parsed, "title", None)
+    # Champs string : title / subtitle / price / issn. Pas de coerce
+    # numérique — juste strip + skip si vide.
+    string_map = {
+        "title": "title",
+        "subtitle": "subtitle",
+        "price": "price",
+        "issn": "issn",
+    }
+    for ai_key, parsed_key in string_map.items():
+        ai_val = ai_final.get(ai_key)
+        if not (isinstance(ai_val, str) and ai_val.strip()):
+            continue
+        current = getattr(parsed, parsed_key, None)
         if mode == "remplace":
-            parsed.title = ai_title.strip()
+            setattr(parsed, parsed_key, ai_val.strip())
         elif mode == "complete" and not current:
-            parsed.title = ai_title.strip()
+            setattr(parsed, parsed_key, ai_val.strip())
     return parsed

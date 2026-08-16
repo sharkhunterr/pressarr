@@ -74,6 +74,8 @@ export interface PackDispatchFile {
   aiRunId: number | null
   extractedMetadata: {
     title?: string | null
+    subtitle?: string | null
+    price?: string | null
     issue_number?: number | null
     year?: number | null
     month?: number | null
@@ -107,6 +109,8 @@ export interface PackDispatchFile {
 
 export interface PackDispatchMetadataOverrides {
   title?: string
+  subtitle?: string | null
+  price?: string | null
   issue_number?: number
   year?: number
   month?: number

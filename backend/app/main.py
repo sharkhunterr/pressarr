@@ -209,6 +209,10 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "is_placeholder", "BOOLEAN NOT NULL DEFAULT 0"),
         # Pack dispatch confidence badge (confirmed | doubt | rejected).
         ("pack_dispatch_file", "confidence", "VARCHAR(16)"),
+        # Extension metadata issue : sous-titre + prix affiché couverture.
+        # Prix en STRING (formats libres : "3.50€", "US $ 5.99", "Gratuit").
+        ("issue", "subtitle", "VARCHAR(500)"),
+        ("issue", "price", "VARCHAR(32)"),
         # Pack — nouveaux toggles pipeline dispatch.
         ("pack", "deep_ai_analysis", "BOOLEAN NOT NULL DEFAULT 1"),
         ("pack", "auto_create_missing_magazines", "BOOLEAN NOT NULL DEFAULT 0"),

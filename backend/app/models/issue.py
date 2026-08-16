@@ -28,6 +28,14 @@ class Issue(Base):
     number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     volume: Mapped[int | None] = mapped_column(Integer, nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Sous-titre / accroche éditoriale — ce qu'on trouve sous le titre
+    # principal (ex. "L'affaire Epstein — nos révélations").
+    subtitle: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Prix affiché en couverture. Volontairement en STRING car les
+    # formats sont variés : "3.50€", "2,50 €", "US $ 5.99",
+    # "CHF 4.50", "Gratuit", etc. Un parsing strict casserait sur
+    # 15 % des cas — mieux vaut afficher tel quel.
+    price: Mapped[str | None] = mapped_column(String(32), nullable=True)
     publication_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     month: Mapped[int | None] = mapped_column(Integer, nullable=True)

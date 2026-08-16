@@ -149,6 +149,12 @@ class ParseResult:
     is_special: bool = False
     release_group: str | None = None
     raw_filename: str = ""
+    # Champs extension IA (jamais remplis par le parser filename —
+    # peuplés par le pipeline vision + arbiter quand des zones tagged
+    # correspondantes sont définies sur le magazine).
+    subtitle: str | None = None
+    price: str | None = None
+    issn: str | None = None
 
 
 # ---------------------------------------------------------------------------

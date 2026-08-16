@@ -186,6 +186,9 @@ export default function MagazineDetail() {
   const [editIssueNumber, setEditIssueNumber] = useState('')
   const [editIssueVolume, setEditIssueVolume] = useState('')
   const [editIssueTitle, setEditIssueTitle] = useState('')
+  const [editIssueSubtitle, setEditIssueSubtitle] = useState('')
+  const [editIssuePrice, setEditIssuePrice] = useState('')
+  const [editIssueIssn, setEditIssueIssn] = useState('')
   const [editIssueYear, setEditIssueYear] = useState('')
   const [editIssueMonth, setEditIssueMonth] = useState('')
   const [editIssueDay, setEditIssueDay] = useState('')
@@ -380,6 +383,9 @@ export default function MagazineDetail() {
     setEditIssueNumber(issue.number != null ? String(issue.number) : '')
     setEditIssueVolume(issue.volume != null ? String(issue.volume) : '')
     setEditIssueTitle(issue.title ?? '')
+    setEditIssueSubtitle(issue.subtitle ?? '')
+    setEditIssuePrice(issue.price ?? '')
+    setEditIssueIssn(issue.issn ?? '')
     setEditIssueYear(issue.year != null ? String(issue.year) : '')
     setEditIssueMonth(issue.month != null ? String(issue.month) : '')
     setEditIssueDay(issue.day != null ? String(issue.day) : '')
@@ -405,6 +411,9 @@ export default function MagazineDetail() {
     if (num !== editingIssue.number) data.number = num
     if (vol !== editingIssue.volume) data.volume = vol
     if ((editIssueTitle || null) !== editingIssue.title) data.title = editIssueTitle || null
+    if ((editIssueSubtitle || null) !== editingIssue.subtitle) data.subtitle = editIssueSubtitle || null
+    if ((editIssuePrice || null) !== editingIssue.price) data.price = editIssuePrice || null
+    if ((editIssueIssn || null) !== editingIssue.issn) data.issn = editIssueIssn || null
     if (yr !== editingIssue.year) data.year = yr
     if (mo !== editingIssue.month) data.month = mo
     if (dy !== editingIssue.day) data.day = dy
@@ -2507,6 +2516,34 @@ export default function MagazineDetail() {
                 value={editIssueTitle}
                 onChange={(e) => setEditIssueTitle(e.target.value)}
                 className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-zinc-400">Sous-titre</label>
+              <Input
+                value={editIssueSubtitle}
+                onChange={(e) => setEditIssueSubtitle(e.target.value)}
+                placeholder="Accroche éditoriale sous le titre"
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">Prix</label>
+              <Input
+                value={editIssuePrice}
+                onChange={(e) => setEditIssuePrice(e.target.value)}
+                placeholder="3,50 €"
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">ISSN</label>
+              <Input
+                value={editIssueIssn}
+                onChange={(e) => setEditIssueIssn(e.target.value)}
+                placeholder="1234-5678"
+                maxLength={9}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono"
               />
             </div>
             <div>
