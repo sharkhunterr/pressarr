@@ -222,6 +222,15 @@ export const reanalyzePackDispatchFile = (packId: number, fileId: number) =>
     method: 'POST',
   })
 
+/** Réanalyse IA sur TOUS les fichiers imported du pack. Utile après
+ *  un dispatch initial avec metadata erronées — permet de tout re-scanner
+ *  d'un coup sans toucher aux imports (extracted_metadata seulement). */
+export const rescanImportedPackDispatch = (packId: number) =>
+  apiFetch<{ total: number; reanalyzed: number; errors: number }>(
+    `/pack/${packId}/dispatch/rescan-imported`,
+    { method: 'POST' },
+  )
+
 /** Édite les metadata extraites d'un fichier dispatch (title, N°,
  *  date, ISSN). Merge shallow — seuls les champs fournis écrasent. */
 export const updatePackDispatchMetadata = (

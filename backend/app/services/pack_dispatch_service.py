@@ -920,7 +920,12 @@ async def reanalyze_dispatch_file(
         row.confidence = _eval_confidence(
             extracted, mag_for_conf, row.match_source, row.match_score,
         )
-        row.status = "analyzed" if row.matched_magazine_id is None else "pending_user"
+        # Preserve imported/ignored status : la réanalyse met à jour les
+        # metadata + confidence pour observabilité, mais ne relance pas
+        # le cycle de décision. Un imported qui change de status
+        # foutrait en l'air la trace de l'import réel.
+        if row.status not in ("imported", "ignored"):
+            row.status = "analyzed" if row.matched_magazine_id is None else "pending_user"
         row.analyzed_at = datetime.now()
         await db.commit()
     except Exception as exc:
@@ -1010,6 +1015,48 @@ async def update_dispatch_metadata(
         row.status = "pending_user"
     await db.commit()
     return row
+
+
+async def rescan_imported(
+    db: AsyncSession,
+    pack_id: int,
+    config,
+    session_factory,
+) -> dict[str, int]:
+    """Ré-analyse IA sur TOUS les fichiers déjà importés d'un pack.
+
+    Cas d'usage : les imports initiaux ont produit des metadata
+    erronées (mauvais titre, mauvaise date), et l'utilisateur veut
+    tout ré-analyser d'un coup pour observer où sont les erreurs
+    (visible via ``extracted_metadata`` + badge confidence).
+
+    N'écrase JAMAIS l'import lui-même : le status reste "imported",
+    la resolved_issue_id inchangée. Seuls les metadata extraites +
+    confidence sont mises à jour.
+
+    Retourne stats : {total, reanalyzed, errors}.
+    """
+    stmt = (
+        select(PackDispatchFile)
+        .where(
+            PackDispatchFile.pack_id == pack_id,
+            PackDispatchFile.status == "imported",
+        )
+        .order_by(PackDispatchFile.id)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    total = len(rows)
+    ok = 0
+    errors = 0
+    logger.info("Rescan pack %d : %d fichiers importés à ré-analyser", pack_id, total)
+    for row in rows:
+        try:
+            await reanalyze_dispatch_file(db, row.id, config, session_factory)
+            ok += 1
+        except Exception:
+            logger.exception("Rescan fichier %s a échoué", row.filename)
+            errors += 1
+    return {"total": total, "reanalyzed": ok, "errors": errors}
 
 
 async def list_dispatch_files(

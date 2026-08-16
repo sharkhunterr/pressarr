@@ -416,6 +416,27 @@ async def reanalyze_dispatch(
     return _dispatch_row_to_resource(row)
 
 
+@router.post("/{pack_id}/dispatch/rescan-imported")
+async def rescan_imported_dispatch(
+    pack_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Re-analyse IA sur TOUS les fichiers "imported" du pack.
+
+    Cas d'usage : les imports initiaux ont produit des metadata
+    erronées (mauvais titre / date). L'utilisateur veut re-scanner
+    d'un coup pour voir où sont les erreurs et corriger via l'UI.
+
+    N'écrase pas l'import réel — seuls extracted_metadata + confidence
+    sont mis à jour. Retourne stats {total, reanalyzed, errors}.
+    """
+    from app.database import async_session_factory
+    return await pack_dispatch_service.rescan_imported(
+        db, pack_id, config=config, session_factory=async_session_factory,
+    )
+
+
 @router.delete("/{pack_id}/dispatch/{file_id}", status_code=204)
 async def delete_dispatch(
     pack_id: int,

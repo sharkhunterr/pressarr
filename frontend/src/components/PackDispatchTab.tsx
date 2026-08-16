@@ -21,6 +21,7 @@ import {
   deletePackDispatchFile,
   listPackDispatchFiles,
   reanalyzePackDispatchFile,
+  rescanImportedPackDispatch,
   resolvePackDispatchFile,
   updatePackDispatchMetadata,
   type PackDispatchFile,
@@ -119,6 +120,28 @@ export function PackDispatchTab({ packId }: Props) {
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
 
+  const importedCount = counts['imported'] ?? 0
+
+  const rescanMut = useMutation({
+    mutationFn: () => rescanImportedPackDispatch(packId),
+    onMutate: () => {
+      toast.loading(
+        `Réanalyse des ${importedCount} fichiers importés — peut prendre plusieurs minutes…`,
+        { id: `rescan-${packId}` },
+      )
+    },
+    onSuccess: (res) => {
+      toast.success(
+        `Rescan terminé : ${res.reanalyzed}/${res.total} OK · ${res.errors} erreur(s)`,
+        { id: `rescan-${packId}` },
+      )
+      qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
+    },
+    onError: (e: Error) => toast.error(`Échec rescan : ${e.message}`, {
+      id: `rescan-${packId}`,
+    }),
+  })
+
   return (
     <div className="pt-4 space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -139,6 +162,28 @@ export function PackDispatchTab({ packId }: Props) {
           </Button>
         ))}
         <div className="grow" />
+        {importedCount > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (confirm(
+                `Réanalyser IA les ${importedCount} fichiers déjà importés ?\n\n` +
+                `Ça met à jour les metadata extraites + confidence sans toucher aux imports. ` +
+                `Prend ~30-60s par fichier.`
+              )) rescanMut.mutate()
+            }}
+            disabled={rescanMut.isPending}
+            title="Ré-analyser IA sur tous les fichiers importés (metadata seulement)"
+          >
+            {rescanMut.isPending ? (
+              <Loader2 className="size-3.5 animate-spin text-purple-400" />
+            ) : (
+              <Sparkles className="size-3.5 text-purple-400" />
+            )}
+            Rescan importés
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={refresh}>
           <RefreshCw className="size-3.5" />
           Rafraîchir
@@ -330,16 +375,18 @@ function DispatchRow({
               Résoudre
             </Button>
           )}
-          {file.status !== 'imported' && file.status !== 'ignored' && (
+          {file.status !== 'ignored' && (
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={() => reanalyze.mutate()}
               disabled={reanalyze.isPending}
               title={
-                file.matchedMagazineId
-                  ? 'Relancer analyse IA avec les zones du magazine matché'
-                  : 'Relancer analyse IA'
+                file.status === 'imported'
+                  ? 'Ré-analyser IA (metadata seulement — l\'import n\'est pas touché)'
+                  : file.matchedMagazineId
+                    ? 'Relancer analyse IA avec les zones du magazine matché'
+                    : 'Relancer analyse IA'
               }
             >
               {reanalyze.isPending ? (
