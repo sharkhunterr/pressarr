@@ -253,6 +253,7 @@ async def _analyze_file_deep(
     config,
     session_factory,
     magazine_id: int | None = None,
+    activity_id: int | None = None,
 ) -> dict[str, Any]:
     """Analyse profonde : pipeline IA complet (torrent → python-OCR →
     vision → arbiter). Comme Refresh IA sur une issue. ~30-60 s / fichier
@@ -265,9 +266,41 @@ async def _analyze_file_deep(
     qu'une passe générique. Utilisé en 2ᵉ passe quand le premier
     match a identifié le magazine.
 
+    ``activity_id`` : si fourni, chaque stage IA (text/vision/arbiter/…)
+    push un step dans l'activity → l'utilisateur voit la progression
+    live dans /activity au lieu d'un 0 % éternel.
+
     Retourne les metadata extraites + run_id + source.
     """
+    from app.services import activity_service as _asvc
     from app.services.ai_enrichment_service import AIEnrichmentService
+
+    def _progress(stage: str, detail: str) -> None:
+        """Callback appelé par enrich() à chaque étape (text, vision,
+        arbiter, switch, cache…). Non-bloquant via create_task."""
+        if activity_id is None:
+            return
+        try:
+            import asyncio as _aio
+            _label_map = {
+                "text":    "IA texte (nom torrent)",
+                "vision":  "IA vision (couverture)",
+                "arbiter": "Arbitre",
+                "switch":  "Switch modèle",
+                "cache":   "Cache IA",
+                "skip":    "Skip",
+                "done":    "Fin",
+            }
+            step = {
+                "step": stage,
+                "label": _label_map.get(stage, stage),
+                "hint": detail[:120] if detail else None,
+            }
+            _aio.get_running_loop().create_task(
+                _asvc.push_step(activity_id, step),
+            )
+        except Exception:
+            pass
 
     svc = AIEnrichmentService(config, session_factory)
     result = await svc.enrich(
@@ -276,6 +309,7 @@ async def _analyze_file_deep(
         magazine_id=magazine_id,
         issue_id=None,
         trigger="pack_dispatch",
+        progress_cb=_progress,
     )
     final = result.final or {}
     return {
@@ -537,6 +571,7 @@ async def process_pack_download(
                     await _analyze_file_deep(
                         file_path, config, session_factory,
                         magazine_id=row.matched_magazine_id,
+                        activity_id=activity_id,
                     )
                     if pack.deep_ai_analysis
                     else await _analyze_file_shallow(file_path)
@@ -796,6 +831,7 @@ async def reanalyze_dispatch_file(
         extracted = await _analyze_file_deep(
             file_path, config, session_factory,
             magazine_id=row.matched_magazine_id,
+            activity_id=activity_id,
         )
         row.extracted_metadata = _safe_json_dumps(extracted)
         row.ai_run_id = extracted.get("run_id")
