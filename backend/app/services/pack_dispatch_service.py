@@ -384,12 +384,20 @@ async def _match_to_magazine(
 
     # Boucle : essaie du meilleur au moins bon, en excluant ceux dont
     # les rules rejettent le match. rapidfuzz.extract renvoie top-N.
+    #
+    # Scorer = ``fuzz.ratio`` (Levenshtein pur) et PAS ``WRatio`` :
+    # WRatio compose plusieurs mesures dont ``partial_ratio`` qui
+    # gonfle massivement les scores quand deux titres partagent un
+    # préfixe court comme "Le " ("Le Figaro Magazine" vs "Le Monde"
+    # → WRatio 85 % faux positif contre ratio strict 46 %). Ratio
+    # pur donne des scores propres qui ne franchissent le 78 % STRONG
+    # que pour des vraies similarités quasi-exactes.
     from rapidfuzz import process, fuzz
     known = [(m.title, m) for m in mags]
     candidates = process.extract(
         title,
         [t for t, _ in known],
-        scorer=fuzz.WRatio,
+        scorer=fuzz.ratio,
         limit=5,
         score_cutoff=MATCH_WEAK_THRESHOLD,
     )
