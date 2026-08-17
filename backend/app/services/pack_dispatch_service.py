@@ -834,24 +834,48 @@ async def resolve_dispatch_file(
         await db.commit()
         raise FileNotFoundError(str(file_path))
 
+    # Commit AVANT l'import — flush toute change en attente (overrides
+    # metadata, create_magazine, etc). Sinon la session partagée
+    # entretient un état qui peut collisionner avec les writes de
+    # process_downloaded_file (Issue/IssueFile create+delete, forecast
+    # cleanup) → FK IntegrityError au commit final.
+    pack_id_snap = pack.id
+    pack_name_snap = pack.name
+    await db.commit()
+
     ok, issue_id, msg = await _import_file_to_magazine(
         db, file_path, target_magazine_id, config,
-        pack_id=pack.id,
-        pack_release_title=pack.name,
+        pack_id=pack_id_snap,
+        pack_release_title=pack_name_snap,
     )
-    if not ok:
-        row.status = "error"
-        row.error_message = msg or "Import failed"
-        await db.commit()
-        raise RuntimeError(msg or "Import failed")
+    await db.commit()  # commit import (Issue + IssueFile en persistance)
 
-    row.status = "imported"
-    row.user_action = action
-    row.user_action_magazine_id = target_magazine_id
-    row.resolved_issue_id = issue_id
-    row.resolved_at = datetime.now()
-    await db.commit()
-    return row
+    # Finalisation dans une session FRESH — évite tout état SQLAlchemy
+    # laissé sale par process_downloaded_file (identity map contenant
+    # des objets orphelins qui foutent en l'air le flush).
+    from app.database import async_session_factory
+    async with async_session_factory() as sess:
+        r = await sess.get(PackDispatchFile, file_id)
+        if r is None:
+            raise RuntimeError(f"dispatch file {file_id} disparu pendant l'import")
+        if not ok:
+            r.status = "error"
+            r.error_message = (msg or "Import failed")[:400]
+            await sess.commit()
+            raise RuntimeError(msg or "Import failed")
+        r.status = "imported"
+        r.user_action = action
+        r.user_action_magazine_id = target_magazine_id
+        r.resolved_issue_id = issue_id
+        r.resolved_at = datetime.now()
+        r.error_message = None
+        await sess.commit()
+        # Re-fetch pour retourner un objet attaché à la session courante
+        # (le caller sérialise avec _dispatch_row_to_resource).
+    fresh = await db.get(PackDispatchFile, file_id)
+    if fresh is not None:
+        await db.refresh(fresh)
+    return fresh or r
 
 
 async def reanalyze_dispatch_file(
