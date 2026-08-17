@@ -917,9 +917,13 @@ async def reanalyze_dispatch_file(
         mag, score, source = await _match_to_magazine(
             db, extracted, filename=row.filename,
         )
-        row.matched_magazine_id = mag.id if mag else row.matched_magazine_id
-        row.match_score = score if mag else row.match_score
-        row.match_source = source if mag else row.match_source
+        # IMPORTANT : écrase TOUJOURS les 3 champs (même si mag=None),
+        # sinon un vieux match issu d'un ancien scorer bugué (WRatio
+        # 85% pur bruit) restait affiché indéfiniment. Une réanalyse
+        # doit refléter le NOUVEAU résultat, pas fusionner avec l'ancien.
+        row.matched_magazine_id = mag.id if mag else None
+        row.match_score = score
+        row.match_source = source
         # Re-évalue confiance avec le magazine cible (peut avoir changé)
         mag_for_conf = mag or (
             await db.get(Magazine, row.matched_magazine_id)
