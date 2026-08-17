@@ -344,7 +344,7 @@ async def _match_to_magazine(
 
     Retourne (magazine, score, source) — tous None si aucun candidat.
     """
-    from app.services.magazine_service import apply_rules as _apply_rules
+    from app.services.magazine_service import apply_magazine_rules as _apply_rules
     from sqlalchemy.orm import selectinload
 
     issn = (extracted.get("issn") or "").strip()
