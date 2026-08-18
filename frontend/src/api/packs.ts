@@ -65,7 +65,6 @@ export interface PackDispatchFile {
   size: number
   status:
     | 'pending_analysis'
-    | 'analyzed'
     | 'pending_user'
     | 'imported'
     | 'ignored'
@@ -219,6 +218,15 @@ export const resolvePackDispatchFile = (
 
 export const reanalyzePackDispatchFile = (packId: number, fileId: number) =>
   apiFetch<PackDispatchFile>(`/pack/${packId}/dispatch/${fileId}/reanalyze`, {
+    method: 'POST',
+  })
+
+/** Annule un import : supprime l'issue créée + le magazine placeholder
+ *  si celui-ci avait été auto-généré et est resté vide. Le row repasse
+ *  en `pending_user` — l'utilisateur peut ré-ouvrir le modal pour
+ *  choisir un autre magazine cible. */
+export const unimportPackDispatchFile = (packId: number, fileId: number) =>
+  apiFetch<PackDispatchFile>(`/pack/${packId}/dispatch/${fileId}/unimport`, {
     method: 'POST',
   })
 

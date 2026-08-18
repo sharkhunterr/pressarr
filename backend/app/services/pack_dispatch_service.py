@@ -578,7 +578,7 @@ async def process_pack_download(
                 # déjà été analysé ou résolu — ne ré-analyse QUE les
                 # rows encore en pending_analysis ou error.
                 if existing.status in (
-                    "imported", "ignored", "pending_user", "analyzed"
+                    "imported", "ignored", "pending_user"
                 ):
                     continue
                 existing.status = "pending_analysis"
@@ -659,7 +659,9 @@ async def process_pack_download(
                         r.match_score = score
                         r.match_source = source
                     r.confidence = _eval_confidence(extracted, mag, source, score)
-                    r.status = "analyzed"
+                    # État transitoire pendant l'analyse — la décision juste
+                    # après le settle en pending_user / imported / error.
+                    r.status = "pending_user"
                     r.analyzed_at = datetime.now()
                     await sess.commit()
                 stats["analyzed"] += 1
@@ -878,6 +880,94 @@ async def resolve_dispatch_file(
     return fresh or r
 
 
+async def unimport_dispatch_file(
+    db: AsyncSession,
+    file_id: int,
+    *,
+    remove_placeholder_magazine: bool = True,
+) -> PackDispatchFile:
+    """Annule l'import d'un fichier de dispatch (issu 'imported' → 'pending_user').
+
+    Suppressions en cascade :
+      - Issue + IssueFile associés (physique fichier reste sur disque,
+        c'est le fichier extrait du pack qu'on veut ré-importer).
+      - Magazine cible SI ``is_placeholder=True`` ET aucune autre issue
+        n'y référence (garde-fou : jamais de suppression accidentelle
+        d'un magazine peuplé par d'autres imports).
+
+    Après unimport le row est resetté (user_action, resolved_issue_id,
+    resolved_at, error_message = None), status = pending_user →
+    l'utilisateur peut ré-ouvrir le modal d'import et choisir un autre
+    magazine cible.
+    """
+    from app.models.issue import Issue as _Issue
+    from app.models.issue_file import IssueFile as _IssueFile
+    from app.services import issue_service, magazine_service
+
+    row = await db.get(PackDispatchFile, file_id)
+    if row is None:
+        raise ValueError(f"dispatch file {file_id} not found")
+    if row.status != "imported":
+        raise ValueError(f"file is not imported (status={row.status})")
+
+    target_mag_id = row.user_action_magazine_id
+    issue_id = row.resolved_issue_id
+
+    # ── 1. Supprime l'issue + son IssueFile ──────────────────────
+    if issue_id is not None:
+        # Best-effort : si l'issue a déjà été supprimée manuellement,
+        # on passe outre pour permettre au unimport de reset le row.
+        try:
+            await issue_service.delete_issue(db, issue_id)
+        except Exception:
+            logger.warning(
+                "unimport: delete_issue(%s) failed, continuing", issue_id,
+                exc_info=True,
+            )
+
+    # ── 2. Éventuel cleanup du magazine placeholder ──────────────
+    #  → uniquement si le magazine était placeholder ET aucune autre
+    #    issue n'y référence (=le placeholder n'existe qu'à cause de ce
+    #    dispatch, personne d'autre ne s'en sert).
+    if remove_placeholder_magazine and target_mag_id is not None:
+        try:
+            await db.flush()  # persiste la suppression issue avant count
+            mag = await db.get(Magazine, target_mag_id)
+            if mag is not None and mag.is_placeholder:
+                remaining = (
+                    await db.execute(
+                        select(_Issue).where(_Issue.magazine_id == target_mag_id).limit(1)
+                    )
+                ).scalar_one_or_none()
+                # Vérifie aussi les IssueFile orphelins (rare mais possible)
+                remaining_files = (
+                    await db.execute(
+                        select(_IssueFile).where(_IssueFile.magazine_id == target_mag_id).limit(1)
+                    )
+                ).scalar_one_or_none()
+                if remaining is None and remaining_files is None:
+                    logger.info(
+                        "unimport: magazine placeholder %s (%s) vidé, suppression",
+                        target_mag_id, mag.title,
+                    )
+                    await magazine_service.delete_magazine(db, target_mag_id)
+        except Exception:
+            logger.warning(
+                "unimport: placeholder magazine cleanup failed",
+                exc_info=True,
+            )
+
+    # ── 3. Reset l'état du dispatch row ──────────────────────────
+    row.status = "pending_user"
+    row.user_action = None
+    row.user_action_magazine_id = None
+    row.resolved_issue_id = None
+    row.resolved_at = None
+    row.error_message = None
+    await db.commit()
+    return row
+
+
 async def reanalyze_dispatch_file(
     db: AsyncSession,
     file_id: int,
@@ -961,7 +1051,7 @@ async def reanalyze_dispatch_file(
         # le cycle de décision. Un imported qui change de status
         # foutrait en l'air la trace de l'import réel.
         if row.status not in ("imported", "ignored"):
-            row.status = "analyzed" if row.matched_magazine_id is None else "pending_user"
+            row.status = "pending_user"
         row.analyzed_at = datetime.now()
         await db.commit()
     except Exception as exc:
@@ -1045,9 +1135,9 @@ async def update_dispatch_metadata(
     )
 
     # Fait passer en pending_user pour que le user confirme le résultat
-    # (le status pending_analysis / analyzed n'a plus de sens après un
+    # (le status pending_analysis / error n'a plus de sens après un
     # edit manuel — c'est prêt à être résolu).
-    if row.status in ("pending_analysis", "analyzed", "error"):
+    if row.status in ("pending_analysis", "error"):
         row.status = "pending_user"
     await db.commit()
     return row

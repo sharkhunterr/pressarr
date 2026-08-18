@@ -241,6 +241,15 @@ def _migrate_add_columns(connection) -> None:
     except Exception:
         pass
 
+    # Le status "analyzed" disparaît de l'API — les rows historiques
+    # remontent en "pending_user" pour rester actionnables via l'UI.
+    try:
+        connection.execute(sa.text(
+            "UPDATE pack_dispatch_file SET status='pending_user' WHERE status='analyzed'"
+        ))
+    except Exception:
+        pass
+
 
 async def _create_default_quality_profile() -> None:
     """Create the default quality profile if none exists."""

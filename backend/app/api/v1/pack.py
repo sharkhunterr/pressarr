@@ -416,6 +416,36 @@ async def reanalyze_dispatch(
     return _dispatch_row_to_resource(row)
 
 
+@router.post(
+    "/{pack_id}/dispatch/{file_id}/unimport",
+    response_model=PackDispatchFileResource,
+)
+async def unimport_dispatch(
+    pack_id: int,
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Annule l'import : supprime issue + placeholder magazine si créé,
+    reset le row en pending_user pour permettre un re-import."""
+    try:
+        await pack_dispatch_service.unimport_dispatch_file(
+            db, file_id=file_id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select as _select
+    from app.models.pack_dispatch_file import PackDispatchFile as _PDF
+    row = (
+        await db.execute(
+            _select(_PDF)
+            .options(selectinload(_PDF.matched_magazine))
+            .where(_PDF.id == file_id)
+        )
+    ).scalar_one()
+    return _dispatch_row_to_resource(row)
+
+
 @router.post("/{pack_id}/dispatch/rescan-imported")
 async def rescan_imported_dispatch(
     pack_id: int,

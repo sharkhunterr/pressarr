@@ -1,19 +1,24 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   AlertCircle,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock,
+  Download,
   FileText,
   Loader2,
+  Package,
   RefreshCw,
+  RotateCw,
   ShieldAlert,
   ShieldCheck,
   ShieldX,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react'
 
@@ -23,6 +28,7 @@ import {
   reanalyzePackDispatchFile,
   rescanImportedPackDispatch,
   resolvePackDispatchFile,
+  unimportPackDispatchFile,
   updatePackDispatchMetadata,
   type PackDispatchFile,
   type PackDispatchMetadataOverrides,
@@ -58,48 +64,123 @@ interface Props {
   packId: number
 }
 
+// L'UI n'expose que 3 statuts principaux (en attente / importé / ignoré).
+// pending_analysis et error sont considérés comme des sous-états de "en
+// attente" — les actions user restent les mêmes.
 const STATUS_LABELS: Record<PackDispatchFile['status'], string> = {
-  pending_analysis: 'Analyse en cours',
-  analyzed: 'Analysé',
+  pending_analysis: 'Analyse…',
   pending_user: 'En attente',
   imported: 'Importé',
   ignored: 'Ignoré',
-  error: 'Erreur',
+  error: 'En attente',
 }
 
 const STATUS_STYLES: Record<PackDispatchFile['status'], string> = {
   pending_analysis: 'bg-zinc-800 text-zinc-300',
-  analyzed: 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
   pending_user: 'bg-amber-500/20 text-amber-200 border border-amber-500/30',
   imported: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
   ignored: 'bg-zinc-700/40 text-zinc-500',
-  error: 'bg-red-500/20 text-red-300 border border-red-500/30',
+  error: 'bg-amber-500/20 text-amber-200 border border-amber-500/30',
 }
 
-const STATUS_FILTERS: Array<{ value: PackDispatchFile['status'] | 'all'; label: string }> = [
+type UiStatus = 'all' | 'pending' | 'imported' | 'ignored'
+
+const STATUS_FILTERS: Array<{ value: UiStatus; label: string }> = [
   { value: 'all', label: 'Tout' },
-  { value: 'pending_user', label: 'À traiter' },
+  { value: 'pending', label: 'En attente' },
   { value: 'imported', label: 'Importés' },
-  { value: 'error', label: 'Erreurs' },
   { value: 'ignored', label: 'Ignorés' },
 ]
 
+// Un fichier est "en attente d'action user" si non-imported/non-ignoré.
+// pending_analysis, pending_user, error → tous listés dans "En attente".
+const isPending = (s: PackDispatchFile['status']) =>
+  s === 'pending_analysis' || s === 'pending_user' || s === 'error'
+
+function formatSize(bytes: number): string {
+  if (!bytes) return '—'
+  const u = ['o', 'ko', 'Mo', 'Go']
+  let i = 0
+  let n = bytes
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024
+    i++
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
+interface PackGrab {
+  downloadId: string
+  files: PackDispatchFile[]
+  totalSize: number
+  earliestCreatedAt: string
+  counts: Record<PackDispatchFile['status'], number>
+}
+
+function groupByDownload(files: PackDispatchFile[]): PackGrab[] {
+  const groups = new Map<string, PackGrab>()
+  for (const f of files) {
+    const key = f.downloadId || 'unknown'
+    let g = groups.get(key)
+    if (!g) {
+      g = {
+        downloadId: key,
+        files: [],
+        totalSize: 0,
+        earliestCreatedAt: f.createdAt,
+        counts: {
+          pending_analysis: 0,
+          pending_user: 0,
+          imported: 0,
+          ignored: 0,
+          error: 0,
+        },
+      }
+      groups.set(key, g)
+    }
+    g.files.push(f)
+    g.totalSize += f.size || 0
+    if (new Date(f.createdAt) < new Date(g.earliestCreatedAt)) {
+      g.earliestCreatedAt = f.createdAt
+    }
+    g.counts[f.status]++
+  }
+  // Tri : grab le plus récent en haut
+  return [...groups.values()].sort(
+    (a, b) => new Date(b.earliestCreatedAt).getTime() - new Date(a.earliestCreatedAt).getTime(),
+  )
+}
+
 export function PackDispatchTab({ packId }: Props) {
   const qc = useQueryClient()
-  const [filter, setFilter] = useState<PackDispatchFile['status'] | 'all'>('all')
+  const [filter, setFilter] = useState<UiStatus>('all')
   const [selected, setSelected] = useState<PackDispatchFile | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
+  // On charge TOUT et filtre client-side pour permettre le groupement
+  // par download_id sur toutes les rows (sinon les grabs mixtes seraient
+  // scindés artificiellement par le filtre serveur).
   const filesQ = useQuery({
-    queryKey: ['pack-dispatch', packId, filter],
-    queryFn: () =>
-      listPackDispatchFiles(packId, filter === 'all' ? undefined : filter),
+    queryKey: ['pack-dispatch', packId],
+    queryFn: () => listPackDispatchFiles(packId),
     refetchInterval: (q) => {
-      // Poll faster when quelque chose est encore en cours d'analyse.
       const data = q.state.data as PackDispatchFile[] | undefined
       if (!data) return 4000
-      const live = data.some(
-        (f) => f.status === 'pending_analysis' || f.status === 'analyzed',
-      )
+      const live = data.some((f) => f.status === 'pending_analysis')
       return live ? 3000 : 8000
     },
     refetchIntervalInBackground: false,
@@ -112,21 +193,31 @@ export function PackDispatchTab({ packId }: Props) {
   })
 
   const files = filesQ.data ?? []
+  const filteredFiles = useMemo(() => {
+    if (filter === 'all') return files
+    if (filter === 'pending') return files.filter((f) => isPending(f.status))
+    return files.filter((f) => f.status === filter)
+  }, [files, filter])
+
+  const grabs = useMemo(() => groupByDownload(filteredFiles), [filteredFiles])
+
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: files.length }
-    for (const f of files) c[f.status] = (c[f.status] ?? 0) + 1
-    return c
+    let pending = 0, imported = 0, ignored = 0
+    for (const f of files) {
+      if (isPending(f.status)) pending++
+      else if (f.status === 'imported') imported++
+      else if (f.status === 'ignored') ignored++
+    }
+    return { all: files.length, pending, imported, ignored }
   }, [files])
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
-
-  const importedCount = counts['imported'] ?? 0
 
   const rescanMut = useMutation({
     mutationFn: () => rescanImportedPackDispatch(packId),
     onMutate: () => {
       toast.loading(
-        `Réanalyse des ${importedCount} fichiers importés — peut prendre plusieurs minutes…`,
+        `Réanalyse des ${counts.imported} fichiers importés — peut prendre plusieurs minutes…`,
         { id: `rescan-${packId}` },
       )
     },
@@ -137,10 +228,18 @@ export function PackDispatchTab({ packId }: Props) {
       )
       qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
     },
-    onError: (e: Error) => toast.error(`Échec rescan : ${e.message}`, {
-      id: `rescan-${packId}`,
-    }),
+    onError: (e: Error) =>
+      toast.error(`Échec rescan : ${e.message}`, { id: `rescan-${packId}` }),
   })
+
+  const toggleGroup = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   return (
     <div className="pt-4 space-y-4">
@@ -154,24 +253,25 @@ export function PackDispatchTab({ packId }: Props) {
             className={filter === f.value ? 'bg-[#7C3AED] hover:bg-[#6D28D9]' : ''}
           >
             {f.label}
-            {counts[f.value] != null && counts[f.value] > 0 && (
-              <span className="ml-1.5 text-xs opacity-75">
-                {counts[f.value]}
-              </span>
+            {counts[f.value] > 0 && (
+              <span className="ml-1.5 text-xs opacity-75">{counts[f.value]}</span>
             )}
           </Button>
         ))}
         <div className="grow" />
-        {importedCount > 0 && (
+        {counts.imported > 0 && (
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
-              if (confirm(
-                `Réanalyser IA les ${importedCount} fichiers déjà importés ?\n\n` +
-                `Ça met à jour les metadata extraites + confidence sans toucher aux imports. ` +
-                `Prend ~30-60s par fichier.`
-              )) rescanMut.mutate()
+              if (
+                confirm(
+                  `Réanalyser IA les ${counts.imported} fichiers déjà importés ?\n\n` +
+                    `Ça met à jour les metadata extraites + confidence sans toucher aux imports. ` +
+                    `Prend ~30-60s par fichier.`,
+                )
+              )
+                rescanMut.mutate()
             }}
             disabled={rescanMut.isPending}
             title="Ré-analyser IA sur tous les fichiers importés (metadata seulement)"
@@ -195,34 +295,23 @@ export function PackDispatchTab({ packId }: Props) {
           <Loader2 className="size-4 animate-spin mr-2" />
           Chargement…
         </div>
-      ) : files.length === 0 ? (
+      ) : grabs.length === 0 ? (
         <div className="rounded border border-dashed border-zinc-800 py-10 text-center text-zinc-500">
           Aucun fichier dispatch — lance un grab pour peupler cette liste.
         </div>
       ) : (
-        <div className="rounded border border-zinc-800 overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-zinc-800 hover:bg-transparent">
-                <TableHead className="text-zinc-400">Fichier</TableHead>
-                <TableHead className="text-zinc-400">Extrait IA</TableHead>
-                <TableHead className="text-zinc-400">Magazine</TableHead>
-                <TableHead className="text-zinc-400">Statut</TableHead>
-                <TableHead className="text-zinc-400 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {files.map((f) => (
-                <DispatchRow
-                  key={f.id}
-                  file={f}
-                  magazines={magazinesQ.data ?? []}
-                  onDetail={() => setSelected(f)}
-                  packId={packId}
-                />
-              ))}
-            </TableBody>
-          </Table>
+        <div className="space-y-3">
+          {grabs.map((g) => (
+            <GrabGroup
+              key={g.downloadId}
+              grab={g}
+              collapsed={collapsed.has(g.downloadId)}
+              onToggle={() => toggleGroup(g.downloadId)}
+              magazines={magazinesQ.data ?? []}
+              onDetail={setSelected}
+              packId={packId}
+            />
+          ))}
         </div>
       )}
 
@@ -236,6 +325,101 @@ export function PackDispatchTab({ packId }: Props) {
   )
 }
 
+function GrabGroup({
+  grab,
+  collapsed,
+  onToggle,
+  magazines,
+  onDetail,
+  packId,
+}: {
+  grab: PackGrab
+  collapsed: boolean
+  onToggle: () => void
+  magazines: Magazine[]
+  onDetail: (row: PackDispatchFile) => void
+  packId: number
+}) {
+  const shortId = grab.downloadId.slice(0, 12)
+  const pending = grab.counts.pending_analysis + grab.counts.pending_user + grab.counts.error
+  return (
+    <div className="rounded border border-zinc-800 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-3 py-2.5 bg-zinc-900/70 hover:bg-zinc-900 text-left"
+      >
+        {collapsed ? (
+          <ChevronRight className="size-4 text-zinc-500 shrink-0" />
+        ) : (
+          <ChevronDown className="size-4 text-zinc-400 shrink-0" />
+        )}
+        <Package className="size-4 text-purple-400 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-sm font-medium text-zinc-100">Grab</span>
+            <span className="text-xs font-mono text-zinc-500">{shortId}</span>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-zinc-500 mt-0.5 flex-wrap">
+            <span className="inline-flex items-center gap-1">
+              <FileText className="size-3" />
+              {grab.files.length} fichier{grab.files.length > 1 ? 's' : ''}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Download className="size-3" />
+              {formatSize(grab.totalSize)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock className="size-3" />
+              {formatDate(grab.earliestCreatedAt)}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {pending > 0 && (
+            <Badge className="bg-amber-500/20 text-amber-200 border border-amber-500/30">
+              {pending} en attente
+            </Badge>
+          )}
+          {grab.counts.imported > 0 && (
+            <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              {grab.counts.imported} importé{grab.counts.imported > 1 ? 's' : ''}
+            </Badge>
+          )}
+          {grab.counts.ignored > 0 && (
+            <Badge className="bg-zinc-700/40 text-zinc-500">
+              {grab.counts.ignored} ignoré{grab.counts.ignored > 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
+      </button>
+      {!collapsed && (
+        <Table>
+          <TableHeader>
+            <TableRow className="border-zinc-800 hover:bg-transparent">
+              <TableHead className="text-zinc-400">Fichier</TableHead>
+              <TableHead className="text-zinc-400">Extrait IA</TableHead>
+              <TableHead className="text-zinc-400">Magazine</TableHead>
+              <TableHead className="text-zinc-400">Statut</TableHead>
+              <TableHead className="text-zinc-400 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {grab.files.map((f) => (
+              <DispatchRow
+                key={f.id}
+                file={f}
+                magazines={magazines}
+                onDetail={onDetail}
+                packId={packId}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  )
+}
+
 function DispatchRow({
   file,
   magazines,
@@ -244,7 +428,7 @@ function DispatchRow({
 }: {
   file: PackDispatchFile
   magazines: Magazine[]
-  onDetail: () => void
+  onDetail: (row: PackDispatchFile) => void
   packId: number
 }) {
   const qc = useQueryClient()
@@ -253,22 +437,25 @@ function DispatchRow({
   const reanalyze = useMutation({
     mutationFn: () => reanalyzePackDispatchFile(packId, file.id),
     onMutate: () => {
-      // Toast immédiat — l'analyse deep prend 30-60 s, sinon le user
-      // clique et rien de visible ne se passe pendant ce temps.
       toast.loading(`${file.filename} — analyse IA en cours…`, {
         id: `reanalyze-${file.id}`,
       })
     },
     onSuccess: (res) => {
       toast.success(
-        `${file.filename} — ${res.confidence === 'confirmed' ? 'confirmé' : res.confidence === 'rejected' ? 'rejeté' : 'à valider'}`,
+        `${file.filename} — ${
+          res.confidence === 'confirmed'
+            ? 'confirmé'
+            : res.confidence === 'rejected'
+              ? 'rejeté'
+              : 'à valider'
+        }`,
         { id: `reanalyze-${file.id}` },
       )
       qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
     },
-    onError: (e: Error) => toast.error(`Échec : ${e.message}`, {
-      id: `reanalyze-${file.id}`,
-    }),
+    onError: (e: Error) =>
+      toast.error(`Échec : ${e.message}`, { id: `reanalyze-${file.id}` }),
   })
 
   const ignore = useMutation({
@@ -278,6 +465,22 @@ function DispatchRow({
       qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
     },
     onError: (e: Error) => toast.error(`Échec : ${e.message}`),
+  })
+
+  // Réimporter : annule l'import (delete issue + placeholder mag vide)
+  // puis rouvre le modal pour choisir un autre magazine cible. La row
+  // retour est en pending_user → on l'ouvre directement.
+  const reimport = useMutation({
+    mutationFn: () => unimportPackDispatchFile(packId, file.id),
+    onSuccess: (row) => {
+      toast.success('Import annulé — choisis un nouveau magazine')
+      qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
+      qc.invalidateQueries({ queryKey: ['magazines'] })
+      qc.invalidateQueries({ queryKey: ['magazines-all'] })
+      // Ouvre le modal avec le row fraîchement resetté
+      onDetail(row)
+    },
+    onError: (e: Error) => toast.error(`Échec ré-import : ${e.message}`),
   })
 
   const del = useMutation({
@@ -295,11 +498,15 @@ function DispatchRow({
       ? magazines.find((m) => m.id === file.userActionMagazineId)?.title ?? '—'
       : '—')
 
+  const pending = isPending(file.status)
+  const imported = file.status === 'imported'
+  const ignored = file.status === 'ignored'
+
   return (
     <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
       <TableCell className="align-top">
         <button
-          onClick={onDetail}
+          onClick={() => onDetail(file)}
           className="text-left text-zinc-100 hover:text-purple-300 flex items-start gap-2 max-w-md"
         >
           <FileText className="size-4 mt-0.5 shrink-0 text-zinc-500" />
@@ -364,25 +571,83 @@ function DispatchRow({
 
       <TableCell className="text-right align-top">
         <div className="inline-flex items-center gap-1">
-          {file.status === 'pending_user' && (
+          {/* PENDING (analysis / user / error) : Import · Ignore · IA · Del */}
+          {pending && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onDetail(file)}
+                className="text-purple-300 border-purple-500/40 hover:bg-purple-500/10"
+                title="Importer — choisir un magazine cible"
+              >
+                <Upload className="size-3.5" />
+                Importer
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => ignore.mutate()}
+                disabled={ignore.isPending}
+                title="Ignorer"
+              >
+                <X className="size-3.5 text-zinc-400" />
+              </Button>
+            </>
+          )}
+
+          {/* IMPORTED : Réimporter · IA · Del */}
+          {imported && (
             <Button
               variant="outline"
               size="sm"
-              onClick={onDetail}
-              className="text-purple-300 border-purple-500/40 hover:bg-purple-500/10"
+              onClick={() => {
+                if (
+                  confirm(
+                    `Annuler l'import de "${file.filename}" ?\n\n` +
+                      `L'issue créée sera supprimée. Si le magazine cible avait été auto-créé ` +
+                      `(placeholder) et ne contient plus aucune autre issue, il sera aussi supprimé. ` +
+                      `Tu pourras ensuite choisir un autre magazine cible.`,
+                  )
+                )
+                  reimport.mutate()
+              }}
+              disabled={reimport.isPending}
+              className="text-amber-300 border-amber-500/40 hover:bg-amber-500/10"
+              title="Ré-importer — annule l'import courant et rouvre le modal"
             >
-              <Check className="size-3.5" />
-              Résoudre
+              {reimport.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <RotateCw className="size-3.5" />
+              )}
+              Ré-importer
             </Button>
           )}
-          {file.status !== 'ignored' && (
+
+          {/* IGNORED : Importer (unignore) · Del */}
+          {ignored && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onDetail(file)}
+              className="text-purple-300 border-purple-500/40 hover:bg-purple-500/10"
+              title="Réactiver et importer"
+            >
+              <Upload className="size-3.5" />
+              Importer
+            </Button>
+          )}
+
+          {/* IA — sur tous sauf ignored (pas de sens d'analyser un ignoré) */}
+          {!ignored && (
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={() => reanalyze.mutate()}
               disabled={reanalyze.isPending}
               title={
-                file.status === 'imported'
+                imported
                   ? 'Ré-analyser IA (metadata seulement — l\'import n\'est pas touché)'
                   : file.matchedMagazineId
                     ? 'Relancer analyse IA avec les zones du magazine matché'
@@ -396,17 +661,7 @@ function DispatchRow({
               )}
             </Button>
           )}
-          {file.status !== 'imported' && file.status !== 'ignored' && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => ignore.mutate()}
-              disabled={ignore.isPending}
-              title="Ignorer"
-            >
-              <X className="size-3.5 text-zinc-400" />
-            </Button>
-          )}
+
           <Button
             variant="ghost"
             size="icon-xs"
@@ -442,9 +697,6 @@ function DispatchDetailModal({
   const [newFrequency, setNewFrequency] = useState('weekly')
   const [newIssn, setNewIssn] = useState('')
 
-  // Édition des metadata extraites (title, N°, année, mois, jour, ISSN).
-  // Pré-rempli depuis extractedMetadata au chargement. Envoyé dans
-  // metadataOverrides du resolve pour override l'IA si nécessaire.
   const [editMode, setEditMode] = useState(false)
   const [metaTitle, setMetaTitle] = useState('')
   const [metaSubtitle, setMetaSubtitle] = useState('')
@@ -496,9 +748,10 @@ function DispatchDetailModal({
     mutationFn: () => {
       if (!file) throw new Error('no file')
       const overrides = editMode ? buildMetadataOverrides() : undefined
-      const withOverrides = overrides && Object.keys(overrides).length > 0
-        ? { metadataOverrides: overrides }
-        : {}
+      const withOverrides =
+        overrides && Object.keys(overrides).length > 0
+          ? { metadataOverrides: overrides }
+          : {}
       if (action === 'assign_existing') {
         if (!magazineId) throw new Error('Sélectionne un magazine')
         return resolvePackDispatchFile(packId, file.id, {
@@ -507,28 +760,40 @@ function DispatchDetailModal({
           ...withOverrides,
         })
       }
+      const title = newTitle.trim()
+      if (!title) throw new Error('Titre du nouveau magazine requis')
       return resolvePackDispatchFile(packId, file.id, {
         action: 'create_magazine',
         magazineData: {
-          title: newTitle.trim(),
+          title,
           frequency: newFrequency,
           issn: newIssn.trim() || null,
         },
         ...withOverrides,
       })
     },
+    onMutate: () => {
+      // Toast persistant — l'import peut prendre 30-60s (IA enrichment,
+      // fetch cover, file copy). Sans feedback, le user voit juste un
+      // spinner statique.
+      toast.loading('Import en cours — peut prendre jusqu\'à 1 minute…', {
+        id: `resolve-${file?.id ?? 'x'}`,
+      })
+    },
     onSuccess: () => {
-      toast.success('Résolu')
+      toast.success('Import terminé', { id: `resolve-${file?.id ?? 'x'}` })
       qc.invalidateQueries({ queryKey: ['pack-dispatch', packId] })
       qc.invalidateQueries({ queryKey: ['magazines'] })
       qc.invalidateQueries({ queryKey: ['magazines-all'] })
       onClose()
     },
-    onError: (e: Error) => toast.error(`Échec : ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(`Échec : ${e.message}`, { id: `resolve-${file?.id ?? 'x'}` }),
   })
 
-  // Pré-remplit quand on ouvre : suggère le match auto ou la proposition.
-  useMemo(() => {
+  // Pré-remplit à chaque changement de fichier (useEffect + file.id
+  // évite le bug useMemo qui ne trigger pas les setState).
+  useEffect(() => {
     if (!file) return
     setEditMode(false)
     const ex = (file.extractedMetadata ?? {}) as {
@@ -560,14 +825,16 @@ function DispatchDetailModal({
     } else {
       setAction('assign_existing')
       setMagazineId('')
-      setNewTitle('')
+      setNewTitle(ex.title ?? '')
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.id])
 
   if (!file) return null
 
   const ex = file.extractedMetadata
+  // Un fichier importé n'est pas actionnable via ce modal — pour le
+  // ré-importer il faut passer par le bouton Ré-importer de la row.
+  const canResolve = isPending(file.status) || file.status === 'ignored'
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose() }}>
@@ -580,13 +847,12 @@ function DispatchDetailModal({
         </DialogHeader>
 
         <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-          {/* Analyse IA — éditable */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="text-xs uppercase tracking-wide text-zinc-500">
                 {editMode ? 'Édition metadata' : 'Analyse IA'}
               </div>
-              {file.status !== 'imported' && file.status !== 'ignored' && (
+              {canResolve && (
                 <div className="flex items-center gap-1.5">
                   {editMode && (
                     <Button
@@ -668,8 +934,7 @@ function DispatchDetailModal({
             )}
           </section>
 
-          {/* Action user */}
-          {file.status !== 'imported' && file.status !== 'ignored' && (
+          {canResolve && (
             <section className="space-y-2">
               <div className="text-xs uppercase tracking-wide text-zinc-500">
                 Action
@@ -782,7 +1047,7 @@ function DispatchDetailModal({
           <Button variant="outline" onClick={onClose}>
             Fermer
           </Button>
-          {file.status !== 'imported' && file.status !== 'ignored' && (
+          {canResolve && (
             <Button
               onClick={() => resolve.mutate()}
               disabled={resolve.isPending}
@@ -806,7 +1071,9 @@ function Field({ label, value }: { label: string; value: unknown }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="text-zinc-200 truncate">{value === '' || value == null ? '—' : String(value)}</div>
+      <div className="text-zinc-200 truncate">
+        {value === '' || value == null ? '—' : String(value)}
+      </div>
     </div>
   )
 }
@@ -858,7 +1125,6 @@ function MetaEdit({
         onChange={(e) => {
           const v = e.target.value
           if (numeric) {
-            // Autorise vide ou digits uniquement
             if (v === '' || /^\d+$/.test(v)) onChange(v)
           } else {
             onChange(v)
