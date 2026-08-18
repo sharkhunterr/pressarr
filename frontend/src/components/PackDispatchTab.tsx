@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   AlertCircle,
+  Ban,
   Check,
   ChevronDown,
   ChevronRight,
@@ -19,7 +20,6 @@ import {
   Sparkles,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react'
 
 import {
@@ -585,13 +585,19 @@ function DispatchRow({
                 Importer
               </Button>
               <Button
-                variant="ghost"
-                size="icon-xs"
+                variant="outline"
+                size="sm"
                 onClick={() => ignore.mutate()}
                 disabled={ignore.isPending}
-                title="Ignorer"
+                className="text-zinc-300 border-zinc-700 hover:bg-zinc-800"
+                title="Marquer comme ignoré — le fichier ne sera pas importé"
               >
-                <X className="size-3.5 text-zinc-400" />
+                {ignore.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Ban className="size-3.5" />
+                )}
+                Ignorer
               </Button>
             </>
           )}
