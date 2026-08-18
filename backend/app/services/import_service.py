@@ -538,8 +538,15 @@ async def process_downloaded_file(
                     )
                     issue = issue_result.scalars().first()
 
-            if not issue:
-                # Month-level matching (for monthly/bimonthly or fallback)
+            if not issue and not day_precise:
+                # Month-level matching réservé aux fréquences monthly+.
+                # Sur un quotidien / hebdo / bimensuel deux fichiers du
+                # même mois sont des issues DIFFÉRENTES — le fallback
+                # month+year les collapsait en un seul issue et le
+                # nouveau se voyait refusé "Not a quality upgrade"
+                # (comparaison contre l'issue précédent du mois).
+                # Pour ces fréquences : si le day-precise match n'a rien
+                # trouvé, c'est un NOUVEL issue à créer, pas un doublon.
                 issue_result = await db.execute(
                     select(Issue)
                     .options(selectinload(Issue.file))
