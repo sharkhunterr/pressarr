@@ -14,6 +14,8 @@ import {
   HelpCircle,
   CheckCircle2,
   ArrowDownUp,
+  ArrowUp,
+  ArrowDown,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -203,10 +205,30 @@ export default function MagazineDetail() {
   // Collapse upcoming issues per year group
   const [expandedUpcoming, setExpandedUpcoming] = useState<Set<string>>(new Set())
 
+  // Sort state pour la table issues.
+  // Défaut : date décroissante (issue la plus récente en haut).
+  //
+  // Le tri s'applique dans chaque groupe année ET aux upcoming
+  // (les deux sub-lists rendues par year). Les groupes d'années restent
+  // toujours triés desc au niveau supérieur — c'est la structure du
+  // grouping, pas le tri des rows.
+  const [issueSortKey, setIssueSortKey] = useState<IssueSortKey>('date')
+  const [issueSortDir, setIssueSortDir] = useState<IssueSortDir>('desc')
+
+  const toggleIssueSort = (key: IssueSortKey) => {
+    if (issueSortKey === key) {
+      setIssueSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setIssueSortKey(key)
+      // Nouveau critère : commencer par desc pour date/numéro (récent
+      // en haut), asc pour title (A-Z lisible).
+      setIssueSortDir(key === 'title' ? 'asc' : 'desc')
+    }
+  }
+
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingIssueId, setRefreshingIssueId] = useState<number | null>(null)
-  const [reanalyzingAI, setReanalyzingAI] = useState(false)
   const [aiRefreshOpen, setAiRefreshOpen] = useState(false)
   const [importingIssueId, setImportingIssueId] = useState<number | null>(null)
 
@@ -769,33 +791,6 @@ export default function MagazineDetail() {
     }
   }
 
-  async function handleReanalyzeAI() {
-    // IA re-run : ne bloque pas l'UI, retourne un run_id + final.
-    // Le user sait qu'Ollama peut prendre 30-60s (surtout la vision) —
-    // toast persistant tant que la promise n'est pas résolue.
-    setReanalyzingAI(true)
-    const tid = toast.loading('Analyse IA en cours (1-3 min avec vision)…')
-    try {
-      const { reanalyzeMagazine } = await import('@/api/ai')
-      const res = await reanalyzeMagazine(magazineId, { applyResult: true })
-      queryClient.invalidateQueries({ queryKey: ['magazine', magazineId] })
-      queryClient.invalidateQueries({ queryKey: ['issues', magazineId] })
-      const fields = Object.entries(res.final)
-        .filter(([, v]) => v !== null && v !== undefined && v !== '')
-        .map(([k, v]) => `${k}=${v}`)
-        .join(', ')
-      const isCache = res.appliedMode === 'cache_hit'
-      const prefix = isCache ? '⚡ Cache hit (~0s)' : `✓ IA terminée en ${(res.totalElapsedMs / 1000).toFixed(1)}s`
-      toast.success(
-        `${prefix} — ${fields || 'aucun champ extrait'}`,
-        { id: tid, duration: 8000 },
-      )
-    } catch (e) {
-      toast.error(`IA échouée : ${(e as Error).message}`, { id: tid })
-    } finally {
-      setReanalyzingAI(false)
-    }
-  }
 
   async function handleRefreshIssue(issueId: number) {
     setRefreshingIssueId(issueId)
@@ -1132,16 +1127,6 @@ export default function MagazineDetail() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleReanalyzeAI}
-                  disabled={reanalyzingAI}
-                  title="Ré-analyse les métadonnées de la dernière issue via l'IA"
-                >
-                  <Sparkles className={`size-3.5 ${reanalyzingAI ? 'animate-spin' : ''}`} />
-                  Ré-analyser IA
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
                   onClick={() => setAiRefreshOpen(true)}
                   title="Refresh multi-issues : métadonnées classiques + IA texte + IA vision"
                 >
@@ -1193,16 +1178,6 @@ export default function MagazineDetail() {
               >
                 <Search className="size-3.5" />
                 {t('magazineDetail.manualResearch')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReanalyzeAI}
-                disabled={reanalyzingAI}
-                title="Ré-analyse IA de la dernière issue"
-              >
-                <Sparkles className={`size-3.5 ${reanalyzingAI ? 'animate-spin' : ''}`} />
-                Ré-analyser IA
               </Button>
               <Button
                 variant="outline"
@@ -1396,20 +1371,50 @@ export default function MagazineDetail() {
                         className="size-4 rounded border-zinc-600 bg-zinc-900 accent-[#7C3AED]"
                       />
                     </TableHead>
-                    <TableHead className="text-zinc-400">{t('issues.number')}</TableHead>
-                    <TableHead className="text-zinc-400">{t('issues.date')}</TableHead>
-                    <TableHead className="text-zinc-400">{t('issues.issueTitle')}</TableHead>
+                    <SortableHead
+                      label={t('issues.number')}
+                      sortKey="number"
+                      currentKey={issueSortKey}
+                      currentDir={issueSortDir}
+                      onSort={toggleIssueSort}
+                    />
+                    <SortableHead
+                      label={t('issues.date')}
+                      sortKey="date"
+                      currentKey={issueSortKey}
+                      currentDir={issueSortDir}
+                      onSort={toggleIssueSort}
+                    />
+                    <SortableHead
+                      label={t('issues.issueTitle')}
+                      sortKey="title"
+                      currentKey={issueSortKey}
+                      currentDir={issueSortDir}
+                      onSort={toggleIssueSort}
+                    />
                     <TableHead className="text-zinc-400">Prix</TableHead>
                     <TableHead className="text-zinc-400">ISSN</TableHead>
-                    <TableHead className="text-zinc-400">{t('issues.status')}</TableHead>
+                    <SortableHead
+                      label={t('issues.status')}
+                      sortKey="status"
+                      currentKey={issueSortKey}
+                      currentDir={issueSortDir}
+                      onSort={toggleIssueSort}
+                    />
                     <TableHead className="text-zinc-400">{t('issues.fileInfo')}</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(() => {
-                    const regular = yearIssues.filter((i) => !i.isForecast || i.status === 'wanted')
-                    const upcoming = yearIssues.filter((i) => i.isForecast && i.status !== 'wanted')
+                    const regular = sortIssues(
+                      yearIssues.filter((i) => !i.isForecast || i.status === 'wanted'),
+                      issueSortKey, issueSortDir,
+                    )
+                    const upcoming = sortIssues(
+                      yearIssues.filter((i) => i.isForecast && i.status !== 'wanted'),
+                      issueSortKey, issueSortDir,
+                    )
                     const isExpanded = expandedUpcoming.has(year)
 
                     const renderRow = (issue: typeof yearIssues[number]) => (
@@ -3672,5 +3677,100 @@ function OtherTabsHint({
         </span>
       ))}
     </div>
+  )
+}
+
+// ─── Tri des issues dans la table ─────────────────────────────────────
+
+type IssueSortKey = 'date' | 'number' | 'title' | 'status'
+type IssueSortDir = 'asc' | 'desc'
+
+// Ordre logique des status pour tri : ce qui demande une action en
+// premier (wanted), puis available, puis inconnu/manquant.
+const STATUS_ORDER: Record<string, number> = {
+  wanted: 0,
+  available: 1,
+  missing: 2,
+  upcoming: 3,
+}
+
+function issueDateKey(i: Issue): number {
+  // Composite month*100+day pour tri intra-année. On ignore l'année
+  // parce que le grouping externe est déjà par année.
+  const m = i.month ?? 0
+  const d = i.day ?? 0
+  return m * 100 + d
+}
+
+function sortIssues(
+  arr: Issue[],
+  key: IssueSortKey,
+  dir: IssueSortDir,
+): Issue[] {
+  const mul = dir === 'asc' ? 1 : -1
+  const out = [...arr]
+  out.sort((a, b) => {
+    // Handle key
+    let cmp = 0
+    if (key === 'date') {
+      const av = issueDateKey(a)
+      const bv = issueDateKey(b)
+      // Issues sans date à la fin, quel que soit le sens du tri.
+      if (av === 0 && bv !== 0) return 1
+      if (av !== 0 && bv === 0) return -1
+      cmp = av - bv
+    } else if (key === 'number') {
+      const av = a.number ?? Number.NEGATIVE_INFINITY
+      const bv = b.number ?? Number.NEGATIVE_INFINITY
+      cmp = av - bv
+    } else if (key === 'title') {
+      const av = (a.title ?? '').trim()
+      const bv = (b.title ?? '').trim()
+      if (!av && bv) return 1
+      if (av && !bv) return -1
+      cmp = av.localeCompare(bv)
+    } else if (key === 'status') {
+      const av = STATUS_ORDER[a.status ?? ''] ?? 99
+      const bv = STATUS_ORDER[b.status ?? ''] ?? 99
+      cmp = av - bv
+    }
+    if (cmp !== 0) return cmp * mul
+    // Tie-breaker stable : par numéro puis id (garantit ordre reproductible)
+    const na = a.number ?? 0
+    const nb = b.number ?? 0
+    if (na !== nb) return (na - nb) * mul
+    return a.id - b.id
+  })
+  return out
+}
+
+function SortableHead({
+  label,
+  sortKey,
+  currentKey,
+  currentDir,
+  onSort,
+}: {
+  label: string
+  sortKey: IssueSortKey
+  currentKey: IssueSortKey
+  currentDir: IssueSortDir
+  onSort: (k: IssueSortKey) => void
+}) {
+  const active = currentKey === sortKey
+  const Icon = active ? (currentDir === 'asc' ? ArrowUp : ArrowDown) : ArrowDownUp
+  return (
+    <th className="h-12 px-2 text-left align-middle text-zinc-400 [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 hover:text-zinc-200 transition-colors ${
+          active ? 'text-purple-300' : ''
+        }`}
+      >
+        {label}
+        <Icon className={`size-3 ${active ? 'opacity-100' : 'opacity-40'}`} />
+      </button>
+    </th>
   )
 }
