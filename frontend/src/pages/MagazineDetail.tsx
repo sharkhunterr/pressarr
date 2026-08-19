@@ -615,26 +615,21 @@ export default function MagazineDetail() {
 
   // Détection de numéros incohérents par interpolation des voisins par
   // date. Cas typique : OCR défectueuse sur une couverture décalée qui
-  // extrait "1234" alors que le magazine hebdo passe de 2743 à 2745.
+  // extrait "1234" alors qu'un hebdo passe de 2743 à 2745.
   //
-  // Algo simple mais robuste :
-  //  1. Filtre les issues non-forecast avec numéro ET date (utilise
-  //     publicationDate en priorité, sinon y+m+d).
-  //  2. Trie par date croissante.
-  //  3. Pour chaque issue avec au moins un voisin des deux côtés,
-  //     calcule l'expected = interpolation linéaire des voisins basée
-  //     sur la position temporelle. Fallback aux voisins directs si
-  //     un seul côté existe.
-  //  4. Si |declared - expected| dépasse la tolérance (ratio > 3× le
-  //     step normal), flag comme incohérent. On veut détecter les gros
-  //     écarts (2744 → 1234) sans crier au loup pour ±1-2 (souvent
-  //     de vrais gaps éditoriaux : hors-série non compté, etc.).
+  // Choix algo important — la tolérance vient du RANGE LOCAL entre le
+  // voisin d'avant et celui d'après, PAS de la médiane des diffs. Sur
+  // un petit échantillon (3-5 issues) avec un outlier, la médiane des
+  // diffs est polluée par l'outlier lui-même (ex: diffs=[1509,1511] →
+  // medianStep=1511 → tolérance énorme → outlier jamais détecté).
+  // Le range local `|next - prev|` est indépendant de l'issue en cours,
+  // donc reste petit même si le milieu est absurde.
+  //
+  // Pour les extrémités (pas de voisin des deux côtés), on regarde
+  // 2 crans plus loin pour reconstituer un step, sinon on skip.
   const numberIncoherences = useMemo(() => {
     const map = new Map<number, { expected: number; reason: string }>()
-    if (issues.length < 3) return map
 
-    // Prépare la liste triée par date, uniquement les issues "solides"
-    // (non-forecast, numéro + date connus).
     const pts: Array<{ id: number; number: number; time: number }> = []
     for (const issue of issues) {
       if (issue.isForecast || issue.number == null) continue
@@ -646,21 +641,10 @@ export default function MagazineDetail() {
         pts.push({ id: issue.id, number: issue.number, time: d.getTime() })
       }
     }
+    // Besoin d'au moins 3 pts : au minimum 2 voisins pour un point
+    // du milieu (le cas typique visé).
     if (pts.length < 3) return map
     pts.sort((a, b) => a.time - b.time)
-
-    // Step médian pour définir la tolérance. Résistant aux outliers
-    // exactement de la nature qu'on cherche : si un outlier fait sauter
-    // le diff à 1500, la médiane des diffs reste sur 1.
-    const diffs: number[] = []
-    for (let i = 1; i < pts.length; i++) {
-      diffs.push(Math.abs(pts[i].number - pts[i - 1].number))
-    }
-    const sortedDiffs = [...diffs].sort((a, b) => a - b)
-    const medianStep = sortedDiffs[Math.floor(sortedDiffs.length / 2)] || 1
-    // Tolérance : 3× la médiane, plancher à 5 pour éviter le faux-
-    // positif sur les mags avec numérotation très serrée.
-    const tolerance = Math.max(medianStep * 3, 5)
 
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]
@@ -668,21 +652,40 @@ export default function MagazineDetail() {
       const next = pts[i + 1]
 
       let expected: number | null = null
+      let localRange = 0
       let reason = ''
       if (prev && next) {
         // Interpolation linéaire pondérée par position temporelle
         const range = next.time - prev.time
         const pos = range > 0 ? (p.time - prev.time) / range : 0.5
         expected = Math.round(prev.number + (next.number - prev.number) * pos)
+        // Range = distance en numéro entre les 2 voisins ; sert de
+        // référence propre pour la tolérance. Indépendant de p.number.
+        localRange = Math.abs(next.number - prev.number)
         reason = `voisins #${prev.number} → #${next.number}`
       } else if (prev) {
-        expected = prev.number + Math.round(medianStep)
-        reason = `voisin précédent #${prev.number}`
+        // Extrémité droite : extrapole depuis prev + step estimé
+        // depuis prev-1 (si dispo).
+        const prev2 = pts[i - 2]
+        const step = prev2 ? prev.number - prev2.number : 1
+        expected = prev.number + step
+        localRange = Math.abs(step)
+        reason = `voisin précédent #${prev.number} (step ${step >= 0 ? '+' : ''}${step})`
       } else if (next) {
-        expected = next.number - Math.round(medianStep)
-        reason = `voisin suivant #${next.number}`
+        // Extrémité gauche
+        const next2 = pts[i + 2]
+        const step = next2 ? next2.number - next.number : 1
+        expected = next.number - step
+        localRange = Math.abs(step)
+        reason = `voisin suivant #${next.number} (step ${step >= 0 ? '+' : ''}${step})`
       }
       if (expected == null || expected <= 0) continue
+
+      // Tolérance = 5× le range local + plancher 10. Un magazine avec
+      // gap éditorial (hors-série non compté, numéro double) reste OK
+      // — un OCR qui invente un ordre de grandeur (1234 vs 2744) crève
+      // le plafond même quand le voisinage a un step naturel de 2-3.
+      const tolerance = Math.max(localRange * 5, 10)
       if (Math.abs(p.number - expected) > tolerance) {
         map.set(p.id, { expected, reason })
       }
