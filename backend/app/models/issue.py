@@ -52,6 +52,13 @@ class Issue(Base):
     added_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
+    # Timestamp de la dernière exécution du pipeline wanted_search.
+    # Sert au scheduler pour ne pas ré-scanner les mêmes issues à
+    # chaque cycle — cooldown ~ few hours par défaut. Nullable pour
+    # backfill safe.
+    last_searched_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
     magazine: Mapped["Magazine"] = relationship(back_populates="issues")
     file: Mapped["IssueFile | None"] = relationship(

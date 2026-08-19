@@ -35,6 +35,7 @@ def _register_tasks() -> None:
         rss_sync,
         scene_auto_grab,
         scene_import,
+        wanted_search_sync,
     )
 
     # Pack RSS sync runs BEFORE magazine RSS sync to avoid duplicates
@@ -116,6 +117,21 @@ def _register_tasks() -> None:
         seconds=90,
         id="scene_import",
         name="Scene magazine importer",
+        replace_existing=True,
+    )
+
+    # Wanted-issue search — pipeline Prowlarr + rules + IA batch +
+    # arbiter + auto-grab. Différent du rss_sync (qui ne lit que les
+    # feeds) et de scene_auto_grab (qui n'utilise que les scene
+    # indexers). Cadence 15 min = compromis entre réactivité et
+    # coût IA. Le cooldown 4h par issue (last_searched_at) évite le
+    # spam sur les mêmes candidats.
+    scheduler.add_job(
+        wanted_search_sync,
+        "interval",
+        minutes=15,
+        id="wanted_search_sync",
+        name="Wanted-issue search",
         replace_existing=True,
     )
 

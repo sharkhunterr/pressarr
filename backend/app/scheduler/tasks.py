@@ -565,3 +565,116 @@ async def scene_import():
                 )
         except Exception:
             logger.error("Scene importer cycle failed", exc_info=True)
+
+
+async def wanted_search_sync():
+    """Balaie toutes les issues wanted et lance le pipeline unifié.
+
+    Cadence config-driven (defaut 15 min via scheduler/__init__.py).
+    Respecte un cooldown de 4h par issue via ``last_searched_at`` —
+    évite de re-hammer Prowlarr sur les mêmes candidats à chaque
+    tick. Cap à 30 issues par cycle pour ne pas saturer l'IA
+    (~30-60s / issue en batch+arbiter).
+
+    L'auto-grab est activé — un winner ≥ threshold déclenche le grab
+    automatiquement. Activity live dans /activity avec 1 activity par
+    cycle + 1 par issue via le pipeline lui-même.
+    """
+    if not async_session_factory:
+        return
+    from datetime import datetime, timedelta
+    from sqlalchemy import or_
+
+    async with async_session_factory() as db:
+        try:
+            from app.dependencies import get_config
+            from app.models.issue import Issue
+            from app.models.magazine import Magazine
+            from app.services import activity_service
+            from app.services.wanted_search_service import run_wanted_search
+
+            config = get_config()
+            cooldown_hours = 4
+            cutoff = datetime.now() - timedelta(hours=cooldown_hours)
+            max_per_cycle = 30
+
+            from sqlalchemy import select
+            stmt = (
+                select(Issue.id)
+                .join(Magazine, Issue.magazine_id == Magazine.id)
+                .where(
+                    Issue.status == "wanted",
+                    Issue.monitored.is_(True),
+                    Issue.is_forecast.is_(False),
+                    Magazine.monitored.is_(True),
+                    or_(
+                        Issue.last_searched_at.is_(None),
+                        Issue.last_searched_at < cutoff,
+                    ),
+                )
+                .order_by(Issue.last_searched_at.nulls_first(), Issue.id)
+                .limit(max_per_cycle)
+            )
+            issue_ids = list((await db.execute(stmt)).scalars().all())
+            if not issue_ids:
+                logger.debug("wanted_search_sync: no eligible issues")
+                return
+
+            activity_id: int | None = None
+            try:
+                activity_id = await activity_service.create(
+                    kind="scan",
+                    title=f"Wanted search · {len(issue_ids)} issues",
+                    subtitle=f"cooldown {cooldown_hours}h · cap {max_per_cycle}",
+                    payload={"count": len(issue_ids)},
+                )
+            except Exception:
+                pass
+
+            stats = {"searched": 0, "grabbed": 0, "no_winner": 0, "errors": 0}
+            for idx, iid in enumerate(issue_ids, 1):
+                try:
+                    async with async_session_factory() as sess:
+                        res = await run_wanted_search(
+                            sess, iid, config,
+                            trigger="scheduled",
+                            session_factory=async_session_factory,
+                            enable_auto_grab=True,
+                        )
+                        stats["searched"] += 1
+                        if res.auto_grab_success:
+                            stats["grabbed"] += 1
+                        elif res.winner_guid is None:
+                            stats["no_winner"] += 1
+                    if activity_id is not None:
+                        try:
+                            await activity_service.update_progress(
+                                activity_id, idx * 100 / len(issue_ids),
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    stats["errors"] += 1
+                    logger.exception(
+                        "wanted_search_sync: issue %s failed", iid,
+                    )
+
+            if activity_id is not None:
+                try:
+                    await activity_service.mark_done(
+                        activity_id,
+                        hint=(
+                            f"{stats['searched']} scannés · "
+                            f"{stats['grabbed']} grabs · "
+                            f"{stats['no_winner']} sans winner · "
+                            f"{stats['errors']} erreurs"
+                        ),
+                    )
+                except Exception:
+                    pass
+
+            logger.info(
+                "wanted_search_sync complete: %s", stats,
+            )
+        except Exception:
+            logger.error("wanted_search_sync failed", exc_info=True)

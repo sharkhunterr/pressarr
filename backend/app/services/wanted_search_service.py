@@ -141,6 +141,9 @@ class WantedSearchResult:
     winner_confidence: float | None = None
     auto_grab_threshold: float = 78.0
     auto_grab_eligible: bool = False
+    auto_grab_attempted: bool = False
+    auto_grab_success: bool | None = None
+    auto_grab_message: str | None = None
 
     candidates: list[ScoredCandidate] = field(default_factory=list)
 
@@ -314,9 +317,17 @@ async def run_wanted_search(
     config,
     trigger: str = "manual",
     session_factory=None,
+    enable_auto_grab: bool = True,
 ) -> WantedSearchResult:
-    """Point d'entrée du pipeline. Retourne un résultat structuré ; ne
-    grab RIEN (c'est au caller de décider selon confidence + config)."""
+    """Point d'entrée du pipeline.
+
+    Si ``enable_auto_grab`` (défaut True) ET le winner passe le seuil
+    ``wanted_search_auto_grab_threshold``, déclenche le grab automatique
+    via `download_service.grab_release`. Le résultat structuré indique
+    dans tous les cas si l'auto-grab a été tenté (`auto_grab_attempted`)
+    et son issue (`auto_grab_result`). Passer False pour un run manuel
+    "aperçu" qui ne doit jamais toucher le download client.
+    """
     from app.services import activity_service
     from app.services.history_service import create_event, is_blocklisted
     from app.services.magazine_service import apply_magazine_rules
@@ -505,6 +516,73 @@ async def run_wanted_search(
         candidates=candidates,
     )
 
+    # Marque l'issue comme scannée pour que le scheduler respecte le
+    # cooldown. Best-effort — un échec ici n'empêche pas le return.
+    try:
+        issue.last_searched_at = datetime.now()
+        await db.flush()
+    except Exception:
+        logger.debug("last_searched_at update failed", exc_info=True)
+
+    # 6bis. Auto-grab automatique si eligible (winner >= threshold)
+    if (
+        enable_auto_grab
+        and winner is not None
+        and result.auto_grab_eligible
+        and winner.download_url
+    ):
+        # Vérifie l'issue est toujours wanted — évite un race avec un
+        # grab manuel qui aurait passé l'issue en snatched entre-temps.
+        await db.refresh(issue)
+        if issue.status == "wanted" and issue.monitored:
+            await _step(
+                "auto_grab",
+                "Auto-grab",
+                f"{winner.final_score:.0f}% ≥ {result.auto_grab_threshold:.0f}%",
+            )
+            try:
+                from app.services.download_service import grab_release
+                grab_resp = await grab_release(
+                    db,
+                    issue_id=issue.id,
+                    download_url=winner.download_url,
+                    title=winner.title,
+                    protocol=winner.protocol,
+                    guid=winner.guid,
+                    match_score=winner.final_score,
+                    match_details=(
+                        f"wanted_search auto ({trigger}) — "
+                        f"python {winner.python_score:.1f} · "
+                        f"IA {winner.ai_verdict}"
+                        + (
+                            f" ({winner.ai_confidence:.2f})"
+                            if winner.ai_confidence is not None
+                            else ""
+                        )
+                    ),
+                )
+                result.auto_grab_attempted = True
+                result.auto_grab_success = bool(grab_resp.download_id)
+                result.auto_grab_message = grab_resp.message
+                logger.info(
+                    "wanted_search auto-grab issue %s → %s (%s)",
+                    issue_id, grab_resp.message,
+                    "ok" if grab_resp.download_id else "no_dl_id",
+                )
+            except Exception as exc:
+                result.auto_grab_attempted = True
+                result.auto_grab_success = False
+                result.auto_grab_message = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "auto-grab failed for issue %s: %s",
+                    issue_id, exc, exc_info=True,
+                )
+        else:
+            logger.debug(
+                "auto-grab skipped for issue %s: status=%s monitored=%s",
+                issue_id, issue.status, issue.monitored,
+            )
+
     # 6. History event (payload lisible pour UI Phase 2)
     try:
         # Cap : 25 candidats persistés max (les autres sont dans le
@@ -560,6 +638,9 @@ async def run_wanted_search(
                 "auto_grab": {
                     "threshold": result.auto_grab_threshold,
                     "eligible": result.auto_grab_eligible,
+                    "attempted": result.auto_grab_attempted,
+                    "success": result.auto_grab_success,
+                    "message": result.auto_grab_message,
                 },
                 "candidates": [
                     {

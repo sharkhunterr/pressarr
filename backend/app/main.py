@@ -223,6 +223,10 @@ def _migrate_add_columns(connection) -> None:
         ("pack", "auto_create_missing_magazines", "BOOLEAN NOT NULL DEFAULT 0"),
         ("pack", "preview_before_import", "BOOLEAN NOT NULL DEFAULT 0"),
         ("pack", "default_new_magazine_frequency", "VARCHAR(20) NOT NULL DEFAULT 'weekly'"),
+        # Wanted search cooldown : timestamp du dernier run pipeline pour
+        # éviter que le scheduler ré-scanne les mêmes issues à chaque
+        # cycle. NULL = jamais scanné → prioritaire dans le prochain run.
+        ("issue", "last_searched_at", "DATETIME"),
     ]
     for table, column, col_type in migrations:
         try:
