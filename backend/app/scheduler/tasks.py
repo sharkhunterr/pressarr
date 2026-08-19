@@ -599,9 +599,13 @@ async def wanted_search_sync():
             if not getattr(config, "wanted_search_enabled", True):
                 logger.debug("wanted_search_sync: global toggle disabled")
                 return
-            cooldown_hours = 4
+            cooldown_hours = max(0, int(
+                getattr(config, "wanted_search_cooldown_hours", 12),
+            ))
             cutoff = datetime.now() - timedelta(hours=cooldown_hours)
-            max_per_cycle = 30
+            max_per_cycle = max(1, int(
+                getattr(config, "wanted_search_max_per_cycle", 30),
+            ))
 
             from sqlalchemy import select
             stmt = (

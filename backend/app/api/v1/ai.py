@@ -65,6 +65,9 @@ class AISettingsResource(CamelModel):
     wanted_search_auto_grab_enabled: bool
     wanted_search_auto_grab_threshold: float
     wanted_search_min_title_match: float
+    wanted_search_interval_minutes: int
+    wanted_search_cooldown_hours: int
+    wanted_search_max_per_cycle: int
 
 
 class AISettingsUpdateResource(CamelModel):
@@ -93,6 +96,9 @@ class AISettingsUpdateResource(CamelModel):
     wanted_search_auto_grab_enabled: bool | None = None
     wanted_search_auto_grab_threshold: float | None = None
     wanted_search_min_title_match: float | None = None
+    wanted_search_interval_minutes: int | None = None
+    wanted_search_cooldown_hours: int | None = None
+    wanted_search_max_per_cycle: int | None = None
 
 
 def _to_resource(config) -> AISettingsResource:
@@ -122,6 +128,9 @@ def _to_resource(config) -> AISettingsResource:
         wanted_search_auto_grab_enabled=config.wanted_search_auto_grab_enabled,
         wanted_search_auto_grab_threshold=config.wanted_search_auto_grab_threshold,
         wanted_search_min_title_match=config.wanted_search_min_title_match,
+        wanted_search_interval_minutes=config.wanted_search_interval_minutes,
+        wanted_search_cooldown_hours=config.wanted_search_cooldown_hours,
+        wanted_search_max_per_cycle=config.wanted_search_max_per_cycle,
     )
 
 
@@ -173,12 +182,23 @@ async def save_ai_settings(
         "wanted_search_auto_grab_enabled": "wanted_search_auto_grab_enabled",
         "wanted_search_auto_grab_threshold": "wanted_search_auto_grab_threshold",
         "wanted_search_min_title_match": "wanted_search_min_title_match",
+        "wanted_search_interval_minutes": "wanted_search_interval_minutes",
+        "wanted_search_cooldown_hours": "wanted_search_cooldown_hours",
+        "wanted_search_max_per_cycle": "wanted_search_max_per_cycle",
     }
     for body_field, cfg_field in fields_map.items():
         value = getattr(body, body_field)
         if value is not None:
             setattr(config, cfg_field, value)
     config.save()
+    # Reschedule le job wanted_search_sync à chaud si l'intervalle a
+    # changé — évite au user de restart le backend pour appliquer.
+    if body.wanted_search_interval_minutes is not None:
+        try:
+            from app.scheduler import reschedule_wanted_search
+            reschedule_wanted_search(config.wanted_search_interval_minutes)
+        except Exception:
+            logger.warning("reschedule_wanted_search failed", exc_info=True)
     return _to_resource(config)
 
 

@@ -64,6 +64,9 @@ const DEFAULT: LocalState = {
   wantedSearchAutoGrabEnabled: false,
   wantedSearchAutoGrabThreshold: 78,
   wantedSearchMinTitleMatch: 60,
+  wantedSearchIntervalMinutes: 240,
+  wantedSearchCooldownHours: 12,
+  wantedSearchMaxPerCycle: 30,
 }
 
 export default function AISettingsPage() {
@@ -688,6 +691,95 @@ export default function AISettingsPage() {
                 "Le Figaro Magazine" pour "Le Monde") même à confidence
                 1.0. Défaut 60%.
               </p>
+            </div>
+
+            <div className="border-t border-zinc-800 pt-4 space-y-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">
+                Cadence
+              </div>
+
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Intervalle du scheduler (minutes)
+                </label>
+                <Input
+                  type="number"
+                  step="1"
+                  min={1}
+                  max={10080}
+                  value={local.wantedSearchIntervalMinutes}
+                  onChange={(e) =>
+                    setLocal({
+                      ...local,
+                      wantedSearchIntervalMinutes: Number(e.target.value),
+                    })
+                  }
+                  disabled={!local.wantedSearchEnabled}
+                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500">
+                  Toutes les X minutes, le scheduler passe en revue les
+                  issues wanted et lance le pipeline. Défaut{' '}
+                  <strong>240 min (4h)</strong>. Reschedule appliqué à
+                  chaud au save — pas besoin de restart. Repères :
+                  60 = agressif, 240 = équilibré, 720 = 2×/jour.
+                </p>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Cooldown par-issue (heures)
+                </label>
+                <Input
+                  type="number"
+                  step="1"
+                  min={0}
+                  max={720}
+                  value={local.wantedSearchCooldownHours}
+                  onChange={(e) =>
+                    setLocal({
+                      ...local,
+                      wantedSearchCooldownHours: Number(e.target.value),
+                    })
+                  }
+                  disabled={!local.wantedSearchEnabled}
+                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500">
+                  Une issue déjà scannée n'est re-picked qu'après ce
+                  délai (via <code>last_searched_at</code>). Découplé
+                  de l'intervalle scheduler : tu peux scan souvent mais
+                  chaque issue rare. Défaut 12h. 0 = pas de cooldown
+                  (à chaque cycle).
+                </p>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Cap issues par cycle
+                </label>
+                <Input
+                  type="number"
+                  step="1"
+                  min={1}
+                  max={500}
+                  value={local.wantedSearchMaxPerCycle}
+                  onChange={(e) =>
+                    setLocal({
+                      ...local,
+                      wantedSearchMaxPerCycle: Number(e.target.value),
+                    })
+                  }
+                  disabled={!local.wantedSearchEnabled}
+                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500">
+                  Nombre max d'issues traitées par cycle. Le reste
+                  attend le cycle suivant. Défaut 30. Chaque issue coûte
+                  30-60s avec IA vision + arbitre — sur un backlog de
+                  100+ wanted, un cap bas évite de bloquer Ollama.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

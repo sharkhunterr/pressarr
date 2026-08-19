@@ -123,17 +123,46 @@ def _register_tasks() -> None:
     # Wanted-issue search — pipeline Prowlarr + rules + IA batch +
     # arbiter + auto-grab. Différent du rss_sync (qui ne lit que les
     # feeds) et de scene_auto_grab (qui n'utilise que les scene
-    # indexers). Cadence 15 min = compromis entre réactivité et
-    # coût IA. Le cooldown 4h par issue (last_searched_at) évite le
-    # spam sur les mêmes candidats.
+    # indexers). L'intervalle est config-driven (défaut 4h) et
+    # peut être re-schedulé à chaud via reschedule_wanted_search()
+    # sur save des settings.
+    from app.dependencies import get_config as _get_config
+    try:
+        _wsearch_interval = max(1, int(_get_config().wanted_search_interval_minutes))
+    except Exception:
+        _wsearch_interval = 240
     scheduler.add_job(
         wanted_search_sync,
         "interval",
-        minutes=15,
+        minutes=_wsearch_interval,
         id="wanted_search_sync",
         name="Wanted-issue search",
         replace_existing=True,
     )
+
+
+def reschedule_wanted_search(interval_minutes: int) -> None:
+    """Reschedule le job wanted_search_sync en live sans restart backend.
+
+    Appelé par l'endpoint AI settings quand l'user change l'intervalle.
+    Clamp à [1, 10080] (1 min à 1 semaine) pour éviter les extrêmes
+    (0 min = spam infini, plusieurs semaines = quasi-off silencieux).
+    """
+    if not scheduler.running:
+        logger.debug("scheduler not running — reschedule skipped")
+        return
+    interval = max(1, min(int(interval_minutes), 10080))
+    try:
+        scheduler.reschedule_job(
+            "wanted_search_sync", trigger="interval", minutes=interval,
+        )
+        logger.info(
+            "wanted_search_sync rescheduled to %d minutes", interval,
+        )
+    except Exception:
+        logger.warning(
+            "wanted_search_sync reschedule failed", exc_info=True,
+        )
 
     # Nettoyage périodique des activités « running » orphelines.
     # Sans ça, un import qui se plante silencieusement (backend

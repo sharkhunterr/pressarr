@@ -51,6 +51,15 @@ export interface AISettings {
    *  En dessous, l'auto-grab est bloqué même si le composite est haut.
    *  Garde-fou contre les picks IA off-topic. */
   wantedSearchMinTitleMatch: number
+  /** Intervalle du scheduler wanted_search_sync en minutes.
+   *  Défaut 240 (4h). Reschedule à chaud au save. */
+  wantedSearchIntervalMinutes: number
+  /** Cooldown par-issue en heures. Une issue déjà scannée n'est
+   *  re-picked qu'après ce délai. */
+  wantedSearchCooldownHours: number
+  /** Nombre max d'issues traitées par cycle scheduler. Le reste
+   *  attend le cycle suivant — évite de saturer l'IA. */
+  wantedSearchMaxPerCycle: number
 }
 
 export interface PythonOCRProbeEntry {

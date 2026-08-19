@@ -289,6 +289,22 @@ class Config:
         # un release quality+seeds pouvait franchir le seuil sans
         # ressembler au titre attendu. Ce gate est indépendant.
         self.wanted_search_min_title_match: float = 60.0
+        # Cadence du scheduler wanted_search_sync (minutes entre 2
+        # cycles). Défaut 4h : sur beaucoup d'issues wanted, un
+        # intervalle court réquisitionne les indexeurs + Ollama trop
+        # souvent. Le changement est appliqué à chaud (reschedule)
+        # au save des settings, pas besoin de restart backend.
+        self.wanted_search_interval_minutes: int = 240
+        # Cooldown par-issue : une fois scannée, une issue n'est
+        # re-picked qu'après ce délai (via issue.last_searched_at).
+        # Découplé de l'intervalle scheduler pour permettre "je scan
+        # souvent mais chaque issue rare" (ex. interval=60min +
+        # cooldown=12h → chaque issue vue 2×/jour au max).
+        self.wanted_search_cooldown_hours: int = 12
+        # Cap d'issues traitées par cycle. Évite qu'un backlog de 500
+        # wanted sature l'IA sur un seul run (chaque issue coûte 30-60s
+        # avec vision + arbiter). Le reste attend le cycle suivant.
+        self.wanted_search_max_per_cycle: int = 30
         self.ai_ranker_prompt: str = (
             "Tu reçois une liste de releases candidates pour un "
             "magazine. Ton job : choisir la MEILLEURE correspondance ou "
@@ -426,6 +442,15 @@ class Config:
         )
         self.wanted_search_min_title_match = wsearch.get(
             "min_title_match", self.wanted_search_min_title_match
+        )
+        self.wanted_search_interval_minutes = wsearch.get(
+            "interval_minutes", self.wanted_search_interval_minutes
+        )
+        self.wanted_search_cooldown_hours = wsearch.get(
+            "cooldown_hours", self.wanted_search_cooldown_hours
+        )
+        self.wanted_search_max_per_cycle = wsearch.get(
+            "max_per_cycle", self.wanted_search_max_per_cycle
         )
 
         scheduler = data.get("scheduler", {})
@@ -568,6 +593,9 @@ class Config:
                 "auto_grab_enabled": self.wanted_search_auto_grab_enabled,
                 "auto_grab_threshold": self.wanted_search_auto_grab_threshold,
                 "min_title_match": self.wanted_search_min_title_match,
+                "interval_minutes": self.wanted_search_interval_minutes,
+                "cooldown_hours": self.wanted_search_cooldown_hours,
+                "max_per_cycle": self.wanted_search_max_per_cycle,
             },
         }
         with open(self.config_path, "w") as f:
