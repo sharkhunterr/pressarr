@@ -61,7 +61,9 @@ const DEFAULT: LocalState = {
   rankerConfidenceThreshold: 0.6,
   rankerPrompt: '',
   wantedSearchEnabled: true,
+  wantedSearchAutoGrabEnabled: false,
   wantedSearchAutoGrabThreshold: 78,
+  wantedSearchMinTitleMatch: 60,
 }
 
 export default function AISettingsPage() {
@@ -611,6 +613,28 @@ export default function AISettingsPage() {
               </p>
             </div>
 
+            <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
+              <div className="flex-1 pr-3">
+                <label className="text-sm font-medium text-zinc-300 block">
+                  Auto-grab automatique
+                </label>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  <strong className="text-amber-400">OFF par défaut (recommandé)</strong>{' '}
+                  — quand ON, un winner qui passe le seuil est envoyé au client
+                  de téléchargement sans intervention. Assure-toi d'avoir des
+                  <em> rules include/exclude</em> solides sur tes magazines
+                  avant d'activer. Sans auto-grab, le pipeline continue de
+                  chercher + logguer mais ne grab rien tout seul.
+                </p>
+              </div>
+              <Switch
+                checked={local.wantedSearchAutoGrabEnabled}
+                onCheckedChange={(v) =>
+                  setLocal({ ...local, wantedSearchAutoGrabEnabled: v === true })
+                }
+              />
+            </div>
+
             <div className="grid gap-1.5">
               <label className="text-sm font-medium text-zinc-300">
                 Seuil auto-grab (%)
@@ -627,14 +651,42 @@ export default function AISettingsPage() {
                     wantedSearchAutoGrabThreshold: Number(e.target.value),
                   })
                 }
+                disabled={!local.wantedSearchAutoGrabEnabled}
                 className="bg-zinc-900 border-zinc-700 text-zinc-100"
               />
               <p className="text-xs text-zinc-500">
                 Au-dessus de ce score composite (Python + IA), le
                 winner est envoyé au client de téléchargement
-                automatiquement. En dessous, l'issue reste en
-                <em> wanted</em> pour intervention utilisateur.
-                Défaut 78% — aligné sur le seuil dispatch de pack.
+                automatiquement. Défaut 78% — aligné sur le seuil
+                dispatch de pack.
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                Plancher fuzzy titre release (%)
+              </label>
+              <Input
+                type="number"
+                step="1"
+                min={0}
+                max={100}
+                value={local.wantedSearchMinTitleMatch}
+                onChange={(e) =>
+                  setLocal({
+                    ...local,
+                    wantedSearchMinTitleMatch: Number(e.target.value),
+                  })
+                }
+                disabled={!local.wantedSearchAutoGrabEnabled}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+              <p className="text-xs text-zinc-500">
+                Garde-fou indépendant du composite : le titre du release
+                doit fuzzy-matcher le titre magazine à ≥ ce plancher.
+                Empêche l'IA d'auto-grab un release off-topic (ex.
+                "Le Figaro Magazine" pour "Le Monde") même à confidence
+                1.0. Défaut 60%.
               </p>
             </div>
           </CardContent>

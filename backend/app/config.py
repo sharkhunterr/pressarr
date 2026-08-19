@@ -269,11 +269,26 @@ class Config:
         # création d'issue. Les recherches manuelles restent
         # possibles (bouton UI par issue).
         self.wanted_search_enabled: bool = True
+        # Toggle SÉPARÉ pour l'auto-grab automatique. Défaut FALSE
+        # après incident : un mauvais pick IA (ex. Le Monde 19/08
+        # pour l'issue 13/08 avec IA en advisory boostée par bug) a
+        # écrasé un fichier existant via le grab_registry qui a
+        # rattaché un download hash déjà présent à la nouvelle issue.
+        # L'utilisateur doit explicitement opt-in ET s'assurer que
+        # les rules include/exclude sont solides sur ses mags.
+        self.wanted_search_auto_grab_enabled: bool = False
         # Seuil au-dessus duquel le meilleur résultat est considéré
         # assez fiable pour un auto-grab sans confirmation utilisateur.
         # En dessous, l'issue reste en wanted et attend qu'un humain
         # ou un run futur relance.
         self.wanted_search_auto_grab_threshold: float = 78.0
+        # Plancher de fuzzy-match titre magazine sur le release. En
+        # dessous, l'auto-grab est bloqué même si le composite est haut
+        # — garde-fou contre "Le Figaro Magazine" pour "Le Monde".
+        # Le score python inclut déjà un fuzzy titre (50 pts max), mais
+        # un release quality+seeds pouvait franchir le seuil sans
+        # ressembler au titre attendu. Ce gate est indépendant.
+        self.wanted_search_min_title_match: float = 60.0
         self.ai_ranker_prompt: str = (
             "Tu reçois une liste de releases candidates pour un "
             "magazine. Ton job : choisir la MEILLEURE correspondance ou "
@@ -403,8 +418,14 @@ class Config:
         self.wanted_search_enabled = wsearch.get(
             "enabled", self.wanted_search_enabled
         )
+        self.wanted_search_auto_grab_enabled = wsearch.get(
+            "auto_grab_enabled", self.wanted_search_auto_grab_enabled
+        )
         self.wanted_search_auto_grab_threshold = wsearch.get(
             "auto_grab_threshold", self.wanted_search_auto_grab_threshold
+        )
+        self.wanted_search_min_title_match = wsearch.get(
+            "min_title_match", self.wanted_search_min_title_match
         )
 
         scheduler = data.get("scheduler", {})
@@ -544,7 +565,9 @@ class Config:
             },
             "wanted_search": {
                 "enabled": self.wanted_search_enabled,
+                "auto_grab_enabled": self.wanted_search_auto_grab_enabled,
                 "auto_grab_threshold": self.wanted_search_auto_grab_threshold,
+                "min_title_match": self.wanted_search_min_title_match,
             },
         }
         with open(self.config_path, "w") as f:

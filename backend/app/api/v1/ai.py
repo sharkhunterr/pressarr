@@ -62,7 +62,9 @@ class AISettingsResource(CamelModel):
     ranker_prompt: str
     # Wanted-search pipeline global toggles.
     wanted_search_enabled: bool
+    wanted_search_auto_grab_enabled: bool
     wanted_search_auto_grab_threshold: float
+    wanted_search_min_title_match: float
 
 
 class AISettingsUpdateResource(CamelModel):
@@ -88,7 +90,9 @@ class AISettingsUpdateResource(CamelModel):
     ranker_confidence_threshold: float | None = None
     ranker_prompt: str | None = None
     wanted_search_enabled: bool | None = None
+    wanted_search_auto_grab_enabled: bool | None = None
     wanted_search_auto_grab_threshold: float | None = None
+    wanted_search_min_title_match: float | None = None
 
 
 def _to_resource(config) -> AISettingsResource:
@@ -115,7 +119,9 @@ def _to_resource(config) -> AISettingsResource:
         ranker_confidence_threshold=config.ai_ranker_confidence_threshold,
         ranker_prompt=config.ai_ranker_prompt,
         wanted_search_enabled=config.wanted_search_enabled,
+        wanted_search_auto_grab_enabled=config.wanted_search_auto_grab_enabled,
         wanted_search_auto_grab_threshold=config.wanted_search_auto_grab_threshold,
+        wanted_search_min_title_match=config.wanted_search_min_title_match,
     )
 
 
@@ -164,7 +170,9 @@ async def save_ai_settings(
         "ranker_confidence_threshold": "ai_ranker_confidence_threshold",
         "ranker_prompt": "ai_ranker_prompt",
         "wanted_search_enabled": "wanted_search_enabled",
+        "wanted_search_auto_grab_enabled": "wanted_search_auto_grab_enabled",
         "wanted_search_auto_grab_threshold": "wanted_search_auto_grab_threshold",
+        "wanted_search_min_title_match": "wanted_search_min_title_match",
     }
     for body_field, cfg_field in fields_map.items():
         value = getattr(body, body_field)

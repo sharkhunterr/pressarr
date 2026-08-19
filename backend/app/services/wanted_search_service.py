@@ -294,20 +294,35 @@ def _composite_score(
     python_score: float,
     ai_verdict: str,
     ai_confidence: float | None,
+    ai_mode: str | None,
 ) -> float:
-    """Combine python + IA en un score 0-100.
+    """Combine python + IA en un score 0-100, respectant le mode ranker.
 
-    Règles :
-      - IA "picked" avec confidence C : score = clamp(python * 0.6 + C * 40)
-        → un pick IA fort (C=1.0) peut pousser un python-mid à ~100.
-      - IA "vetoed" : score /= 3 (l'IA a explicitement refusé le top scorer)
-      - IA "not_picked" : score = python (rien ne change)
-      - IA "skipped" : score = python
+    Correction post-incident (Le Monde 2928 imported "Le Figaro Magazine"
+    content) : le boost IA était appliqué même en mode ``ai_advisory``,
+    ce qui permettait à un pick IA erroné de propulser un candidat
+    off-topic au-dessus du seuil auto-grab. Le mode advisory par défaut
+    est censé LOGGER l'avis IA sans le laisser influencer le winner.
+
+    Règles par mode :
+      - ``ai_advisory`` (défaut) : IA log seul, aucune influence sur
+        le composite. final_score = python_score.
+      - ``ai_veto_only`` : l'IA peut REFUSER le top scorer (down-score
+        à /3) mais ne peut pas booster un autre candidat au-dessus.
+      - ``ai_wins`` : IA autorité pleine. Pick IA boosté par
+        max(python, python*0.6 + conf*40). Veto down-score /3.
     """
-    if ai_verdict == "picked" and ai_confidence is not None:
-        return max(python_score, python_score * 0.6 + ai_confidence * 40.0)
-    if ai_verdict == "vetoed":
-        return python_score / 3.0
+    if ai_mode == "ai_wins":
+        if ai_verdict == "picked" and ai_confidence is not None:
+            return max(python_score, python_score * 0.6 + ai_confidence * 40.0)
+        if ai_verdict == "vetoed":
+            return python_score / 3.0
+        return python_score
+    if ai_mode == "ai_veto_only":
+        if ai_verdict == "vetoed":
+            return python_score / 3.0
+        return python_score
+    # ai_advisory (défaut) et tout mode inconnu → passthrough python
     return python_score
 
 
@@ -509,8 +524,13 @@ async def run_wanted_search(
             )
 
     # 5. Composite score + winner
+    ai_mode_actual = ai_mode or (
+        getattr(config, "ai_ranker_mode", "ai_advisory") if ai_used else None
+    )
     for c in surviving:
-        c.final_score = _composite_score(c.python_score, c.ai_verdict, c.ai_confidence)
+        c.final_score = _composite_score(
+            c.python_score, c.ai_verdict, c.ai_confidence, ai_mode_actual,
+        )
     surviving.sort(key=lambda c: c.final_score, reverse=True)
     winner = surviving[0] if surviving else None
     if winner is not None:
@@ -560,12 +580,58 @@ async def run_wanted_search(
         logger.debug("last_searched_at update failed", exc_info=True)
 
     # 6bis. Auto-grab automatique si eligible (winner >= threshold)
-    if (
+    #
+    # Garde-fous cumulés post-incident :
+    #   1. `enable_auto_grab` caller-side (respect du contexte : preview
+    #      manuel = False).
+    #   2. `config.wanted_search_auto_grab_enabled` global — défaut False
+    #      après l'écrasement d'un fichier Le Monde par un release Le
+    #      Figaro Magazine, force l'user à opt-in explicitement.
+    #   3. Winner confidence >= threshold (défaut 78%).
+    #   4. Fuzzy match du titre magazine >= min_title_match (défaut 60%)
+    #      sur le TITRE DU RELEASE — garde-fou indépendant du composite
+    #      score, bloque les picks IA off-topic même à confidence 1.0.
+    global_auto_grab = getattr(config, "wanted_search_auto_grab_enabled", False)
+    auto_grab_gate_ok = (
         enable_auto_grab
+        and global_auto_grab
         and winner is not None
         and result.auto_grab_eligible
-        and winner.download_url
-    ):
+        and winner.download_url is not None
+        and winner.download_url != ""
+    )
+    if auto_grab_gate_ok and winner is not None:
+        # Hard gate fuzzy titre — le release doit ressembler au titre
+        # magazine à un plancher minimum. Empêche IA d'auto-grab un
+        # "Le Figaro Magazine" quand la cible est "Le Monde".
+        min_title = float(
+            getattr(config, "wanted_search_min_title_match", 60.0),
+        )
+        title_gate_score: float | None = None
+        try:
+            from app.parser.magazine_parser import fuzzy_match_title as _fuzzy
+            _m = _fuzzy(winner.title, [magazine.title], threshold=0.0)
+            if _m:
+                _, title_gate_score = _m
+        except Exception:
+            logger.debug("fuzzy title gate check failed", exc_info=True)
+
+        if title_gate_score is None or title_gate_score < min_title:
+            logger.warning(
+                "auto-grab bloqué pour issue %s : fuzzy titre %s vs %r = %s < %.1f",
+                issue_id, winner.title[:60], magazine.title,
+                f"{title_gate_score:.1f}" if title_gate_score is not None else "?",
+                min_title,
+            )
+            result.auto_grab_attempted = False
+            result.auto_grab_success = False
+            result.auto_grab_message = (
+                f"blocked: title match {title_gate_score:.0f}% < {min_title:.0f}%"
+                if title_gate_score is not None else "blocked: title gate error"
+            )
+            auto_grab_gate_ok = False
+
+    if auto_grab_gate_ok and winner is not None:
         # Vérifie l'issue est toujours wanted — évite un race avec un
         # grab manuel qui aurait passé l'issue en snatched entre-temps.
         await db.refresh(issue)

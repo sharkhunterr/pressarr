@@ -38,9 +38,19 @@ export interface AISettings {
    *  Global toggle. False désactive scheduler + auto-triggers ; les
    *  recherches manuelles (bouton UI) restent possibles. */
   wantedSearchEnabled: boolean
+  /** Toggle SÉPARÉ pour l'auto-grab automatique. False par défaut
+   *  après incident (fichier écrasé) — l'utilisateur doit opt-in
+   *  explicitement + s'assurer que ses rules include/exclude sont
+   *  solides. Le pipeline continue de tourner et de logguer, il
+   *  ne DÉCLENCHE juste plus le grab. */
+  wantedSearchAutoGrabEnabled: boolean
   /** Seuil confidence (0-100) au-dessus duquel un winner est
    *  auto-grabé sans intervention utilisateur. */
   wantedSearchAutoGrabThreshold: number
+  /** Fuzzy-match plancher entre titre du release et titre magazine.
+   *  En dessous, l'auto-grab est bloqué même si le composite est haut.
+   *  Garde-fou contre les picks IA off-topic. */
+  wantedSearchMinTitleMatch: number
 }
 
 export interface PythonOCRProbeEntry {
