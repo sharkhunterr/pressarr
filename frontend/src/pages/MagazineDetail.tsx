@@ -613,6 +613,83 @@ export default function MagazineDetail() {
     return map
   }, [issues, magazine])
 
+  // Détection de numéros incohérents par interpolation des voisins par
+  // date. Cas typique : OCR défectueuse sur une couverture décalée qui
+  // extrait "1234" alors que le magazine hebdo passe de 2743 à 2745.
+  //
+  // Algo simple mais robuste :
+  //  1. Filtre les issues non-forecast avec numéro ET date (utilise
+  //     publicationDate en priorité, sinon y+m+d).
+  //  2. Trie par date croissante.
+  //  3. Pour chaque issue avec au moins un voisin des deux côtés,
+  //     calcule l'expected = interpolation linéaire des voisins basée
+  //     sur la position temporelle. Fallback aux voisins directs si
+  //     un seul côté existe.
+  //  4. Si |declared - expected| dépasse la tolérance (ratio > 3× le
+  //     step normal), flag comme incohérent. On veut détecter les gros
+  //     écarts (2744 → 1234) sans crier au loup pour ±1-2 (souvent
+  //     de vrais gaps éditoriaux : hors-série non compté, etc.).
+  const numberIncoherences = useMemo(() => {
+    const map = new Map<number, { expected: number; reason: string }>()
+    if (issues.length < 3) return map
+
+    // Prépare la liste triée par date, uniquement les issues "solides"
+    // (non-forecast, numéro + date connus).
+    const pts: Array<{ id: number; number: number; time: number }> = []
+    for (const issue of issues) {
+      if (issue.isForecast || issue.number == null) continue
+      let d: Date | null = null
+      if (issue.publicationDate) d = new Date(issue.publicationDate)
+      else if (issue.year && issue.month)
+        d = new Date(issue.year, issue.month - 1, issue.day ?? 1)
+      if (d && !isNaN(d.getTime())) {
+        pts.push({ id: issue.id, number: issue.number, time: d.getTime() })
+      }
+    }
+    if (pts.length < 3) return map
+    pts.sort((a, b) => a.time - b.time)
+
+    // Step médian pour définir la tolérance. Résistant aux outliers
+    // exactement de la nature qu'on cherche : si un outlier fait sauter
+    // le diff à 1500, la médiane des diffs reste sur 1.
+    const diffs: number[] = []
+    for (let i = 1; i < pts.length; i++) {
+      diffs.push(Math.abs(pts[i].number - pts[i - 1].number))
+    }
+    const sortedDiffs = [...diffs].sort((a, b) => a - b)
+    const medianStep = sortedDiffs[Math.floor(sortedDiffs.length / 2)] || 1
+    // Tolérance : 3× la médiane, plancher à 5 pour éviter le faux-
+    // positif sur les mags avec numérotation très serrée.
+    const tolerance = Math.max(medianStep * 3, 5)
+
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]
+      const prev = pts[i - 1]
+      const next = pts[i + 1]
+
+      let expected: number | null = null
+      let reason = ''
+      if (prev && next) {
+        // Interpolation linéaire pondérée par position temporelle
+        const range = next.time - prev.time
+        const pos = range > 0 ? (p.time - prev.time) / range : 0.5
+        expected = Math.round(prev.number + (next.number - prev.number) * pos)
+        reason = `voisins #${prev.number} → #${next.number}`
+      } else if (prev) {
+        expected = prev.number + Math.round(medianStep)
+        reason = `voisin précédent #${prev.number}`
+      } else if (next) {
+        expected = next.number - Math.round(medianStep)
+        reason = `voisin suivant #${next.number}`
+      }
+      if (expected == null || expected <= 0) continue
+      if (Math.abs(p.number - expected) > tolerance) {
+        map.set(p.id, { expected, reason })
+      }
+    }
+    return map
+  }, [issues])
+
   // Estimate frequency from issue numbers and their dates.
   // Uses the ratio (days between issues) / (number difference) to compute
   // how many days per issue number increment, then maps to the closest frequency.
@@ -1433,6 +1510,7 @@ export default function MagazineDetail() {
                         selected={selectedIds.has(issue.id)}
                         queueItem={queueByIssueId.get(issue.id)}
                         deduced={deductions.get(issue.id)}
+                        numberIncoherence={numberIncoherences.get(issue.id)}
                         onSelect={handleSelect}
                         onToggleMonitor={(issueId, monitored) =>
                           monitorMutation.mutate({ issueId, monitored })

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen, Clock, Sparkles } from 'lucide-react'
+import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen, Clock, Sparkles, AlertTriangle } from 'lucide-react'
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
@@ -28,11 +28,22 @@ export interface DeducedFields {
   deducedMonth?: number
 }
 
+/** Signal d'incohérence entre le numéro DÉCLARÉ de l'issue et
+ *  celui attendu par interpolation des voisins par date. Passé quand
+ *  |declared - expected| dépasse une tolérance (voir MagazineDetail
+ *  ~ detectNumberIncoherences). L'UI affiche le numéro en orange +
+ *  icône ⚠ + tooltip "attendu ~N (interpolé depuis voisins)". */
+export interface NumberIncoherence {
+  expected: number
+  reason: string
+}
+
 interface IssueRowProps {
   issue: Issue
   selected: boolean
   queueItem?: QueueEntry
   deduced?: DeducedFields
+  numberIncoherence?: NumberIncoherence
   onSelect: (id: number, checked: boolean) => void
   onToggleMonitor: (id: number, monitored: boolean) => void
   onEdit: (issue: Issue) => void
@@ -55,6 +66,7 @@ export function IssueRow({
   selected,
   queueItem,
   deduced,
+  numberIncoherence,
   onSelect,
   onToggleMonitor,
   onEdit,
@@ -117,8 +129,31 @@ export function IssueRow({
           className="size-4 rounded border-zinc-600 bg-zinc-900 text-[#7C3AED] focus:ring-[#7C3AED] accent-[#7C3AED]"
         />
       </TableCell>
-      <TableCell className={`font-medium ${isNumberDeduced ? 'text-amber-400 italic' : 'text-zinc-100'}`}>
-        {displayNumber}
+      <TableCell
+        className={`font-medium ${
+          numberIncoherence
+            ? 'text-orange-500'
+            : isNumberDeduced
+              ? 'text-amber-400 italic'
+              : 'text-zinc-100'
+        }`}
+        title={
+          numberIncoherence
+            ? `Numéro suspect — ${numberIncoherence.reason}. Attendu ~${numberIncoherence.expected}.`
+            : undefined
+        }
+      >
+        <span className="inline-flex items-center gap-1">
+          {displayNumber}
+          {numberIncoherence && (
+            <AlertTriangle className="size-3.5 text-orange-500 shrink-0" />
+          )}
+        </span>
+        {numberIncoherence && (
+          <div className="text-[10px] text-orange-400/80 font-normal italic">
+            attendu ~{numberIncoherence.expected}
+          </div>
+        )}
       </TableCell>
       <TableCell className={isDateDeduced ? 'text-amber-400 italic' : 'text-zinc-400'}>
         {displayDate}
