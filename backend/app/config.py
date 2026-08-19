@@ -263,6 +263,12 @@ class Config:
         self.ai_ranker_batch_size: int = 5
         self.ai_ranker_top_k: int = 15  # candidats du scorer envoyés à l'IA
         self.ai_ranker_confidence_threshold: float = 0.6
+        # Wanted-issue search pipeline (Prowlarr → python score → rules
+        # → IA batch/arbiter). Seuil au-dessus duquel le meilleur
+        # résultat est considéré assez fiable pour un auto-grab sans
+        # confirmation utilisateur. En dessous, l'issue reste en
+        # wanted et attend qu'un humain ou un run futur relance.
+        self.wanted_search_auto_grab_threshold: float = 78.0
         self.ai_ranker_prompt: str = (
             "Tu reçois une liste de releases candidates pour un "
             "magazine. Ton job : choisir la MEILLEURE correspondance ou "
@@ -387,6 +393,11 @@ class Config:
             "confidence_threshold", self.ai_ranker_confidence_threshold
         )
         self.ai_ranker_prompt = rnk.get("prompt", self.ai_ranker_prompt)
+
+        wsearch = data.get("wanted_search", {})
+        self.wanted_search_auto_grab_threshold = wsearch.get(
+            "auto_grab_threshold", self.wanted_search_auto_grab_threshold
+        )
 
         scheduler = data.get("scheduler", {})
         self.rss_sync_interval = scheduler.get(
@@ -522,6 +533,9 @@ class Config:
                     "confidence_threshold": self.ai_ranker_confidence_threshold,
                     "prompt": self.ai_ranker_prompt,
                 },
+            },
+            "wanted_search": {
+                "auto_grab_threshold": self.wanted_search_auto_grab_threshold,
             },
         }
         with open(self.config_path, "w") as f:

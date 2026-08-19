@@ -302,13 +302,24 @@ async def promote_due_forecasts(db: AsyncSession) -> int:
     )
     forecasts = result.scalars().all()
     count = 0
+    promoted_ids: list[int] = []
     for forecast in forecasts:
         forecast.status = "wanted"
         forecast.is_forecast = False
+        promoted_ids.append(forecast.id)
         count += 1
     if count:
         await db.flush()
         logger.info("Promoted %d due forecasts to wanted", count)
+        # Auto-trigger recherche pour chaque forecast promoted. Le
+        # scheduler rss_sync tourne toutes les 30 min mais l'utilisateur
+        # veut un feedback immédiat : le pipeline complet tourne en
+        # background dès la promotion, résultat visible en /activity.
+        from app.services.wanted_search_service import (
+            trigger_wanted_search_in_background,
+        )
+        for iid in promoted_ids:
+            trigger_wanted_search_in_background(iid)
     return count
 
 

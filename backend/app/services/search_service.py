@@ -153,136 +153,56 @@ def _serialize_top_results(results: list[SearchResultResource], limit: int = 10)
 
 
 async def search_issue(
-    db: AsyncSession, issue_id: int, config
+    db: AsyncSession, issue_id: int, config, trigger: str = "manual",
 ) -> list[SearchResultResource]:
-    result = await db.execute(
-        select(Issue)
-        .options(selectinload(Issue.magazine))
-        .where(Issue.id == issue_id)
-    )
-    issue = result.scalars().first()
-    if not issue:
+    """Recherche wanted par issue — délègue au pipeline unifié.
+
+    Le vrai travail (fetch, python score, rules, IA batch+arbiter,
+    composite score, winner, history event enrichi, activity) est fait
+    dans ``wanted_search_service.run_wanted_search()``. Cette fonction
+    convertit son résultat structuré en la shape ``SearchResultResource[]``
+    attendue par l'UI existante (`score` = final_score, ordre desc).
+
+    Les candidats "excluded" (rule) et "blocklisted" sont inclus dans
+    le retour avec ``is_blocklisted=True`` et un score bas — l'UI peut
+    les afficher grisés pour observabilité.
+    """
+    from app.database import async_session_factory
+    from app.services.wanted_search_service import run_wanted_search
+
+    try:
+        result = await run_wanted_search(
+            db, issue_id, config,
+            trigger=trigger,
+            session_factory=async_session_factory,
+        )
+    except ValueError:
         return []
 
-    magazine = issue.magazine
-    query = _build_query(magazine, issue)
+    out: list[SearchResultResource] = []
+    for c in result.candidates:
+        out.append(SearchResultResource(
+            guid=c.guid,
+            title=c.title,
+            indexer=c.indexer,
+            source=c.source,
+            size=c.size,
+            age=c.age,
+            protocol=c.protocol,
+            seeders=c.seeders,
+            quality=c.quality,
+            language=c.language,
+            # score = final composite (python + IA). Legacy champ, l'UI
+            # Phase 2 lira final_score depuis l'event history pour plus
+            # de granularité (python vs IA breakdown).
+            score=c.final_score if c.dropped_reason is None else c.python_score,
+            is_blocklisted=c.is_blocklisted,
+            download_url=c.download_url,
+            publish_date=c.publish_date,
+        ))
+    out.sort(key=lambda r: r.score, reverse=True)
 
-    from app.services import activity_service as _asvc
-    activity_id: int | None = None
-    try:
-        activity_id = await _asvc.create(
-            kind="search",
-            title=f"Recherche · {magazine.title} #{issue.number or '?'}",
-            subtitle=query,
-            magazine_id=magazine.id,
-            issue_id=issue.id,
-            payload={"query": query, "type": "manual_issue"},
-        )
-    except Exception:
-        pass
-
-    # Get quality profile items
-    profile_items = await _get_quality_items(db, magazine.quality_profile_id)
-
-    # Search via Prowlarr
-    from app.indexers.prowlarr import ProwlarrClient
-    from app.models.indexer_config import IndexerConfig
-
-    indexer_result = await db.execute(
-        select(IndexerConfig).where(IndexerConfig.enabled.is_(True))
-    )
-    indexers = indexer_result.scalars().all()
-
-    all_results: list[SearchResultResource] = []
-    for indexer in indexers:
-        try:
-            client = ProwlarrClient(
-                url=indexer.url,
-                api_key=indexer.api_key,
-            )
-            global_cats = [int(c) for c in indexer.categories.split(",") if c.strip().isdigit()] or [7000, 7010, 7020]
-            overrides = parse_indexer_overrides(indexer.indexer_overrides)
-            search_groups = get_search_groups(overrides, global_cats)
-            raw_results = []
-            for cats, indexer_ids in search_groups:
-                raw_results.extend(await client.search(query, categories=cats, indexer_ids=indexer_ids))
-            for raw in raw_results:
-                parsed = parse_magazine_filename(raw.title)
-                quality = parsed.quality if parsed.quality != "unknown" else "unknown"
-                language = _resolve_language(raw.language, parsed.language)
-
-                blocked = await is_blocklisted(db, raw.title)
-
-                score = score_release(
-                    title=raw.title,
-                    quality=quality,
-                    size=raw.size,
-                    seeders=raw.seeders,
-                    age_days=raw.age,
-                    magazine_title=magazine.title,
-                    profile_items=profile_items,
-                )
-
-                all_results.append(SearchResultResource(
-                    guid=raw.guid,
-                    title=raw.title,
-                    indexer=indexer.name,
-                    source=raw.indexer,
-                    size=raw.size,
-                    age=raw.age,
-                    protocol=raw.protocol,
-                    seeders=raw.seeders,
-                    quality=quality,
-                    language=language,
-                    score=score,
-                    is_blocklisted=blocked,
-                    download_url=raw.download_url or "",
-                    publish_date=raw.publish_date,
-                ))
-        except Exception:
-            logger.warning("Search error for indexer %s", indexer.name, exc_info=True)
-
-    all_results.sort(key=lambda r: r.score, reverse=True)
-
-    # Best-effort history — jamais bloquant pour le return.
-    indexer_names = list({r.indexer for r in all_results})
-    try:
-        await create_event(
-            db,
-            event_type="searched",
-            magazine_id=magazine.id,
-            issue_id=issue.id,
-            details=f"Manual search: {query} ({len(all_results)} results)",
-            data={
-                "search_type": "manual",
-                "query": query,
-                "result_count": len(all_results),
-                "magazine_title": magazine.title,
-                "issue_number": issue.number,
-                "indexers": indexer_names,
-                "top_results": _serialize_top_results(all_results),
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "History event insert failed (results still returned): %s",
-            exc,
-        )
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
-
-    if activity_id is not None:
-        try:
-            await _asvc.mark_done(
-                activity_id,
-                hint=f"{len(all_results)} résultats · {len(indexer_names)} indexeur(s)",
-            )
-        except Exception:
-            pass
-
-    return all_results
+    return out
 
 
 async def search_free(

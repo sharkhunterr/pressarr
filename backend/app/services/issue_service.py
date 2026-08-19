@@ -40,6 +40,15 @@ async def create_issue(db: AsyncSession, **kwargs) -> Issue:
     issue = Issue(**kwargs)
     db.add(issue)
     await db.flush()
+    # Auto-trigger recherche wanted en background si l'issue est
+    # immédiatement en état wanted (création manuelle d'un backlog,
+    # promotion précoce, etc.). Fire-and-forget — un échec ici ne
+    # doit pas casser la création.
+    if issue.status == "wanted" and issue.monitored:
+        from app.services.wanted_search_service import (
+            trigger_wanted_search_in_background,
+        )
+        trigger_wanted_search_in_background(issue.id)
     return issue
 
 
@@ -49,12 +58,19 @@ async def update_issue_monitored(
     issue = await get_issue(db, issue_id)
     if not issue:
         return None
+    was_wanted = issue.status == "wanted" and issue.monitored
     issue.monitored = monitored
     if monitored and issue.status == "missing":
         issue.status = "wanted"
     elif not monitored and issue.status == "wanted":
         issue.status = "missing"
     await db.flush()
+    # Transition missing→wanted : trigger recherche.
+    if not was_wanted and issue.status == "wanted" and issue.monitored:
+        from app.services.wanted_search_service import (
+            trigger_wanted_search_in_background,
+        )
+        trigger_wanted_search_in_background(issue.id)
     return issue
 
 
