@@ -111,6 +111,13 @@ class Magazine(Base):
     is_placeholder: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+    # Toggle per-magazine du pipeline wanted_search (Prowlarr + IA +
+    # rules + auto-grab). False = skip toutes les issues de ce mag
+    # dans le scheduler ET les auto-triggers. Les recherches manuelles
+    # (bouton UI) restent possibles.
+    wanted_search_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")

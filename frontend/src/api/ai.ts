@@ -34,6 +34,13 @@ export interface AISettings {
   rankerTopK: number
   rankerConfidenceThreshold: number
   rankerPrompt: string
+  /** Pipeline wanted-issue search (Prowlarr + rules + IA + auto-grab).
+   *  Global toggle. False désactive scheduler + auto-triggers ; les
+   *  recherches manuelles (bouton UI) restent possibles. */
+  wantedSearchEnabled: boolean
+  /** Seuil confidence (0-100) au-dessus duquel un winner est
+   *  auto-grabé sans intervention utilisateur. */
+  wantedSearchAutoGrabThreshold: number
 }
 
 export interface PythonOCRProbeEntry {

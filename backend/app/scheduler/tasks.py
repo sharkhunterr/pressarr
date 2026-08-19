@@ -594,6 +594,11 @@ async def wanted_search_sync():
             from app.services.wanted_search_service import run_wanted_search
 
             config = get_config()
+            # Global toggle : si désactivé, le scheduler ne balaie même
+            # pas — évite de spammer /activity avec des activités vides.
+            if not getattr(config, "wanted_search_enabled", True):
+                logger.debug("wanted_search_sync: global toggle disabled")
+                return
             cooldown_hours = 4
             cutoff = datetime.now() - timedelta(hours=cooldown_hours)
             max_per_cycle = 30
@@ -607,6 +612,10 @@ async def wanted_search_sync():
                     Issue.monitored.is_(True),
                     Issue.is_forecast.is_(False),
                     Magazine.monitored.is_(True),
+                    # Respect per-magazine toggle. Un mag freeze via
+                    # wanted_search_enabled=False n'est jamais picked
+                    # par le scheduler.
+                    Magazine.wanted_search_enabled.is_(True),
                     or_(
                         Issue.last_searched_at.is_(None),
                         Issue.last_searched_at < cutoff,

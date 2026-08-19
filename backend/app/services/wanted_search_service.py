@@ -327,6 +327,14 @@ async def run_wanted_search(
     dans tous les cas si l'auto-grab a été tenté (`auto_grab_attempted`)
     et son issue (`auto_grab_result`). Passer False pour un run manuel
     "aperçu" qui ne doit jamais toucher le download client.
+
+    Toggles :
+      - ``config.wanted_search_enabled`` : global. False = tous les
+        triggers automatiques (auto_on_create, scheduled) skippent.
+        ``trigger="manual"`` outrepasse le toggle global (l'user
+        garde toujours la main via le bouton UI).
+      - ``magazine.wanted_search_enabled`` : per-mag. False = skip
+        même en manuel (l'utilisateur a explicitement gelé ce mag).
     """
     from app.services import activity_service
     from app.services.history_service import create_event, is_blocklisted
@@ -355,6 +363,33 @@ async def run_wanted_search(
 
     query = _build_query(magazine, issue)
     started_at = datetime.now().isoformat(timespec="seconds")
+
+    # Toggles — skip early avec un résultat vide "propre" pour que le
+    # caller distingue "désactivé" (0 candidats + trigger=disabled) vs
+    # "recherché sans résultat".
+    global_off = trigger != "manual" and not getattr(
+        config, "wanted_search_enabled", True,
+    )
+    mag_off = not getattr(magazine, "wanted_search_enabled", True)
+    if global_off or mag_off:
+        finished_at = datetime.now().isoformat(timespec="seconds")
+        reason = "global_disabled" if global_off else "magazine_disabled"
+        logger.info(
+            "wanted_search skipped for issue %s (%s, trigger=%s)",
+            issue_id, reason, trigger,
+        )
+        return WantedSearchResult(
+            magazine_id=magazine.id,
+            magazine_title=magazine.title,
+            issue_id=issue.id,
+            issue_label=_issue_label(issue),
+            query=query,
+            trigger=f"{trigger}:{reason}",
+            started_at=started_at,
+            finished_at=finished_at,
+            elapsed_ms=0,
+            indexers_queried=[],
+        )
 
     # Activity live pour l'UI (progress + steps).
     activity_id: int | None = None

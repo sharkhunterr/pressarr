@@ -47,6 +47,10 @@ export interface Magazine {
   /** true = magazine auto-créé par un pack sur des metadata partielles ;
    *  invite l'utilisateur à compléter (frequency, root folder, quality). */
   isPlaceholder: boolean
+  /** Toggle per-magazine du pipeline wanted_search. False = le
+   *  scheduler + les auto-triggers skippent toutes les issues de ce
+   *  magazine. Les recherches manuelles (bouton) restent possibles. */
+  wantedSearchEnabled: boolean
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {

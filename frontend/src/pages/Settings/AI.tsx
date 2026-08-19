@@ -60,6 +60,8 @@ const DEFAULT: LocalState = {
   rankerTopK: 15,
   rankerConfidenceThreshold: 0.6,
   rankerPrompt: '',
+  wantedSearchEnabled: true,
+  wantedSearchAutoGrabThreshold: 78,
 }
 
 export default function AISettingsPage() {
@@ -572,6 +574,69 @@ export default function AISettingsPage() {
               onChange={(v) => setLocal({ ...local, rankerPrompt: v })}
               rows={7}
             />
+          </CardContent>
+        </Card>
+
+        {/* --- Wanted search pipeline -------------------------- */}
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-zinc-100">
+                Recherche wanted (auto)
+              </CardTitle>
+              <Switch
+                checked={local.wantedSearchEnabled}
+                onCheckedChange={(v) =>
+                  setLocal({ ...local, wantedSearchEnabled: v === true })
+                }
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-zinc-500 -mt-2">
+              Pipeline unifié Prowlarr → scoring Python → rules
+              include/exclude → IA batch + arbitre (utilise le ranker
+              ci-dessus) → composite score → auto-grab si winner ≥ seuil.
+              Toggle OFF désactive le scheduler périodique + les
+              auto-triggers à la création d'issue wanted.
+            </p>
+
+            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 flex items-start gap-2">
+              <Info className="size-4 text-blue-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-zinc-400">
+                Les recherches <strong>manuelles</strong> (bouton
+                « Recherche maintenant » sur une issue) restent
+                possibles même toggle OFF — utile pour tester ou faire
+                du one-shot sans laisser tourner l'automatisme.
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                Seuil auto-grab (%)
+              </label>
+              <Input
+                type="number"
+                step="1"
+                min={0}
+                max={100}
+                value={local.wantedSearchAutoGrabThreshold}
+                onChange={(e) =>
+                  setLocal({
+                    ...local,
+                    wantedSearchAutoGrabThreshold: Number(e.target.value),
+                  })
+                }
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+              <p className="text-xs text-zinc-500">
+                Au-dessus de ce score composite (Python + IA), le
+                winner est envoyé au client de téléchargement
+                automatiquement. En dessous, l'issue reste en
+                <em> wanted</em> pour intervention utilisateur.
+                Défaut 78% — aligné sur le seuil dispatch de pack.
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

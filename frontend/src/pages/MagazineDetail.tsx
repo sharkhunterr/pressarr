@@ -76,6 +76,7 @@ import { getRootFolders } from '@/api/system'
 import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
+import { WantedSearchNowModal } from '@/components/WantedSearchNowModal'
 import { FileManagerModal } from '@/components/FileManagerModal'
 import { AIRefreshModal } from '@/components/AIRefreshModal'
 import { MagazineActivitiesPanel } from '@/components/MagazineActivitiesPanel'
@@ -161,6 +162,7 @@ export default function MagazineDetail() {
   const [editOpen, setEditOpen] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editMonitored, setEditMonitored] = useState(true)
+  const [editWantedSearchEnabled, setEditWantedSearchEnabled] = useState(true)
   const [editQualityProfileId, setEditQualityProfileId] = useState('')
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
   const [editFrequency, setEditFrequency] = useState('monthly')
@@ -240,6 +242,11 @@ export default function MagazineDetail() {
   const [historyMagazineOpen, setHistoryMagazineOpen] = useState(false)
   const [historyIssueOpen, setHistoryIssueOpen] = useState(false)
   const [historyIssueId, setHistoryIssueId] = useState<number | null>(null)
+
+  // "Recherche maintenant" (wanted_search pipeline) — modal ouvert par
+  // le bouton Sparkles sur les issue rows. Contient le breakdown pipeline
+  // (WantedSearchDetail) chargé en direct via POST /search/wanted/{id}.
+  const [wantedSearchIssueId, setWantedSearchIssueId] = useState<number | null>(null)
 
   // Manual Grab confirmation modal — opened before the actual download
   // so the operator can bind the release to a specific issue / date,
@@ -723,6 +730,7 @@ export default function MagazineDetail() {
     setEditUseLatestCover(magazine.useLatestIssueCover)
     setEditCoverIssueId(null)
     setEditIssn(magazine.issn ?? '')
+    setEditWantedSearchEnabled(magazine.wantedSearchEnabled)
     setEditOpen(true)
   }
 
@@ -742,6 +750,7 @@ export default function MagazineDetail() {
       // Passer par le formulaire d'édition retire le flag placeholder :
       // le user a explicitement validé les infos.
       isPlaceholder: false,
+      wantedSearchEnabled: editWantedSearchEnabled,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
   }
@@ -1434,6 +1443,7 @@ export default function MagazineDetail() {
                           setDeleteFileOpen(true)
                         }}
                         onSearch={handleSearch}
+                        onWantedSearch={(id) => setWantedSearchIssueId(id)}
                         onRefresh={handleRefreshIssue}
                         onImport={handleImportIssue}
                         onView={(id) => { setViewerIssueId(id); setViewerOpen(true) }}
@@ -2160,6 +2170,24 @@ export default function MagazineDetail() {
                   />
                 </div>
 
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-3">
+                    <label className="text-sm font-medium text-zinc-300 block">
+                      Recherche auto (wanted)
+                    </label>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      Pipeline auto Prowlarr + IA + rules. OFF = ce
+                      magazine est ignoré par le scheduler et les
+                      auto-triggers. Les recherches manuelles restent
+                      possibles.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={editWantedSearchEnabled}
+                    onCheckedChange={(checked) => setEditWantedSearchEnabled(checked === true)}
+                  />
+                </div>
+
                 <div className="grid gap-1.5">
                   <label className="text-sm font-medium text-zinc-300">
                     {t('addMagazine.qualityProfile')}
@@ -2819,6 +2847,13 @@ export default function MagazineDetail() {
         magazineId={magazine?.id}
         issueId={historyIssueId ?? undefined}
         title={`${t('history.title')} — ${magazine?.title ?? ''} #${issues.find(i => i.id === historyIssueId)?.number ?? historyIssueId ?? ''}`}
+      />
+
+      {/* Recherche wanted (pipeline unifié) */}
+      <WantedSearchNowModal
+        issueId={wantedSearchIssueId}
+        magazineId={magazine?.id}
+        onClose={() => setWantedSearchIssueId(null)}
       />
 
       {/* File Manager modal */}

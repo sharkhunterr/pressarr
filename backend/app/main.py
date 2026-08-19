@@ -227,6 +227,11 @@ def _migrate_add_columns(connection) -> None:
         # éviter que le scheduler ré-scanne les mêmes issues à chaque
         # cycle. NULL = jamais scanné → prioritaire dans le prochain run.
         ("issue", "last_searched_at", "DATETIME"),
+        # Toggle per-magazine : quand False, le pipeline wanted_search
+        # skip toutes les issues de ce magazine (utile pour geler un
+        # mag qui pollue les résultats ou dont on ne veut plus rien).
+        # Default ON = comportement historique.
+        ("magazine", "wanted_search_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
     ]
     for table, column, col_type in migrations:
         try:

@@ -20,6 +20,78 @@ export interface SearchResult {
 export const searchIssue = (issueId: number) =>
   apiFetch<SearchResult[]>(`/search?issueId=${issueId}`)
 
+/** Payload structuré retourné par le pipeline wanted_search
+ *  (~= WantedSearchResult côté backend). Utilisé par le bouton
+ *  "Recherche maintenant" pour afficher le breakdown directement,
+ *  sans passer par l'historique. Shape identique à celle attendue
+ *  par WantedSearchDetail dans HistoryDetailModal. */
+export interface WantedSearchCandidateDTO {
+  guid: string
+  title: string
+  indexer: string
+  source: string
+  size: number
+  age: number
+  protocol: string
+  seeders: number | null
+  quality: string
+  language: string
+  download_url: string
+  publish_date: string | null
+  parsed_number: number | null
+  parsed_year: number | null
+  parsed_month: number | null
+  parsed_day: number | null
+  python_score: number
+  rules_verdict: 'included' | 'excluded' | 'neutral'
+  rules_reason: string | null
+  is_blocklisted: boolean
+  ai_verdict: 'picked' | 'not_picked' | 'vetoed' | 'skipped'
+  ai_confidence: number | null
+  ai_reason: string | null
+  ai_batch_index: number | null
+  final_score: number
+  is_winner: boolean
+  dropped_reason: string | null
+}
+
+export interface WantedSearchResultDTO {
+  magazine_id: number
+  magazine_title: string
+  issue_id: number
+  issue_label: string
+  query: string
+  trigger: string
+  started_at: string
+  finished_at: string
+  elapsed_ms: number
+  indexers_queried: string[]
+  indexer_errors: Array<{ indexer: string; error: string }>
+  total_raw: number
+  total_after_rules: number
+  total_after_blocklist: number
+  ai_used: boolean
+  ai_run_id: number | null
+  ai_mode: string | null
+  winner_guid: string | null
+  winner_title: string | null
+  winner_confidence: number | null
+  auto_grab_threshold: number
+  auto_grab_eligible: boolean
+  auto_grab_attempted: boolean
+  auto_grab_success: boolean | null
+  auto_grab_message: string | null
+  candidates: WantedSearchCandidateDTO[]
+}
+
+/** Lance le pipeline unifié synchronement sur une issue et retourne
+ *  le résultat structuré complet (breakdown pipeline). Trigger =
+ *  "manual" — outrepasse le toggle global. */
+export const wantedSearchNow = (issueId: number) =>
+  apiFetch<WantedSearchResultDTO>(`/search/wanted/${issueId}`, {
+    method: 'POST',
+  })
+
 export const searchMagazine = (magazineId: number) =>
   apiFetch<SearchResult[]>(`/search?magazineId=${magazineId}`)
 

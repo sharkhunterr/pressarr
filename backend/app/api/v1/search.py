@@ -67,6 +67,38 @@ async def search(
     raise HTTPException(422, "Provide issueId, magazineId, or query")
 
 
+@router.post("/wanted/{issue_id}")
+async def wanted_search_now(
+    issue_id: int,
+    db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
+):
+    """Lance le pipeline wanted_search synchrone sur une issue et
+    retourne le résultat structuré complet (candidats + winner + IA +
+    auto-grab). Trigger="manual" → outrepasse le toggle global mais
+    respecte le toggle per-magazine.
+
+    Utilisé par le bouton "Recherche maintenant" côté UI : réponse
+    consommée directement pour afficher le panneau détail sans passer
+    par l'historique.
+    """
+    from dataclasses import asdict
+    from app.database import async_session_factory
+    from app.services.wanted_search_service import run_wanted_search
+
+    try:
+        result = await run_wanted_search(
+            db, issue_id, config,
+            trigger="manual",
+            session_factory=async_session_factory,
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    # asdict pour renvoyer un JSON plat au frontend. Les enums/champs
+    # sont tous des strings/ints/floats/None → sérialisation naturelle.
+    return asdict(result)
+
+
 @router.post("/grab", response_model=GrabResponse)
 async def grab_release(
     body: dict,

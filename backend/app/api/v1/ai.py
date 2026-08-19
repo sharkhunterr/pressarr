@@ -60,6 +60,9 @@ class AISettingsResource(CamelModel):
     ranker_top_k: int
     ranker_confidence_threshold: float
     ranker_prompt: str
+    # Wanted-search pipeline global toggles.
+    wanted_search_enabled: bool
+    wanted_search_auto_grab_threshold: float
 
 
 class AISettingsUpdateResource(CamelModel):
@@ -84,6 +87,8 @@ class AISettingsUpdateResource(CamelModel):
     ranker_top_k: int | None = None
     ranker_confidence_threshold: float | None = None
     ranker_prompt: str | None = None
+    wanted_search_enabled: bool | None = None
+    wanted_search_auto_grab_threshold: float | None = None
 
 
 def _to_resource(config) -> AISettingsResource:
@@ -109,6 +114,8 @@ def _to_resource(config) -> AISettingsResource:
         ranker_top_k=config.ai_ranker_top_k,
         ranker_confidence_threshold=config.ai_ranker_confidence_threshold,
         ranker_prompt=config.ai_ranker_prompt,
+        wanted_search_enabled=config.wanted_search_enabled,
+        wanted_search_auto_grab_threshold=config.wanted_search_auto_grab_threshold,
     )
 
 
@@ -156,6 +163,8 @@ async def save_ai_settings(
         "ranker_top_k": "ai_ranker_top_k",
         "ranker_confidence_threshold": "ai_ranker_confidence_threshold",
         "ranker_prompt": "ai_ranker_prompt",
+        "wanted_search_enabled": "wanted_search_enabled",
+        "wanted_search_auto_grab_threshold": "wanted_search_auto_grab_threshold",
     }
     for body_field, cfg_field in fields_map.items():
         value = getattr(body, body_field)

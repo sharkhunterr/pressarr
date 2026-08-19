@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen, Clock } from 'lucide-react'
+import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen, Clock, Sparkles } from 'lucide-react'
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
@@ -38,6 +38,10 @@ interface IssueRowProps {
   onEdit: (issue: Issue) => void
   onDeleteFile: (id: number) => void
   onSearch: (id: number) => void
+  /** Bouton "Recherche auto" (pipeline unifié Prowlarr + IA + rules + auto-grab).
+   *  Optionnel — non affiché si absent (backward compat pour usages
+   *  hors magazine detail). */
+  onWantedSearch?: (id: number) => void
   onRefresh: (id: number) => void
   onImport?: (id: number) => void
   onView?: (id: number) => void
@@ -56,6 +60,7 @@ export function IssueRow({
   onEdit,
   onDeleteFile,
   onSearch,
+  onWantedSearch,
   onRefresh,
   onImport,
   onView,
@@ -257,6 +262,16 @@ export function IssueRow({
           >
             <Search className="size-3.5 text-zinc-400" />
           </Button>
+          {onWantedSearch && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onWantedSearch(issue.id)}
+              title="Recherche auto (Prowlarr + IA + rules + auto-grab si winner fort)"
+            >
+              <Sparkles className="size-3.5 text-purple-400" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-xs"
