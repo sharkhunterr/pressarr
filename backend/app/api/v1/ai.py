@@ -68,6 +68,7 @@ class AISettingsResource(CamelModel):
     wanted_search_interval_minutes: int
     wanted_search_cooldown_hours: int
     wanted_search_max_per_cycle: int
+    wanted_search_query_templates: list[str]
 
 
 class AISettingsUpdateResource(CamelModel):
@@ -99,6 +100,7 @@ class AISettingsUpdateResource(CamelModel):
     wanted_search_interval_minutes: int | None = None
     wanted_search_cooldown_hours: int | None = None
     wanted_search_max_per_cycle: int | None = None
+    wanted_search_query_templates: list[str] | None = None
 
 
 def _to_resource(config) -> AISettingsResource:
@@ -131,6 +133,7 @@ def _to_resource(config) -> AISettingsResource:
         wanted_search_interval_minutes=config.wanted_search_interval_minutes,
         wanted_search_cooldown_hours=config.wanted_search_cooldown_hours,
         wanted_search_max_per_cycle=config.wanted_search_max_per_cycle,
+        wanted_search_query_templates=config.wanted_search_query_templates,
     )
 
 
@@ -185,6 +188,7 @@ async def save_ai_settings(
         "wanted_search_interval_minutes": "wanted_search_interval_minutes",
         "wanted_search_cooldown_hours": "wanted_search_cooldown_hours",
         "wanted_search_max_per_cycle": "wanted_search_max_per_cycle",
+        "wanted_search_query_templates": "wanted_search_query_templates",
     }
     for body_field, cfg_field in fields_map.items():
         value = getattr(body, body_field)

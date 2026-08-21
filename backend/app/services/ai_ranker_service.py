@@ -114,6 +114,7 @@ class AIRankerService:
         magazine_title_hint: str | None,
         issue_hint: str | None,
         progress_cb: ProgressCb | None = None,
+        issue_id: int | None = None,
     ) -> RankerResult:
         """Rank the candidates.
 
@@ -203,6 +204,7 @@ class AIRankerService:
                 elapsed_ms=elapsed,
                 status="skipped",
                 model_used=cfg.ai_text_model,
+                issue_id=issue_id,
             )
             return RankerResult(
                 final_pick_index=0,
@@ -265,6 +267,7 @@ class AIRankerService:
                 elapsed_ms=elapsed,
                 status="success",
                 model_used=cfg.ai_text_model,
+                issue_id=issue_id,
             )
             return self._project_result(
                 run_id=run_id,
@@ -526,6 +529,7 @@ class AIRankerService:
         elapsed_ms: int,
         status: str,
         model_used: str,
+        issue_id: int | None = None,
     ) -> None:
         from datetime import datetime
 
@@ -560,6 +564,7 @@ class AIRankerService:
                     session,
                     event_type="ai_ranker",
                     magazine_id=row.magazine_id,
+                    issue_id=issue_id,
                     details=(
                         f"IA ranker · {status} · "
                         f"ai_pick={ai_picked_index} conf={confidence} · "

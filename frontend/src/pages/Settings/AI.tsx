@@ -67,6 +67,19 @@ const DEFAULT: LocalState = {
   wantedSearchIntervalMinutes: 240,
   wantedSearchCooldownHours: 12,
   wantedSearchMaxPerCycle: 30,
+  wantedSearchQueryTemplates: [
+    '{title} N{number}',
+    '{title} N°{number}',
+    '{title} #{number}',
+    '{title} {year} {month_pad} {day_pad}',
+    '{title} {day_pad} {month_pad} {year}',
+    '{title} {day_pad}-{month_pad}-{year}',
+    '{title} {day_pad}/{month_pad}/{year}',
+    '{title} {month_pad}-{day_pad}-{year}',
+    '{title} {day_pad} {month_fr} {year}',
+    '{title} {day_pad} {month_en} {year}',
+    '{title} {month_fr} {year}',
+  ],
 }
 
 export default function AISettingsPage() {
@@ -778,6 +791,53 @@ export default function AISettingsPage() {
                   attend le cycle suivant. Défaut 30. Chaque issue coûte
                   30-60s avec IA vision + arbitre — sur un backlog de
                   100+ wanted, un cap bas évite de bloquer Ollama.
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-zinc-800 pt-4 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">
+                Templates de query
+              </div>
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Formats de recherche envoyés aux indexers
+                </label>
+                <textarea
+                  rows={12}
+                  value={local.wantedSearchQueryTemplates.join('\n')}
+                  onChange={(e) =>
+                    setLocal({
+                      ...local,
+                      wantedSearchQueryTemplates: e.target.value
+                        .split('\n')
+                        .map((l) => l.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  disabled={!local.wantedSearchEnabled}
+                  className="w-full rounded bg-zinc-900 border border-zinc-700 text-zinc-100 font-mono text-xs p-2 focus:border-purple-500 focus:outline-none"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-zinc-500">
+                  <strong>Un template par ligne.</strong> Chaque template
+                  dont TOUS les placeholders ont une valeur est rendu et
+                  envoyé à Prowlarr — les résultats sont dédupés par GUID.
+                  Un template avec <code>{'{number}'}</code> est skippé
+                  pour une issue sans numéro (idem pour la date). Multi-
+                  format = couvre les conventions d'uploaders variables
+                  (FR/EN, dash/slash, mois nommé, etc.).
+                </p>
+                <p className="text-xs text-zinc-500">
+                  <strong>Placeholders</strong> : <code>{'{title}'}</code>{' '}
+                  <code>{'{number}'}</code>{' '}
+                  <code>{'{year}'}</code>{' '}
+                  <code>{'{month}'}</code>{' '}
+                  <code>{'{day}'}</code>{' '}
+                  <code>{'{month_pad}'}</code> (08){' '}
+                  <code>{'{day_pad}'}</code> (02){' '}
+                  <code>{'{month_fr}'}</code> (août){' '}
+                  <code>{'{month_en}'}</code> (august)
                 </p>
               </div>
             </div>

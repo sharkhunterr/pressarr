@@ -305,6 +305,36 @@ class Config:
         # wanted sature l'IA sur un seul run (chaque issue coûte 30-60s
         # avec vision + arbiter). Le reste attend le cycle suivant.
         self.wanted_search_max_per_cycle: int = 30
+        # Templates de query envoyés à Prowlarr. Chaque template dont
+        # tous les placeholders sont disponibles est rendu → une query
+        # Prowlarr distincte. Résultats mergés par GUID pour éviter les
+        # doublons entre queries. Permet de couvrir les conventions de
+        # nommage variables des uploaders (FR/EN, jour-mois vs mois-jour,
+        # numéro N123 vs #123, mois nommé vs numérique).
+        #
+        # Placeholders reconnus :
+        #   {title} {number} {year} {month} {day}
+        #   {month_pad} {day_pad}  → zero-padded ("08", "02")
+        #   {month_fr} {month_en}  → nom du mois ("août", "august")
+        #
+        # Un template contenant un placeholder dont la valeur est None
+        # (ex: {number} sur une issue sans numéro) est skippé.
+        self.wanted_search_query_templates: list[str] = [
+            # Par numéro (priorité si le magazine numérote)
+            "{title} N{number}",
+            "{title} N°{number}",
+            "{title} #{number}",
+            # Par date — formats variés (FR / EN / US / avec séparateurs)
+            "{title} {year} {month_pad} {day_pad}",
+            "{title} {day_pad} {month_pad} {year}",
+            "{title} {day_pad}-{month_pad}-{year}",
+            "{title} {day_pad}/{month_pad}/{year}",
+            "{title} {month_pad}-{day_pad}-{year}",
+            "{title} {day_pad} {month_fr} {year}",
+            "{title} {day_pad} {month_en} {year}",
+            # Fallback mois seul (numéro annuel / hebdo sans jour connu)
+            "{title} {month_fr} {year}",
+        ]
         self.ai_ranker_prompt: str = (
             "Tu reçois une liste de releases candidates pour un "
             "magazine. Ton job : choisir la MEILLEURE correspondance ou "
@@ -452,6 +482,12 @@ class Config:
         self.wanted_search_max_per_cycle = wsearch.get(
             "max_per_cycle", self.wanted_search_max_per_cycle
         )
+        _tpl = wsearch.get("query_templates")
+        if isinstance(_tpl, list) and _tpl:
+            # Filtre : garde uniquement les strings non-vides.
+            self.wanted_search_query_templates = [
+                str(t).strip() for t in _tpl if str(t).strip()
+            ]
 
         scheduler = data.get("scheduler", {})
         self.rss_sync_interval = scheduler.get(
@@ -596,6 +632,7 @@ class Config:
                 "interval_minutes": self.wanted_search_interval_minutes,
                 "cooldown_hours": self.wanted_search_cooldown_hours,
                 "max_per_cycle": self.wanted_search_max_per_cycle,
+                "query_templates": self.wanted_search_query_templates,
             },
         }
         with open(self.config_path, "w") as f:

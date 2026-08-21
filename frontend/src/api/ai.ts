@@ -60,6 +60,13 @@ export interface AISettings {
   /** Nombre max d'issues traitées par cycle scheduler. Le reste
    *  attend le cycle suivant — évite de saturer l'IA. */
   wantedSearchMaxPerCycle: number
+  /** Templates de query envoyés à Prowlarr — un par ligne dans l'UI.
+   *  Placeholders : {title} {number} {year} {month} {day} {month_pad}
+   *  {day_pad} {month_fr} {month_en}. Chaque template dont un
+   *  placeholder est None est skippé silencieusement.
+   *  Défaut = couvre N123 / N°123 / #123 / date FR/EN/US /
+   *  formats avec séparateurs (dash, slash) / mois nommé. */
+  wantedSearchQueryTemplates: string[]
 }
 
 export interface PythonOCRProbeEntry {

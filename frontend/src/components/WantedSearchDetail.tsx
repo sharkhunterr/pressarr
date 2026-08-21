@@ -35,6 +35,7 @@ export interface WantedSearchCandidate {
   final_score: number
   is_winner: boolean
   dropped_reason: string | null
+  matched_queries?: string[]
 }
 
 export interface WantedSearchWinner {
@@ -186,6 +187,25 @@ export function WantedSearchDetail({ data }: WantedSearchDetailProps) {
         </div>
       )}
 
+      {/* Queries envoyées à Prowlarr */}
+      {Array.isArray(data.queries) && (data.queries as string[]).length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-900/40 p-2.5">
+          <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1.5">
+            Queries envoyées à Prowlarr ({(data.queries as string[]).length})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(data.queries as string[]).map((q, i) => (
+              <span
+                key={i}
+                className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700"
+              >
+                {q}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stats pipeline */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <StatTile label="Bruts" value={totalsResolved?.raw ?? 0} />
@@ -274,9 +294,21 @@ export function WantedSearchDetail({ data }: WantedSearchDetailProps) {
                         c.is_winner ? 'bg-purple-500/5' : ''
                       }`}
                     >
-                      <td className="px-2 py-1.5 text-zinc-200 max-w-[280px] truncate" title={c.title}>
+                      <td
+                        className="px-2 py-1.5 text-zinc-200 max-w-[280px] truncate"
+                        title={
+                          c.matched_queries && c.matched_queries.length > 0
+                            ? `${c.title}\n\nRemonté via :\n${c.matched_queries.map((q) => `  • ${q}`).join('\n')}`
+                            : c.title
+                        }
+                      >
                         {c.is_winner && <span className="text-purple-400 mr-1">★</span>}
                         {c.title}
+                        {c.matched_queries && c.matched_queries.length > 1 && (
+                          <span className="ml-1 text-[9px] text-zinc-500 align-top">
+                            ×{c.matched_queries.length}
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-zinc-400">{c.indexer}</td>
                       <td className="px-2 py-1.5 text-zinc-400">{c.quality}</td>

@@ -109,6 +109,11 @@ class ScoredCandidate:
     final_score: float = 0.0
     is_winner: bool = False
     dropped_reason: str | None = None
+    # Liste des queries (templates rendus) qui ont fait remonter ce
+    # release. Un release remonté sur "titre 20 août 2026" ET
+    # "titre 20/08/2026" a les deux — trace pour diagnostiquer quelle
+    # formule marche pour ce magazine.
+    matched_queries: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -119,7 +124,7 @@ class WantedSearchResult:
     magazine_title: str
     issue_id: int
     issue_label: str
-    query: str
+    query: str  # Legacy — 1re query rendue (pour compat rendu ancien)
     trigger: str  # 'manual' | 'auto_on_create' | 'scheduled'
 
     started_at: str
@@ -144,6 +149,8 @@ class WantedSearchResult:
     auto_grab_attempted: bool = False
     auto_grab_success: bool | None = None
     auto_grab_message: str | None = None
+    # Liste des queries envoyées à Prowlarr (templates rendus).
+    queries_used: list[str] = field(default_factory=list)
 
     candidates: list[ScoredCandidate] = field(default_factory=list)
 
@@ -151,21 +158,97 @@ class WantedSearchResult:
 # ─── Pipeline ─────────────────────────────────────────────────────────
 
 
-def _build_query(magazine: Magazine, issue: Issue) -> str:
-    """Construit la query envoyée aux indexers.
+_MONTHS_FR = [
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+]
+_MONTHS_EN = [
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+]
 
-    Priorité au numéro s'il est connu (unique par magazine), sinon date
-    complète Y M (D). Fallback = titre magazine seul (dernier recours).
+
+def _build_query_context(magazine: Magazine, issue: Issue) -> dict[str, Any]:
+    """Contexte de rendu des templates. Chaque clé None empêche le
+    rendu d'un template qui la référence (skip propre)."""
+    title = (magazine.search_terms or magazine.title or "").strip()
+    number = issue.number
+    year = issue.year
+    month = issue.month
+    day = issue.day
+    return {
+        "title": title,
+        "number": number,
+        "year": year,
+        "month": month,
+        "day": day,
+        "month_pad": f"{month:02d}" if month else None,
+        "day_pad": f"{day:02d}" if day else None,
+        "month_fr": _MONTHS_FR[month - 1] if month and 1 <= month <= 12 else None,
+        "month_en": _MONTHS_EN[month - 1] if month and 1 <= month <= 12 else None,
+    }
+
+
+def _render_template(template: str, ctx: dict[str, Any]) -> str | None:
+    """Rend un template avec strict-check des placeholders.
+
+    Retourne None si un placeholder référencé a une valeur None dans ctx
+    (ex: `{number}` sur une issue sans numéro). Le rendu utilise
+    ``str.format`` standard donc supporte les format specs Python
+    (``{month:02d}``, etc.) — mais les templates par défaut passent
+    plutôt par les alias ``month_pad``/``day_pad`` pour lisibilité YAML.
     """
-    terms = magazine.search_terms or magazine.title
-    if issue.number is not None:
-        return f"{terms} N{issue.number}"
-    if issue.year and issue.month:
-        parts = [str(issue.year), f"{issue.month:02d}"]
-        if issue.day:
-            parts.append(f"{issue.day:02d}")
-        return f"{terms} {' '.join(parts)}"
-    return terms
+    import re
+    # Extract placeholders name (avant `:` s'il y a un format spec)
+    placeholders = re.findall(r"\{(\w+)(?::[^}]+)?\}", template)
+    for ph in placeholders:
+        if ph not in ctx or ctx.get(ph) is None:
+            return None
+    try:
+        rendered = template.format(**ctx).strip()
+        # Écrase les espaces multiples résultant d'un `{}` vide
+        rendered = re.sub(r"\s+", " ", rendered)
+        return rendered or None
+    except (KeyError, ValueError, IndexError):
+        return None
+
+
+def _build_queries(
+    magazine: Magazine, issue: Issue, templates: list[str],
+) -> list[str]:
+    """Rend tous les templates fournis + dedupe case-insensitive.
+
+    Toujours au moins UNE query : si tous les templates sont skippés
+    (issue sans numéro NI date), retourne juste le titre magazine —
+    évite un empty search silencieux qui laisserait l'issue jamais
+    scannée.
+    """
+    ctx = _build_query_context(magazine, issue)
+    seen: set[str] = set()
+    out: list[str] = []
+    for tpl in templates:
+        rendered = _render_template(tpl, ctx)
+        if rendered is None:
+            continue
+        key = rendered.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(rendered)
+    if not out:
+        # Fallback = titre magazine seul (dernier recours)
+        out.append(ctx["title"])
+    return out
+
+
+def _build_query(magazine: Magazine, issue: Issue) -> str:
+    """Legacy shim — retourne la première query dérivée du contexte.
+    Utilisé par les callers qui n'ont pas encore migré vers multi-query."""
+    return _build_queries(magazine, issue, [
+        "{title} N{number}",
+        "{title} {year} {month_pad} {day_pad}",
+        "{title} {year} {month_pad}",
+    ])[0]
 
 
 def _issue_label(issue: Issue) -> str:
@@ -185,11 +268,17 @@ def _issue_label(issue: Issue) -> str:
 
 async def _fetch_from_prowlarr(
     db: AsyncSession,
-    query: str,
+    queries: list[str],
 ) -> tuple[list, list[str], list[dict]]:
-    """Query all enabled Prowlarr indexers. Retourne (raw_results,
-    indexer_names, errors). Errors non-fatales → collectées et remontées
-    dans le history event pour diagnostic sans casser le run."""
+    """Query all enabled Prowlarr indexers pour CHAQUE query fournie et
+    dédup les résultats par GUID (un release qui remonte sur 3 formats
+    de date n'est compté qu'une fois).
+
+    Retourne (raw_results, indexer_names, errors). Chaque raw est taggé
+    avec `_pressarr_indexer` (nom indexer) + `_pressarr_matched_queries`
+    (list des queries qui l'ont fait remonter → utile pour UI diagnostic
+    "cette requête n'a rien donné mais celle-ci si").
+    """
     from app.indexers.prowlarr import ProwlarrClient
     from app.models.indexer_config import IndexerConfig
     from app.services.search_service import (
@@ -202,7 +291,9 @@ async def _fetch_from_prowlarr(
     )
     indexers = indexer_result.scalars().all()
 
-    all_raw: list = []
+    # GUID → raw (dedup). Un même release remonté sur plusieurs queries
+    # accumule les queries dans _pressarr_matched_queries.
+    by_guid: dict[str, Any] = {}
     names: list[str] = []
     errors: list[dict] = []
     for indexer in indexers:
@@ -214,14 +305,24 @@ async def _fetch_from_prowlarr(
             ] or [7000, 7010, 7020]
             overrides = parse_indexer_overrides(indexer.indexer_overrides)
             search_groups = get_search_groups(overrides, global_cats)
-            for cats, indexer_ids in search_groups:
-                res = await client.search(
-                    query, categories=cats, indexer_ids=indexer_ids
-                )
-                # Tag chaque raw avec le nom de l'indexer pour trace
-                for r in res:
-                    setattr(r, "_pressarr_indexer", indexer.name)
-                all_raw.extend(res)
+            for query in queries:
+                for cats, indexer_ids in search_groups:
+                    res = await client.search(
+                        query, categories=cats, indexer_ids=indexer_ids
+                    )
+                    for r in res:
+                        gid = getattr(r, "guid", None) or f"{indexer.name}:{r.title}"
+                        existing = by_guid.get(gid)
+                        if existing is None:
+                            setattr(r, "_pressarr_indexer", indexer.name)
+                            setattr(r, "_pressarr_matched_queries", [query])
+                            by_guid[gid] = r
+                        else:
+                            # Ajoute la query au tracker sans dupliquer
+                            mq = getattr(existing, "_pressarr_matched_queries", [])
+                            if query not in mq:
+                                mq.append(query)
+                                setattr(existing, "_pressarr_matched_queries", mq)
         except Exception as exc:
             err = f"{type(exc).__name__}: {exc}"
             logger.warning(
@@ -266,6 +367,7 @@ async def _apply_ai_ranker(
         pattern_id=None,
         magazine_title_hint=magazine.title,
         issue_hint=_issue_label(issue),
+        issue_id=issue.id,
     )
 
     per_candidate: dict[int, dict] = {}
@@ -376,7 +478,15 @@ async def run_wanted_search(
     if magazine is None:
         raise ValueError(f"issue {issue_id} has no magazine")
 
-    query = _build_query(magazine, issue)
+    templates = getattr(config, "wanted_search_query_templates", None) or [
+        "{title} N{number}",
+        "{title} {year} {month_pad} {day_pad}",
+    ]
+    queries = _build_queries(magazine, issue, templates)
+    # Field `query` du result reste single-line pour compat/history ancien
+    # affichage — on prend la première (celle qui match le plus de
+    # placeholders). La liste complète est exposée via `queries_used`.
+    query = queries[0] if queries else magazine.title
     started_at = datetime.now().isoformat(timespec="seconds")
 
     # Toggles — skip early avec un résultat vide "propre" pour que le
@@ -404,6 +514,7 @@ async def run_wanted_search(
             finished_at=finished_at,
             elapsed_ms=0,
             indexers_queried=[],
+            queries_used=queries,
         )
 
     # Activity live pour l'UI (progress + steps).
@@ -412,10 +523,10 @@ async def run_wanted_search(
         activity_id = await activity_service.create(
             kind="search",
             title=f"Recherche · {magazine.title} {_issue_label(issue)}",
-            subtitle=query,
+            subtitle=f"{len(queries)} query(s) · " + query,
             magazine_id=magazine.id,
             issue_id=issue.id,
-            payload={"query": query, "trigger": trigger},
+            payload={"query": query, "queries": queries, "trigger": trigger},
         )
     except Exception:
         logger.debug("activity mirror create failed", exc_info=True)
@@ -431,10 +542,17 @@ async def run_wanted_search(
         except Exception:
             pass
 
-    # 2. Fetch
-    await _step("fetch", "Prowlarr", "Interrogation indexers")
+    # 2. Fetch — envoie les N queries à tous les indexers, résultats
+    # dédupés par GUID. Chaque candidat garde la trace des queries qui
+    # l'ont fait remonter (utile pour diagnostiquer "quelle formule
+    # marche pour ce magazine").
+    await _step(
+        "fetch", "Prowlarr",
+        f"{len(queries)} query(s) · " + " · ".join(queries[:3])
+        + (f" · +{len(queries)-3}" if len(queries) > 3 else ""),
+    )
     raw_results, indexer_names, indexer_errors = await _fetch_from_prowlarr(
-        db, query,
+        db, queries,
     )
 
     profile_items = await _get_quality_items(db, magazine.quality_profile_id)
@@ -464,6 +582,7 @@ async def run_wanted_search(
         blocked = await is_blocklisted(db, raw.title)
 
         cand = ScoredCandidate(
+            matched_queries=list(getattr(raw, "_pressarr_matched_queries", [])),
             guid=raw.guid,
             title=raw.title,
             indexer=getattr(raw, "_pressarr_indexer", ""),
@@ -545,6 +664,7 @@ async def run_wanted_search(
         issue_id=issue.id,
         issue_label=_issue_label(issue),
         query=query,
+        queries_used=queries,
         trigger=trigger,
         started_at=started_at,
         finished_at=finished_at,
@@ -706,6 +826,7 @@ async def run_wanted_search(
             data={
                 "search_type": trigger,
                 "query": query,
+                "queries": queries,
                 "magazine_title": magazine.title,
                 "issue_label": _issue_label(issue),
                 "elapsed_ms": elapsed_ms,
@@ -761,6 +882,7 @@ async def run_wanted_search(
                         "final_score": round(c.final_score, 1),
                         "is_winner": c.is_winner,
                         "dropped_reason": c.dropped_reason,
+                        "matched_queries": c.matched_queries,
                     }
                     for c in cand_slice
                 ],
