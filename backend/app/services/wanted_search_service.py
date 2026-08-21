@@ -331,7 +331,7 @@ async def _fetch_from_prowlarr(
                 exc_info=True,
             )
             errors.append({"indexer": indexer.name, "error": err[:400]})
-    return all_raw, names, errors
+    return list(by_guid.values()), names, errors
 
 
 async def _apply_ai_ranker(
