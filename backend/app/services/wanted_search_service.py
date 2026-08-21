@@ -137,6 +137,7 @@ class WantedSearchResult:
     total_raw: int = 0
     total_after_rules: int = 0
     total_after_blocklist: int = 0
+    total_after_date_match: int = 0
     ai_used: bool = False
     ai_run_id: int | None = None
     ai_mode: str | None = None
@@ -392,6 +393,49 @@ async def _apply_ai_ranker(
     return result.applied_mode, result.run_id, per_candidate
 
 
+def _candidate_matches_issue(cand: "ScoredCandidate", issue: Issue) -> bool:
+    """Vérifie qu'un candidat correspond à l'issue cible (date OU numéro).
+
+    Règles :
+      - Si l'issue a un numéro connu ET le candidat aussi → match par
+        numéro strict (numéros de publication uniques).
+      - Sinon match par date :
+        * jour connu des deux côtés → jour+mois+année doivent matcher
+        * seul mois connu → mois+année suffisent
+      - Un candidat avec zéro info parsée (title mal formé) est
+        considéré compatible (bénéfice du doute — le ranker IA
+        tranchera). Filtrer strictement ceux-là écraserait des
+        releases valides mal nommés.
+    """
+    # Match par numéro d'abord (plus fiable)
+    if issue.number is not None and cand.parsed_number is not None:
+        return cand.parsed_number == issue.number
+
+    # Match par date
+    if issue.year and cand.parsed_year is not None:
+        if cand.parsed_year != issue.year:
+            return False
+        if issue.month and cand.parsed_month is not None:
+            if cand.parsed_month != issue.month:
+                return False
+            if issue.day and cand.parsed_day is not None:
+                if cand.parsed_day != issue.day:
+                    return False
+        return True
+
+    # Aucune info parsée → bénéfice du doute
+    if (
+        cand.parsed_year is None
+        and cand.parsed_month is None
+        and cand.parsed_day is None
+        and cand.parsed_number is None
+    ):
+        return True
+
+    # Il y a de l'info parsée mais elle ne matche pas → drop
+    return False
+
+
 def _composite_score(
     python_score: float,
     ai_verdict: str,
@@ -616,13 +660,42 @@ async def run_wanted_search(
     total_after_rules = sum(1 for c in candidates if c.rules_verdict != "excluded")
     total_after_blocklist = len(surviving)
 
+    # 3bis. Filtre date/numéro match issue — Prowlarr renvoie souvent TOUS
+    # les releases d'un magazine sur n'importe quelle query. Sans ce
+    # filtre le ranker IA voyait 15 candidats de dates différentes pour
+    # une issue précise → picks incohérents (ex: "Le Monde 19/08" pour
+    # issue 20/08). On drop les candidats dont la date parsée contredit
+    # l'issue cible avec drop_reason lisible côté UI.
+    date_matched: list[ScoredCandidate] = []
+    for c in surviving:
+        if _candidate_matches_issue(c, issue):
+            date_matched.append(c)
+        else:
+            # Marque comme droppé pour trace UI (visible dans table "Rejetés")
+            bits = []
+            if c.parsed_number is not None:
+                bits.append(f"N°{c.parsed_number}")
+            if c.parsed_year and c.parsed_month:
+                d = f"{c.parsed_year}-{c.parsed_month:02d}"
+                if c.parsed_day:
+                    d += f"-{c.parsed_day:02d}"
+                bits.append(d)
+            detail = " ".join(bits) or "aucune date parsée"
+            c.dropped_reason = f"date mismatch ({detail} ≠ cible {_issue_label(issue)})"
+    total_after_date_match = len(date_matched)
+    # Utilise les date-matched pour la suite ; si vide, on garde
+    # surviving (fallback : mieux vaut ranker mal que rien du tout,
+    # l'user verra le résultat et pourra grabber manuellement).
+    ranker_pool = date_matched if date_matched else surviving
+    ranker_pool.sort(key=lambda c: c.python_score, reverse=True)
+
     # 4. IA batch + arbiter (top-K)
     ai_run_id: int | None = None
     ai_mode: str | None = None
     ai_used = False
-    if getattr(config, "ai_ranker_enabled", False) and len(surviving) >= 2:
-        top_k = min(getattr(config, "ai_ranker_top_k", 15), len(surviving))
-        subset = surviving[:top_k]
+    if getattr(config, "ai_ranker_enabled", False) and len(ranker_pool) >= 2:
+        top_k = min(getattr(config, "ai_ranker_top_k", 15), len(ranker_pool))
+        subset = ranker_pool[:top_k]
         await _step("ai", "IA ranker", f"batch {len(subset)} candidats")
         try:
             ai_mode, ai_run_id, ai_map = await _apply_ai_ranker(
@@ -642,16 +715,16 @@ async def run_wanted_search(
                 issue_id, exc_info=True,
             )
 
-    # 5. Composite score + winner
+    # 5. Composite score + winner (calculé sur ranker_pool = date-matched)
     ai_mode_actual = ai_mode or (
         getattr(config, "ai_ranker_mode", "ai_advisory") if ai_used else None
     )
-    for c in surviving:
+    for c in ranker_pool:
         c.final_score = _composite_score(
             c.python_score, c.ai_verdict, c.ai_confidence, ai_mode_actual,
         )
-    surviving.sort(key=lambda c: c.final_score, reverse=True)
-    winner = surviving[0] if surviving else None
+    ranker_pool.sort(key=lambda c: c.final_score, reverse=True)
+    winner = ranker_pool[0] if ranker_pool else None
     if winner is not None:
         winner.is_winner = True
 
@@ -674,6 +747,7 @@ async def run_wanted_search(
         total_raw=total_raw,
         total_after_rules=total_after_rules,
         total_after_blocklist=total_after_blocklist,
+        total_after_date_match=total_after_date_match,
         ai_used=ai_used,
         ai_run_id=ai_run_id,
         ai_mode=ai_mode,
@@ -836,6 +910,7 @@ async def run_wanted_search(
                     "raw": total_raw,
                     "after_rules": total_after_rules,
                     "after_blocklist": total_after_blocklist,
+                    "after_date_match": total_after_date_match,
                     "candidates_persisted": len(cand_slice),
                 },
                 "ai": {

@@ -205,6 +205,8 @@ class AIRankerService:
                 status="skipped",
                 model_used=cfg.ai_text_model,
                 issue_id=issue_id,
+                magazine_title_hint=magazine_title_hint,
+                issue_hint=issue_hint,
             )
             return RankerResult(
                 final_pick_index=0,
@@ -268,6 +270,8 @@ class AIRankerService:
                 status="success",
                 model_used=cfg.ai_text_model,
                 issue_id=issue_id,
+                magazine_title_hint=magazine_title_hint,
+                issue_hint=issue_hint,
             )
             return self._project_result(
                 run_id=run_id,
@@ -335,6 +339,9 @@ class AIRankerService:
             elapsed_ms=elapsed,
             status="success",
             model_used=cfg.ai_text_model,
+            issue_id=issue_id,
+            magazine_title_hint=magazine_title_hint,
+            issue_hint=issue_hint,
         )
         return self._project_result(
             run_id=run_id,
@@ -530,6 +537,8 @@ class AIRankerService:
         status: str,
         model_used: str,
         issue_id: int | None = None,
+        magazine_title_hint: str | None = None,
+        issue_hint: str | None = None,
     ) -> None:
         from datetime import datetime
 
@@ -582,6 +591,10 @@ class AIRankerService:
                         "batches": batches,
                         "final": final,
                         "total_elapsed_ms": elapsed_ms,
+                        # Target explicite pour l'UI — évite au user
+                        # de deviner "pour quelle issue ce run a tourné".
+                        "target_magazine": magazine_title_hint,
+                        "target_issue": issue_hint,
                     },
                 )
             except Exception as exc:  # noqa: BLE001

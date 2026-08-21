@@ -749,9 +749,26 @@ function AIRankerDetail({ data }: { data: Record<string, unknown> }) {
   const reason = data.reason as string | null | undefined
   const totalMs = data.total_elapsed_ms as number | undefined
   const batches = (data.batches as AIBatch[] | undefined) ?? []
+  const targetMag = data.target_magazine as string | undefined
+  const targetIssue = data.target_issue as string | undefined
 
   return (
     <div className="space-y-4">
+      {(targetMag || targetIssue) && (
+        <div className="rounded border border-purple-500/30 bg-purple-500/5 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-purple-300 mb-1">
+            Cible du ranker
+          </div>
+          <div className="text-sm text-zinc-100">
+            {targetMag ?? '—'}
+            {targetIssue && (
+              <span className="ml-2 font-mono text-purple-200">
+                {targetIssue}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 space-y-1">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-sm text-zinc-300 font-medium">Run ranker</span>

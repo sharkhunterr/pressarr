@@ -87,6 +87,7 @@ export function WantedSearchDetail({ data }: WantedSearchDetailProps) {
     raw?: number
     after_rules?: number
     after_blocklist?: number
+    after_date_match?: number
     candidates_persisted?: number
   } | undefined
   const ai = data.ai as {
@@ -110,6 +111,7 @@ export function WantedSearchDetail({ data }: WantedSearchDetailProps) {
     raw: data.total_raw as number | undefined,
     after_rules: data.total_after_rules as number | undefined,
     after_blocklist: data.total_after_blocklist as number | undefined,
+    after_date_match: data.total_after_date_match as number | undefined,
   }
   const aiResolved = ai ?? {
     used: data.ai_used as boolean | undefined,
@@ -207,10 +209,14 @@ export function WantedSearchDetail({ data }: WantedSearchDetailProps) {
       )}
 
       {/* Stats pipeline */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         <StatTile label="Bruts" value={totalsResolved?.raw ?? 0} />
         <StatTile label="Après rules" value={totalsResolved?.after_rules ?? 0} />
         <StatTile label="Actifs" value={totalsResolved?.after_blocklist ?? 0} />
+        <StatTile
+          label="Date match"
+          value={totalsResolved?.after_date_match ?? 0}
+        />
         <StatTile
           label="Durée"
           value={elapsed != null ? `${(elapsed / 1000).toFixed(1)}s` : '—'}
