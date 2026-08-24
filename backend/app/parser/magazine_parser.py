@@ -276,6 +276,16 @@ def _normalize_separators(text: str) -> str:
     text = text.replace("_", " ")
     # Replace dots unless between two digits (preserve "3.5" style numbers)
     text = re.sub(r"(?<!\d)\.|\.(?!\d)", " ", text)
+    # Strip ordinal suffixes attachés aux nombres jour : "1er", "1st",
+    # "2nd", "3rd", "4th"… ("1er Août" → "1 Août" reconnu par les
+    # patterns date). Case-insensitive, borne à \d+ pour éviter de
+    # tronquer un mot ordinaire qui commencerait par les mêmes lettres.
+    text = re.sub(
+        r"(\d+)(?:er|ère|ere|nd|rd|st|th|e|ème|eme)\b",
+        r"\1",
+        text,
+        flags=re.IGNORECASE,
+    )
     # Collapse multiple spaces
     text = re.sub(r"\s+", " ", text).strip()
     return text

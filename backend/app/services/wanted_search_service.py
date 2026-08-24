@@ -396,16 +396,18 @@ async def _apply_ai_ranker(
 def _candidate_matches_issue(cand: "ScoredCandidate", issue: Issue) -> bool:
     """Vérifie qu'un candidat correspond à l'issue cible (date OU numéro).
 
-    Règles :
+    Règles strictes :
       - Si l'issue a un numéro connu ET le candidat aussi → match par
         numéro strict (numéros de publication uniques).
       - Sinon match par date :
-        * jour connu des deux côtés → jour+mois+année doivent matcher
-        * seul mois connu → mois+année suffisent
-      - Un candidat avec zéro info parsée (title mal formé) est
-        considéré compatible (bénéfice du doute — le ranker IA
-        tranchera). Filtrer strictement ceux-là écraserait des
-        releases valides mal nommés.
+        * si l'issue a un jour précis (typique daily/weekly), on
+          exige que le candidat AIT AUSSI un jour parsé et qu'il
+          matche. Un candidat avec year+month mais day=None est
+          REJETÉ — le "bénéfice du doute" polluait le ranker avec
+          des Le Monde du 1er août quand la cible est le 20 août.
+        * si l'issue n'a pas de jour (monthly+), year+month suffisent.
+      - Un candidat avec ZÉRO info parsée (title mal formé) garde le
+        bénéfice du doute → le ranker IA tranchera.
     """
     # Match par numéro d'abord (plus fiable)
     if issue.number is not None and cand.parsed_number is not None:
@@ -415,10 +417,18 @@ def _candidate_matches_issue(cand: "ScoredCandidate", issue: Issue) -> bool:
     if issue.year and cand.parsed_year is not None:
         if cand.parsed_year != issue.year:
             return False
-        if issue.month and cand.parsed_month is not None:
+        if issue.month:
+            if cand.parsed_month is None:
+                # L'issue a un mois mais le candidat non → info trop
+                # partielle pour trancher, rejette.
+                return False
             if cand.parsed_month != issue.month:
                 return False
-            if issue.day and cand.parsed_day is not None:
+            if issue.day:
+                if cand.parsed_day is None:
+                    # Daily/weekly : sans jour parsé, impossible de
+                    # confirmer le candidat cible la bonne date. Drop.
+                    return False
                 if cand.parsed_day != issue.day:
                     return False
         return True
