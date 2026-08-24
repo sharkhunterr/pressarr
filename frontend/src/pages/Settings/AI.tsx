@@ -476,131 +476,12 @@ export default function AISettingsPage() {
           </CardContent>
         </Card>
 
-        {/* --- Ranker ----------------------------------------- */}
+        {/* --- Recherche automatique (pipeline wanted + IA ranker fusionnés) --- */}
         <Card className="bg-zinc-950 border-zinc-800">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-zinc-100">
-                Ranker recherche
-              </CardTitle>
-              <Switch
-                checked={local.rankerEnabled}
-                onCheckedChange={(v) =>
-                  setLocal({ ...local, rankerEnabled: v === true })
-                }
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-zinc-500 -mt-2">
-              Envoie les candidats de la recherche à l'IA par petits
-              batches et laisse choisir la meilleure correspondance.
-              Utilise le même modèle texte que l'enrichissement.
-            </p>
-
-            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 flex items-start gap-2">
-              <Info className="size-4 text-blue-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-zinc-400">
-                Recommandé : commencer en mode <strong>Observation</strong>{' '}
-                pour voir les décisions de l'IA dans l'historique avant
-                de basculer sur <strong>IA tranche</strong>.
-              </p>
-            </div>
-
-            <div className="grid gap-1.5">
-              <label className="text-sm font-medium text-zinc-300">
-                Autorité du ranker
-              </label>
-              <Select
-                value={local.rankerMode}
-                onValueChange={(v: 'ai_wins' | 'ai_veto_only' | 'ai_advisory') =>
-                  setLocal({ ...local, rankerMode: v })
-                }
-              >
-                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ai_advisory">
-                    Observation — log seul, aucune influence
-                  </SelectItem>
-                  <SelectItem value="ai_veto_only">
-                    Veto — l'IA peut refuser le top scorer
-                  </SelectItem>
-                  <SelectItem value="ai_wins">
-                    IA tranche — pick de l'IA prioritaire
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid sm:grid-cols-3 gap-4">
-              <div className="grid gap-1.5">
-                <label className="text-sm font-medium text-zinc-300">
-                  Batch size
-                </label>
-                <Input
-                  type="number"
-                  min={2}
-                  max={20}
-                  value={local.rankerBatchSize}
-                  onChange={(e) =>
-                    setLocal({ ...local, rankerBatchSize: Number(e.target.value) })
-                  }
-                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <label className="text-sm font-medium text-zinc-300">
-                  Top-K envoyé à l'IA
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={local.rankerTopK}
-                  onChange={(e) =>
-                    setLocal({ ...local, rankerTopK: Number(e.target.value) })
-                  }
-                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <label className="text-sm font-medium text-zinc-300">
-                  Seuil de confiance
-                </label>
-                <Input
-                  type="number"
-                  step="0.05"
-                  min={0}
-                  max={1}
-                  value={local.rankerConfidenceThreshold}
-                  onChange={(e) =>
-                    setLocal({
-                      ...local,
-                      rankerConfidenceThreshold: Number(e.target.value),
-                    })
-                  }
-                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                />
-              </div>
-            </div>
-
-            <PromptField
-              label="Prompt du ranker"
-              value={local.rankerPrompt}
-              onChange={(v) => setLocal({ ...local, rankerPrompt: v })}
-              rows={7}
-            />
-          </CardContent>
-        </Card>
-
-        {/* --- Wanted search pipeline -------------------------- */}
-        <Card className="bg-zinc-950 border-zinc-800">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-zinc-100">
-                Recherche wanted (auto)
+                Recherche automatique
               </CardTitle>
               <Switch
                 checked={local.wantedSearchEnabled}
@@ -612,11 +493,12 @@ export default function AISettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-zinc-500 -mt-2">
-              Pipeline unifié Prowlarr → scoring Python → rules
-              include/exclude → IA batch + arbitre (utilise le ranker
-              ci-dessus) → composite score → auto-grab si winner ≥ seuil.
-              Toggle OFF désactive le scheduler périodique + les
-              auto-triggers à la création d'issue wanted.
+              Pipeline unifié pour les issues <em>wanted</em> :
+              Prowlarr → scoring Python → rules include/exclude → filtre
+              date-match → <em>scoring IA (ranker)</em> → composite score
+              → auto-grab si winner ≥ seuil. Toggle OFF désactive le
+              scheduler périodique + les auto-triggers à la création
+              d'issue wanted.
             </p>
 
             <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 flex items-start gap-2">
@@ -793,6 +675,129 @@ export default function AISettingsPage() {
                   100+ wanted, un cap bas évite de bloquer Ollama.
                 </p>
               </div>
+            </div>
+
+            <div className="border-t border-zinc-800 pt-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-3">
+                  <div className="text-xs uppercase tracking-wide text-zinc-500">
+                    Scoring IA (ranker)
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Composant IA optionnel du pipeline. Envoie les top-K
+                    candidats survivants à Ollama par batches, laisse
+                    l'IA piquer le meilleur (ou vetoer le top scorer
+                    Python). Aussi utilisé par le scan des scene
+                    indexers (Bookys / tm.org) — c'est le même
+                    composant partagé. Toggle OFF = le pipeline utilise
+                    uniquement le scoring Python natif.
+                  </p>
+                </div>
+                <Switch
+                  checked={local.rankerEnabled}
+                  onCheckedChange={(v) =>
+                    setLocal({ ...local, rankerEnabled: v === true })
+                  }
+                />
+              </div>
+
+              <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 flex items-start gap-2">
+                <Info className="size-4 text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-zinc-400">
+                  Recommandé : commencer en mode <strong>Observation</strong>{' '}
+                  pour voir les décisions de l'IA dans l'historique
+                  avant de basculer sur <strong>IA tranche</strong>.
+                </p>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label className="text-sm font-medium text-zinc-300">
+                  Autorité du ranker
+                </label>
+                <Select
+                  value={local.rankerMode}
+                  onValueChange={(v: 'ai_wins' | 'ai_veto_only' | 'ai_advisory') =>
+                    setLocal({ ...local, rankerMode: v })
+                  }
+                >
+                  <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100" disabled={!local.rankerEnabled}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ai_advisory">
+                      Observation — log seul, aucune influence
+                    </SelectItem>
+                    <SelectItem value="ai_veto_only">
+                      Veto — l'IA peut refuser le top scorer
+                    </SelectItem>
+                    <SelectItem value="ai_wins">
+                      IA tranche — pick de l'IA prioritaire
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    Batch size
+                  </label>
+                  <Input
+                    type="number"
+                    min={2}
+                    max={20}
+                    value={local.rankerBatchSize}
+                    onChange={(e) =>
+                      setLocal({ ...local, rankerBatchSize: Number(e.target.value) })
+                    }
+                    disabled={!local.rankerEnabled}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    Top-K envoyé à l'IA
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={local.rankerTopK}
+                    onChange={(e) =>
+                      setLocal({ ...local, rankerTopK: Number(e.target.value) })
+                    }
+                    disabled={!local.rankerEnabled}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    Seuil de confiance
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min={0}
+                    max={1}
+                    value={local.rankerConfidenceThreshold}
+                    onChange={(e) =>
+                      setLocal({
+                        ...local,
+                        rankerConfidenceThreshold: Number(e.target.value),
+                      })
+                    }
+                    disabled={!local.rankerEnabled}
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                </div>
+              </div>
+
+              <PromptField
+                label="Prompt du ranker"
+                value={local.rankerPrompt}
+                onChange={(v) => setLocal({ ...local, rankerPrompt: v })}
+                rows={7}
+              />
             </div>
 
             <div className="border-t border-zinc-800 pt-4 space-y-2">
