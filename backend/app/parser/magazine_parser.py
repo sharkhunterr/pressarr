@@ -240,6 +240,19 @@ _RE_VOLUME = re.compile(
 # Full date pattern: 2025-03-27, 2025/03/27, or 2025.03.27
 _RE_YEAR_MONTH_DAY = re.compile(r"\b((?:19|20)\d{2})[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12]\d|3[01])\b")
 
+# Day-month-year FR/EU format: 27-03-2025, 27/03/2025, 27.03.2025.
+# Testé APRÈS _RE_YEAR_MONTH_DAY pour ne pas confondre 2025-03-27
+# (YMD) avec 27-03-2025 (DMY) — le pattern YMD est strict sur année
+# en préfixe donc pas d'overlap possible. Priorité FR (jour d'abord)
+# parce que la base d'uploaders française est majoritaire côté user ;
+# une valeur DD > 12 tranche naturellement (ex "20.08.2026" ne peut
+# être que 20 août). Pour DD ≤ 12 (ambigu FR vs US), on garde FR par
+# défaut. Format US strict "MM-DD-YYYY" est déjà couvert par les
+# templates de query côté search (pas besoin de le parser en retour).
+_RE_DAY_MONTH_YEAR = re.compile(
+    r"\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.]((?:19|20)\d{2})\b"
+)
+
 # Year-month pattern: 2025-03, 2025/03, or 2025.03
 _RE_YEAR_MONTH = re.compile(r"\b((?:19|20)\d{2})[-/.](0[1-9]|1[0-2])\b")
 
@@ -366,46 +379,57 @@ def parse_magazine_filename(filename: str) -> ParseResult:
             result.month = int(ymd_match.group(2))
             result.day = int(ymd_match.group(3))
         else:
-            # Try year-month format (2025-03)
-            working, ym_match = _consume(working, _RE_YEAR_MONTH)
-            if ym_match:
-                result.year = int(ym_match.group(1))
-                result.month = int(ym_match.group(2))
+            # Try day-month-year FR (27-03-2025, 20.08.2026, 20/08/2026).
+            # Format ultra-répandu chez les uploaders FR — sans ce
+            # pattern, "Le.Monde.Du.02.08.2026" ne récupérait que
+            # year=2026 → le filtre date-match du pipeline le laissait
+            # passer comme "info partielle" et polluait le ranker IA.
+            working, dmy_match = _consume(working, _RE_DAY_MONTH_YEAR)
+            if dmy_match:
+                result.day = int(dmy_match.group(1))
+                result.month = int(dmy_match.group(2))
+                result.year = int(dmy_match.group(3))
             else:
-                # Extract year first (standalone 4-digit year)
-                working, y_match = _consume(working, _RE_YEAR)
-                if y_match:
-                    result.year = int(y_match.group(1))
+                # Try year-month format (2025-03)
+                working, ym_match = _consume(working, _RE_YEAR_MONTH)
+                if ym_match:
+                    result.year = int(ym_match.group(1))
+                    result.month = int(ym_match.group(2))
+                else:
+                    # Extract year first (standalone 4-digit year)
+                    working, y_match = _consume(working, _RE_YEAR)
+                    if y_match:
+                        result.year = int(y_match.group(1))
 
-                # Only try month name extraction if a year was found
-                # (prevents false matches like "Mag" → Italian May)
-                if result.year is not None:
-                    working_lower = working.lower()
-                    mn_match = _RE_MONTH_NAME.search(working_lower)
-                    if mn_match:
-                        month_str = mn_match.group(1).lower()
-                        month_val = MONTH_NAMES.get(month_str) or MONTH_NAMES.get(
-                            _strip_accents(month_str)
-                        )
-                        if month_val:
-                            result.month = month_val
-                            working = (
-                                working[:mn_match.start()]
-                                + " "
-                                + working[mn_match.end():]
+                    # Only try month name extraction if a year was found
+                    # (prevents false matches like "Mag" → Italian May)
+                    if result.year is not None:
+                        working_lower = working.lower()
+                        mn_match = _RE_MONTH_NAME.search(working_lower)
+                        if mn_match:
+                            month_str = mn_match.group(1).lower()
+                            month_val = MONTH_NAMES.get(month_str) or MONTH_NAMES.get(
+                                _strip_accents(month_str)
                             )
-                            working = re.sub(r"\s+", " ", working).strip()
+                            if month_val:
+                                result.month = month_val
+                                working = (
+                                    working[:mn_match.start()]
+                                    + " "
+                                    + working[mn_match.end():]
+                                )
+                                working = re.sub(r"\s+", " ", working).strip()
 
-            # Try "day month_name year" pattern: "27 Février 2025"
-            if result.year is not None and result.month is not None and result.day is None:
-                # Look for a bare day number near the month name
-                day_match = re.search(r"\b(0?[1-9]|[12]\d|3[01])\b", working)
-                if day_match:
-                    candidate = int(day_match.group(1))
-                    if 1 <= candidate <= 31:
-                        result.day = candidate
-                        working = working[:day_match.start()] + " " + working[day_match.end():]
-                        working = re.sub(r"\s+", " ", working).strip()
+                    # Try "day month_name year" pattern: "27 Février 2025"
+                    if result.year is not None and result.month is not None and result.day is None:
+                        # Look for a bare day number near the month name
+                        day_match = re.search(r"\b(0?[1-9]|[12]\d|3[01])\b", working)
+                        if day_match:
+                            candidate = int(day_match.group(1))
+                            if 1 <= candidate <= 31:
+                                result.day = candidate
+                                working = working[:day_match.start()] + " " + working[day_match.end():]
+                                working = re.sub(r"\s+", " ", working).strip()
 
         # 10. Remaining tokens = title
         # Clean up dashes/hyphens at boundaries
