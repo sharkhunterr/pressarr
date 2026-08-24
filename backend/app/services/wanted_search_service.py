@@ -963,6 +963,14 @@ async def run_wanted_search(
                 ],
             },
         )
+        # Commit explicite du searched event + tout autre write
+        # pending (last_searched_at, matched_magazine liens éventuels).
+        # Sans ce commit, le context manager du caller (scheduler,
+        # endpoint) sortait sans commit → tous les writes du run
+        # étaient rollback silencieusement, d'où 0 event `searched`
+        # en DB malgré des dizaines de runs enregistrés par le
+        # scheduler comme "complete".
+        await db.commit()
     except Exception:
         logger.warning(
             "Failed to persist searched event for issue %s (non-fatal)",
