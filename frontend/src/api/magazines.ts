@@ -51,6 +51,10 @@ export interface Magazine {
    *  scheduler + les auto-triggers skippent toutes les issues de ce
    *  magazine. Les recherches manuelles (bouton) restent possibles. */
   wantedSearchEnabled: boolean
+  /** Tolérance en jours pour matcher un release à une issue.
+   *  Défaut 0 (strict). Utile pour magazines à édition combinée
+   *  weekend (ex: Le Monde "15,16,17 août" en 1 issue, tolerance=2). */
+  dateToleranceDays: number
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {

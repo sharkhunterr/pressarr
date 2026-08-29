@@ -64,6 +64,7 @@ const DEFAULT: LocalState = {
   wantedSearchAutoGrabEnabled: false,
   wantedSearchAutoGrabThreshold: 78,
   wantedSearchMinTitleMatch: 60,
+  wantedSearchMinPythonScore: 55,
   wantedSearchIntervalMinutes: 240,
   wantedSearchCooldownHours: 12,
   wantedSearchMaxPerCycle: 30,
@@ -585,6 +586,34 @@ export default function AISettingsPage() {
                 Empêche l'IA d'auto-grab un release off-topic (ex.
                 "Le Figaro Magazine" pour "Le Monde") même à confidence
                 1.0. Défaut 60%.
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-zinc-300">
+                Score Python minimum (Python + IA doivent être positifs)
+              </label>
+              <Input
+                type="number"
+                step="1"
+                min={0}
+                max={100}
+                value={local.wantedSearchMinPythonScore}
+                onChange={(e) =>
+                  setLocal({
+                    ...local,
+                    wantedSearchMinPythonScore: Number(e.target.value),
+                  })
+                }
+                disabled={!local.wantedSearchAutoGrabEnabled}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100"
+              />
+              <p className="text-xs text-zinc-500">
+                Le score Python natif (fuzzy titre + quality + seeds +
+                age) doit atteindre ce plancher <em>en plus du composite</em>.
+                Empêche l'IA d'imposer un pick quand le python dit clairement
+                KO (ex: Paris Match dans Les Echos parce que l'IA a mal
+                lu). Les deux doivent être positifs pour grab. Défaut 55.
               </p>
             </div>
 

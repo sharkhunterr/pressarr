@@ -82,6 +82,7 @@ class MagazineResource(CamelModel):
     release_weekday: int | None = None
     is_placeholder: bool = False
     wanted_search_enabled: bool = True
+    date_tolerance_days: int = 0
     patterns: list[MagazinePatternResource] = []
     rules: list[MagazineRuleResource] = []
     statistics: MagazineStatistics = MagazineStatistics()
@@ -149,6 +150,7 @@ class MagazineUpdateResource(CamelModel):
     cover_issue_id: int | None = None
     is_placeholder: bool | None = None
     wanted_search_enabled: bool | None = None
+    date_tolerance_days: int | None = None
 
 
 class SourceInfo(CamelModel):

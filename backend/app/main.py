@@ -232,6 +232,9 @@ def _migrate_add_columns(connection) -> None:
         # mag qui pollue les résultats ou dont on ne veut plus rien).
         # Default ON = comportement historique.
         ("magazine", "wanted_search_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+        # Tolérance jours pour magazines à issue combinée weekend
+        # (ex: Le Monde "15,16 et 17 août" = 1 issue, tolerance=2).
+        ("magazine", "date_tolerance_days", "INTEGER NOT NULL DEFAULT 0"),
     ]
     for table, column, col_type in migrations:
         try:

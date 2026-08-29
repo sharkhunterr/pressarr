@@ -289,6 +289,14 @@ class Config:
         # un release quality+seeds pouvait franchir le seuil sans
         # ressembler au titre attendu. Ce gate est indépendant.
         self.wanted_search_min_title_match: float = 60.0
+        # Plancher de score Python indépendant. Le composite peut être
+        # gonflé par l'IA (mode ai_wins boost jusqu'à +40 pts), mais si
+        # le python natif reste bas c'est que le release ne colle pas
+        # (mauvais titre, mauvaise quality, aucun seed). Sous ce plancher
+        # l'auto-grab est BLOQUÉ — l'IA seule ne peut pas décider.
+        # Défaut 55.0 = ~la moitié du score max, exige une base solide
+        # côté python même si l'IA est enthousiaste.
+        self.wanted_search_min_python_score: float = 55.0
         # Cadence du scheduler wanted_search_sync (minutes entre 2
         # cycles). Défaut 4h : sur beaucoup d'issues wanted, un
         # intervalle court réquisitionne les indexeurs + Ollama trop
@@ -473,6 +481,9 @@ class Config:
         self.wanted_search_min_title_match = wsearch.get(
             "min_title_match", self.wanted_search_min_title_match
         )
+        self.wanted_search_min_python_score = wsearch.get(
+            "min_python_score", self.wanted_search_min_python_score
+        )
         self.wanted_search_interval_minutes = wsearch.get(
             "interval_minutes", self.wanted_search_interval_minutes
         )
@@ -629,6 +640,7 @@ class Config:
                 "auto_grab_enabled": self.wanted_search_auto_grab_enabled,
                 "auto_grab_threshold": self.wanted_search_auto_grab_threshold,
                 "min_title_match": self.wanted_search_min_title_match,
+                "min_python_score": self.wanted_search_min_python_score,
                 "interval_minutes": self.wanted_search_interval_minutes,
                 "cooldown_hours": self.wanted_search_cooldown_hours,
                 "max_per_cycle": self.wanted_search_max_per_cycle,

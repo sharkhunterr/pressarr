@@ -393,7 +393,11 @@ async def _apply_ai_ranker(
     return result.applied_mode, result.run_id, per_candidate
 
 
-def _candidate_matches_issue(cand: "ScoredCandidate", issue: Issue) -> bool:
+def _candidate_matches_issue(
+    cand: "ScoredCandidate",
+    issue: Issue,
+    date_tolerance_days: int = 0,
+) -> bool:
     """Vérifie qu'un candidat correspond à l'issue cible (date OU numéro).
 
     Règles strictes :
@@ -403,11 +407,15 @@ def _candidate_matches_issue(cand: "ScoredCandidate", issue: Issue) -> bool:
         * si l'issue a un jour précis (typique daily/weekly), on
           exige que le candidat AIT AUSSI un jour parsé et qu'il
           matche. Un candidat avec year+month mais day=None est
-          REJETÉ — le "bénéfice du doute" polluait le ranker avec
-          des Le Monde du 1er août quand la cible est le 20 août.
+          REJETÉ.
         * si l'issue n'a pas de jour (monthly+), year+month suffisent.
       - Un candidat avec ZÉRO info parsée (title mal formé) garde le
         bénéfice du doute → le ranker IA tranchera.
+
+    ``date_tolerance_days`` : tolérance en jours autour de issue.day.
+    Utile pour magazines à édition combinée weekend (ex: Le Monde
+    "15,16,17 août" = 1 issue publiée le 17, avec tolerance=2 les
+    releases datés 15,16,17 matchent tous cette issue).
     """
     # Match par numéro d'abord (plus fiable)
     if issue.number is not None and cand.parsed_number is not None:
@@ -419,17 +427,15 @@ def _candidate_matches_issue(cand: "ScoredCandidate", issue: Issue) -> bool:
             return False
         if issue.month:
             if cand.parsed_month is None:
-                # L'issue a un mois mais le candidat non → info trop
-                # partielle pour trancher, rejette.
                 return False
             if cand.parsed_month != issue.month:
                 return False
             if issue.day:
                 if cand.parsed_day is None:
-                    # Daily/weekly : sans jour parsé, impossible de
-                    # confirmer le candidat cible la bonne date. Drop.
                     return False
-                if cand.parsed_day != issue.day:
+                # Tolérance jour magazine-driven pour éditions combinées.
+                tol = max(0, int(date_tolerance_days))
+                if abs(cand.parsed_day - issue.day) > tol:
                     return False
         return True
 
@@ -677,8 +683,9 @@ async def run_wanted_search(
     # issue 20/08). On drop les candidats dont la date parsée contredit
     # l'issue cible avec drop_reason lisible côté UI.
     date_matched: list[ScoredCandidate] = []
+    mag_tol = int(getattr(magazine, "date_tolerance_days", 0) or 0)
     for c in surviving:
-        if _candidate_matches_issue(c, issue):
+        if _candidate_matches_issue(c, issue, date_tolerance_days=mag_tol):
             date_matched.append(c)
         else:
             # Marque comme droppé pour trace UI (visible dans table "Rejetés")
@@ -832,6 +839,29 @@ async def run_wanted_search(
             result.auto_grab_message = (
                 f"blocked: title match {title_gate_score:.0f}% < {min_title:.0f}%"
                 if title_gate_score is not None else "blocked: title gate error"
+            )
+            auto_grab_gate_ok = False
+
+    if auto_grab_gate_ok and winner is not None:
+        # Hard gate score Python : même si l'IA boostait le composite
+        # au-dessus du seuil, un python_score bas signale que le
+        # release ne correspond pas objectivement (mauvais titre, pas
+        # de seed, quality inconnue). L'IA seule ne doit pas pouvoir
+        # trancher — les deux (python ET IA) doivent être positifs.
+        min_py = float(
+            getattr(config, "wanted_search_min_python_score", 55.0),
+        )
+        if winner.python_score < min_py:
+            logger.warning(
+                "auto-grab bloqué pour issue %s : python_score %.1f < %.1f "
+                "(l'IA seule ne peut pas décider si Python est KO)",
+                issue_id, winner.python_score, min_py,
+            )
+            result.auto_grab_attempted = False
+            result.auto_grab_success = False
+            result.auto_grab_message = (
+                f"blocked: python_score {winner.python_score:.0f} < {min_py:.0f} "
+                f"(IA seule insuffisante)"
             )
             auto_grab_gate_ok = False
 

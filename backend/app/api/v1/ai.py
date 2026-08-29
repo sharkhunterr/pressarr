@@ -65,6 +65,7 @@ class AISettingsResource(CamelModel):
     wanted_search_auto_grab_enabled: bool
     wanted_search_auto_grab_threshold: float
     wanted_search_min_title_match: float
+    wanted_search_min_python_score: float
     wanted_search_interval_minutes: int
     wanted_search_cooldown_hours: int
     wanted_search_max_per_cycle: int
@@ -97,6 +98,7 @@ class AISettingsUpdateResource(CamelModel):
     wanted_search_auto_grab_enabled: bool | None = None
     wanted_search_auto_grab_threshold: float | None = None
     wanted_search_min_title_match: float | None = None
+    wanted_search_min_python_score: float | None = None
     wanted_search_interval_minutes: int | None = None
     wanted_search_cooldown_hours: int | None = None
     wanted_search_max_per_cycle: int | None = None
@@ -130,6 +132,7 @@ def _to_resource(config) -> AISettingsResource:
         wanted_search_auto_grab_enabled=config.wanted_search_auto_grab_enabled,
         wanted_search_auto_grab_threshold=config.wanted_search_auto_grab_threshold,
         wanted_search_min_title_match=config.wanted_search_min_title_match,
+        wanted_search_min_python_score=config.wanted_search_min_python_score,
         wanted_search_interval_minutes=config.wanted_search_interval_minutes,
         wanted_search_cooldown_hours=config.wanted_search_cooldown_hours,
         wanted_search_max_per_cycle=config.wanted_search_max_per_cycle,
@@ -185,6 +188,7 @@ async def save_ai_settings(
         "wanted_search_auto_grab_enabled": "wanted_search_auto_grab_enabled",
         "wanted_search_auto_grab_threshold": "wanted_search_auto_grab_threshold",
         "wanted_search_min_title_match": "wanted_search_min_title_match",
+        "wanted_search_min_python_score": "wanted_search_min_python_score",
         "wanted_search_interval_minutes": "wanted_search_interval_minutes",
         "wanted_search_cooldown_hours": "wanted_search_cooldown_hours",
         "wanted_search_max_per_cycle": "wanted_search_max_per_cycle",

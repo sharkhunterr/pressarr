@@ -118,6 +118,15 @@ class Magazine(Base):
     wanted_search_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="1"
     )
+    # Tolérance en jours pour matcher une issue à un release. Défaut 0
+    # (match strict day == day). Utile pour les magazines qui sortent
+    # une édition combinée weekend (ex: Le Monde "15, 16 et 17 août"
+    # publiée comme une seule issue). Avec tolerance=2, un release
+    # daté 15/08 matche l'issue publiée le 17/08. S'applique
+    # uniquement au filtre date-match du pipeline wanted_search.
+    date_tolerance_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")

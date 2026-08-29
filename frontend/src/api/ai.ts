@@ -51,6 +51,11 @@ export interface AISettings {
    *  En dessous, l'auto-grab est bloqué même si le composite est haut.
    *  Garde-fou contre les picks IA off-topic. */
   wantedSearchMinTitleMatch: number
+  /** Plancher de score Python natif (0-100) requis en plus du composite.
+   *  L'IA seule ne peut pas décider — le python natif doit aussi être
+   *  positif. Sous ce plancher, auto-grab bloqué même si l'IA est
+   *  enthousiaste. Défaut 55. */
+  wantedSearchMinPythonScore: number
   /** Intervalle du scheduler wanted_search_sync en minutes.
    *  Défaut 240 (4h). Reschedule à chaud au save. */
   wantedSearchIntervalMinutes: number
