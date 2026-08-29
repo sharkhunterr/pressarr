@@ -58,6 +58,7 @@ export default function AddMagazine() {
   const [manualFrequency, setManualFrequency] = useState('monthly')
   const [excludedDays, setExcludedDays] = useState<number[]>([])
   const [releaseWeekday, setReleaseWeekday] = useState<number | null>(null)
+  const [dateToleranceDays, setDateToleranceDays] = useState<number>(0)
   const [rootFolderId, setRootFolderId] = useState<string>('')
   const [qualityProfileId, setQualityProfileId] = useState<string>('')
   const [monitoringStartDate, setMonitoringStartDate] = useState('')
@@ -139,6 +140,7 @@ export default function AddMagazine() {
         frequency: manualFrequency,
         excludedDays: excludedDays.length > 0 ? excludedDays : undefined,
         releaseWeekday: releaseWeekday,
+        dateToleranceDays: dateToleranceDays > 0 ? dateToleranceDays : undefined,
         rootFolderId: rootFolderId ? Number(rootFolderId) : undefined,
         qualityProfileId: qualityProfileId ? Number(qualityProfileId) : undefined,
         monitoringStartDate: monitoringStartDate || undefined,
@@ -384,6 +386,35 @@ export default function AddMagazine() {
                   </p>
                 </div>
               )}
+              {/* Édition weekend combinée — tolérance jour pour matcher un release
+                  daté X à une issue publiée à ±N jours. Défaut 0 (strict). */}
+              <div className="grid gap-1.5 mt-2">
+                <label className="text-sm font-medium text-zinc-300">
+                  Édition weekend (tolérance en jours)
+                </label>
+                <div className="flex gap-1">
+                  {[0, 1, 2, 3].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setDateToleranceDays(n)}
+                      className={`px-3 py-1 text-xs rounded border ${
+                        dateToleranceDays === n
+                          ? 'bg-purple-900/50 border-purple-600 text-purple-200'
+                          : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                      }`}
+                    >
+                      {n === 0 ? 'Strict (0j)' : `±${n} jour${n > 1 ? 's' : ''}`}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Certains magazines publient une édition combinée (Le Monde
+                  « 15, 16 et 17 août » = 1 issue). Avec <strong>±2</strong> les
+                  releases datés 15, 16 ou 17 matchent l'issue publiée le 17.
+                  Défaut <strong>strict</strong> = seul le jour exact matche.
+                </p>
+              </div>
             </div>
 
             {/* Root Folder */}

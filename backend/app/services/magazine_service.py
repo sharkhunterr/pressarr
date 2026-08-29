@@ -148,6 +148,7 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         metadata_provider=data.get("metadata_provider"),
         excluded_days=excluded_days_str,
         release_weekday=data.get("release_weekday"),
+        date_tolerance_days=int(data.get("date_tolerance_days") or 0),
         # Cascade enrichment fields when caller already has them
         # (allseerr's dispatcher forwards what its search showed).
         language=data.get("language"),

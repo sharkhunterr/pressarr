@@ -120,6 +120,7 @@ class MagazineCreateResource(CamelModel):
     metadata_provider: str | None = None
     excluded_days: list[int] | None = None
     release_weekday: int | None = None
+    date_tolerance_days: int | None = None
     search_for_missing_issues: bool = True
     # ISSN-first cascade enrichment — allseerr's dispatcher forwards
     # what its search already resolved so pressarr persists the
