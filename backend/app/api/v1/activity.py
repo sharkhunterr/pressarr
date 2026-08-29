@@ -150,10 +150,14 @@ async def delete_activity(activity_id: int):
             409,
             "Activité en cours — annulez-la d'abord (POST /cancel)",
         )
-    from app import database as _db
     from sqlalchemy import delete
     from app.models.activity import Activity as _Activity
-    async with _db.async_session_factory() as session:
+    # Activities vivent dans leur PROPRE DB (pressarr-activity.db)
+    # depuis l'isolation activity — utiliser le session_factory du
+    # service, pas celui de la DB principale sinon le DELETE
+    # opère sur une table vide (bug apparent "delete ne marche pas").
+    _sf = activity_service._session_factory()
+    async with _sf() as session:
         await session.execute(delete(_Activity).where(_Activity.id == activity_id))
         await session.commit()
 
@@ -171,9 +175,13 @@ async def bulk_delete_history(
     """
     from datetime import datetime, timedelta
 
-    from app import database as _db
     from sqlalchemy import delete
     from app.models.activity import Activity as _Activity
+    # Activities vivent dans leur PROPRE DB (pressarr-activity.db)
+    # depuis l'isolation activity — utiliser le session_factory du
+    # service, pas celui de la DB principale sinon le DELETE
+    # opère sur une table vide (bug apparent "delete ne marche pas").
+    _sf = activity_service._session_factory()
     filters = [_Activity.status.in_(["success", "failed", "cancelled"])]
     if kind:
         if kind not in VALID_KINDS:
@@ -182,6 +190,6 @@ async def bulk_delete_history(
     if older_than_days is not None and older_than_days >= 0:
         cutoff = datetime.now() - timedelta(days=older_than_days)
         filters.append(_Activity.completed_at < cutoff)
-    async with _db.async_session_factory() as session:
+    async with _sf() as session:
         await session.execute(delete(_Activity).where(*filters))
         await session.commit()
