@@ -2340,47 +2340,75 @@ export default function MagazineDetail() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 pr-3">
-                    <label className="text-sm font-medium text-zinc-300 block">
-                      Tri IA par date récente
-                    </label>
+                <div className="border-t border-zinc-800 pt-3 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-200">
+                      Recherche automatique
+                    </h3>
                     <p className="text-xs text-zinc-500 mt-0.5">
-                      Envoie les candidats au ranker IA par publish_date
-                      décroissant → les releases récents arrivent dans
-                      les premiers batches. Défaut ON. OFF = ordre
-                      python_score, utile si les uploaders re-publient
-                      sans mettre à jour la date.
+                      Comportement du pipeline wanted → auto-grab pour ce magazine.
                     </p>
                   </div>
-                  <Switch
-                    checked={editSortByRecent}
-                    onCheckedChange={(checked) => setEditSortByRecent(checked === true)}
-                  />
-                </div>
 
-                <div className="grid gap-1.5">
-                  <label className="text-sm font-medium text-zinc-300">
-                    Plancher fuzzy titre (override, %)
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={editMinTitleOverride}
-                    onChange={(e) => setEditMinTitleOverride(e.target.value)}
-                    placeholder="Auto (défaut global)"
-                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                  />
-                  <p className="text-xs text-zinc-500">
-                    Ratio Levenshtein strict entre parsed_title du
-                    release et titre magazine, requis pour auto-grab.
-                    Laisse vide pour suivre le défaut global{' '}
-                    <strong>(80%)</strong>. Monte à 90 pour un mag
-                    ambigu (ex "Le Monde" à protéger de "Le Monde
-                    Diplomatique"). Baisse à 70 pour un mag au nom
-                    court/générique.
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 pr-3">
+                      <label className="text-sm font-medium text-zinc-300 block">
+                        Trier les résultats du plus récent au plus ancien
+                      </label>
+                      <p className="text-xs text-zinc-500 mt-0.5">
+                        Le ranker IA voit d'abord les releases récents.
+                        Défaut ON.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={editSortByRecent}
+                      onCheckedChange={(checked) => setEditSortByRecent(checked === true)}
+                    />
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <div className="flex items-baseline justify-between">
+                      <label className="text-sm font-medium text-zinc-300">
+                        Exigence de correspondance du titre
+                      </label>
+                      <span className="text-xs font-mono text-zinc-400 tabular-nums">
+                        {editMinTitleOverride === ''
+                          ? 'Auto (80 %)'
+                          : `${editMinTitleOverride} %`}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={editMinTitleOverride === '' ? 80 : Number(editMinTitleOverride)}
+                      onChange={(e) => setEditMinTitleOverride(e.target.value)}
+                      className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
+                      <span>Souple (0)</span>
+                      <span>Strict (100)</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-zinc-500 flex-1 pr-2">
+                        Similarité minimale entre le titre du release et
+                        celui du magazine pour autoriser l'auto-grab.
+                        Monte (90+) pour un mag ambigu ("Le Monde" ≠
+                        "Le Monde Diplomatique"). Baisse (70) pour un
+                        mag au nom court.
+                      </p>
+                      {editMinTitleOverride !== '' && (
+                        <button
+                          type="button"
+                          onClick={() => setEditMinTitleOverride('')}
+                          className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
+                        >
+                          Reset auto
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
 
@@ -2466,7 +2494,7 @@ export default function MagazineDetail() {
                       </div>
                     )
                   )}
-                  {['daily', 'weekly', 'biweekly'].includes(editFrequency) && (
+                  {editFrequency === 'daily' && (
                     <div className="grid gap-1.5 mt-2">
                       <label className="text-sm font-medium text-zinc-300">
                         Jours de publication
@@ -2480,8 +2508,9 @@ export default function MagazineDetail() {
                         }}
                       />
                       <p className="text-xs text-zinc-500">
-                        Clique un jour pour cycler <strong>normal → exclu → weekend</strong>.
-                        <em> Exclu</em> = pas d'édition ce jour.{' '}
+                        Clique un jour pour cycler{' '}
+                        <strong>normal → exclu → weekend</strong>.{' '}
+                        <em>Exclu</em> = pas d'édition ce jour.{' '}
                         <em>Weekend</em> = jour regroupé dans l'édition
                         combinée (ex Le Monde Sam+Dim+Lun en 1 issue).
                       </p>

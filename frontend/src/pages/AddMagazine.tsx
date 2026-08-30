@@ -303,7 +303,11 @@ export default function AddMagazine() {
                   <SelectItem value="irregular">{t('addMagazine.irregular')}</SelectItem>
                 </SelectContent>
               </Select>
-              {['daily', 'weekly', 'biweekly'].includes(manualFrequency) && (
+              {/* Sélecteur weekday — uniquement pour DAILY. Un weekly
+                  publie 1 jour fixe (releaseWeekday plus bas), pas
+                  besoin d'exclure les autres. Monthly+ n'utilise pas
+                  la notion de jour de la semaine. */}
+              {manualFrequency === 'daily' && (
                 <div className="grid gap-1.5 mt-2">
                   <label className="text-sm font-medium text-zinc-300">
                     Jours de publication
@@ -317,49 +321,14 @@ export default function AddMagazine() {
                     }}
                   />
                   <p className="text-xs text-zinc-500">
-                    Clique un jour pour cycler <strong>normal → exclu → weekend</strong>.
-                    <em> Exclu</em> = pas d'édition ce jour.{' '}
+                    Clique un jour pour cycler{' '}
+                    <strong>normal → exclu → weekend</strong>.{' '}
+                    <em>Exclu</em> = pas d'édition ce jour.{' '}
                     <em>Weekend</em> = jour regroupé dans l'édition
                     combinée (ex Le Monde Sam+Dim+Lun en 1 issue).
                   </p>
                 </div>
               )}
-
-              <div className="flex items-center justify-between mt-2">
-                <div className="flex-1 pr-3">
-                  <label className="text-sm font-medium text-zinc-300 block">
-                    Tri IA par date récente
-                  </label>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    Envoie les candidats au ranker IA par publish_date
-                    décroissant. Défaut ON.
-                  </p>
-                </div>
-                <Switch
-                  checked={sortByRecentDate}
-                  onCheckedChange={(v) => setSortByRecentDate(v === true)}
-                />
-              </div>
-
-              <div className="grid gap-1.5 mt-2">
-                <label className="text-sm font-medium text-zinc-300">
-                  Plancher fuzzy titre (override, %)
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={minTitleMatchOverride}
-                  onChange={(e) => setMinTitleMatchOverride(e.target.value)}
-                  placeholder="Auto (défaut global 80%)"
-                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                />
-                <p className="text-xs text-zinc-500">
-                  Override per-magazine. Vide = défaut global. Monte
-                  à 90 pour un mag ambigu, baisse à 70 pour un mag au
-                  nom court.
-                </p>
-              </div>
               {['weekly', 'biweekly'].includes(manualFrequency) && (
                 <div className="grid gap-1.5 mt-2">
                   <label className="text-sm font-medium text-zinc-300">
@@ -405,6 +374,77 @@ export default function AddMagazine() {
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* ── Section recherche automatique (IA) ─────────────── */}
+            <div className="border-t border-zinc-800 pt-4 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-200">
+                  Recherche automatique
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Comportement du pipeline wanted → auto-grab pour ce magazine.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-3">
+                  <label className="text-sm font-medium text-zinc-300 block">
+                    Trier les résultats du plus récent au plus ancien
+                  </label>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Le ranker IA voit d'abord les releases récents.
+                    Défaut ON.
+                  </p>
+                </div>
+                <Switch
+                  checked={sortByRecentDate}
+                  onCheckedChange={(v) => setSortByRecentDate(v === true)}
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <div className="flex items-baseline justify-between">
+                  <label className="text-sm font-medium text-zinc-300">
+                    Exigence de correspondance du titre
+                  </label>
+                  <span className="text-xs font-mono text-zinc-400 tabular-nums">
+                    {minTitleMatchOverride === ''
+                      ? 'Auto (80 %)'
+                      : `${minTitleMatchOverride} %`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={minTitleMatchOverride === '' ? 80 : Number(minTitleMatchOverride)}
+                  onChange={(e) => setMinTitleMatchOverride(e.target.value)}
+                  className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
+                  <span>Souple (0)</span>
+                  <span>Strict (100)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-zinc-500 flex-1 pr-2">
+                    Similarité minimale entre le titre du release et
+                    celui du magazine pour autoriser l'auto-grab. Monte
+                    (90+) pour un mag ambigu ("Le Monde" ≠ "Le Monde
+                    Diplomatique"). Baisse (70) pour un mag au nom court.
+                  </p>
+                  {minTitleMatchOverride !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => setMinTitleMatchOverride('')}
+                      className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
+                    >
+                      Reset auto
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Root Folder */}
