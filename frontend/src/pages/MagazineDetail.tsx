@@ -1480,6 +1480,7 @@ export default function MagazineDetail() {
                       currentDir={issueSortDir}
                       onSort={toggleIssueSort}
                     />
+                    <TableHead className="text-zinc-400">Type</TableHead>
                     <SortableHead
                       label={t('issues.issueTitle')}
                       sortKey="title"
@@ -1558,7 +1559,7 @@ export default function MagazineDetail() {
                                 })
                               }}
                             >
-                              <TableCell colSpan={10} className="py-2">
+                              <TableCell colSpan={11} className="py-2">
                                 <div className="flex items-center gap-2 text-sm text-zinc-400">
                                   {isExpanded
                                     ? <ChevronDown className="size-4" />

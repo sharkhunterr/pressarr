@@ -118,36 +118,47 @@ export function IssueRow({
 
   const isDateDeduced = !hasRealDate && deduced?.deducedYear != null
 
-  // Détection issue weekend combinée : si le publication_date de l'issue
-  // tombe sur un des weekend_days du magazine, on remonte les jours
-  // consécutifs dans weekend_days pour reconstituer le range couvert.
+  // Détection issue weekend combinée : reconstitue toutes les dates
+  // couvertes par le groupe (weekdays consécutifs dans weekend_days).
   // Ex Le Monde weekend_days=[5,6,0], issue publiée Lun 17/08 →
-  // range = Sam 15/08 → Lun 17/08 (3 jours combinés).
-  let weekendRange: { from: Date; to: Date; days: number } | null = null
+  // dates = [Sam 15/08, Dim 16/08, Lun 17/08]. Peut faire 2, 3, ou
+  // plus de jours selon la config du magazine.
+  const jsToIsoWd = (d: Date) => (d.getDay() === 0 ? 6 : d.getDay() - 1)
+  let weekendDates: Date[] | null = null
   if (weekendDays && weekendDays.length > 0 && issue.year && issue.month && issue.day) {
     const to = new Date(issue.year, issue.month - 1, issue.day)
-    if (weekendDays.includes(to.getDay() === 0 ? 6 : to.getDay() - 1)) {
-      // to.getDay() : 0=Sun..6=Sat, on convertit vers 0=Mon..6=Sun
-      const jsToIsoWd = (d: Date) => (d.getDay() === 0 ? 6 : d.getDay() - 1)
-      let from = new Date(to)
-      // Recule tant que le weekday précédent est dans weekend_days
-      // et qu'on est toujours dans la même semaine (< 7 jours).
+    if (weekendDays.includes(jsToIsoWd(to))) {
+      const collected: Date[] = [to]
+      let cur = new Date(to)
+      // Recule tant que la veille est dans weekend_days et qu'on
+      // reste dans la même semaine glissante (< 7 jours du dernier).
       while (true) {
-        const prev = new Date(from)
+        const prev = new Date(cur)
         prev.setDate(prev.getDate() - 1)
-        if (jsToIsoWd(prev) in { 0:1,1:1,2:1,3:1,4:1,5:1,6:1 } &&
-            weekendDays.includes(jsToIsoWd(prev)) &&
-            (to.getTime() - prev.getTime()) < 7 * 24 * 3600 * 1000) {
-          from = prev
+        if (
+          weekendDays.includes(jsToIsoWd(prev)) &&
+          (to.getTime() - prev.getTime()) < 7 * 24 * 3600 * 1000
+        ) {
+          collected.unshift(prev)
+          cur = prev
         } else break
       }
-      const days = Math.round((to.getTime() - from.getTime()) / (24 * 3600 * 1000)) + 1
-      if (days >= 2) weekendRange = { from, to, days }
+      if (collected.length >= 2) weekendDates = collected
     }
   }
 
-  const formatShort = (d: Date) =>
-    `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+  const WEEKDAY_LABELS_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+  const formatDayLine = (d: Date) => {
+    const wd = WEEKDAY_LABELS_SHORT[jsToIsoWd(d)]
+    return `${wd} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+  }
+
+  // Type d'issue : HS (hors-série), weekend (édition combinée), régulier.
+  const issueTypeLabel = issue.isSpecial
+    ? { label: 'HS', cls: 'bg-amber-500/15 text-amber-200 border-amber-500/30', title: 'Hors-série' }
+    : weekendDates
+      ? { label: `Weekend (${weekendDates.length}j)`, cls: 'bg-purple-500/15 text-purple-200 border-purple-500/30', title: 'Édition weekend combinée' }
+      : { label: 'Régulier', cls: 'bg-zinc-800 text-zinc-400 border-zinc-700', title: 'Édition régulière' }
 
   // Queue progress
   const isInQueue = !!queueItem
@@ -193,25 +204,27 @@ export function IssueRow({
           </div>
         )}
       </TableCell>
+      {/* Colonne Date — pour un weekend combiné, stack toutes les
+           dates du groupe verticalement (2, 3, ou plus selon config). */}
       <TableCell className={isDateDeduced ? 'text-amber-400 italic' : 'text-zinc-400'}>
-        {weekendRange ? (
-          <div className="flex flex-col gap-0.5">
-            <div className="inline-flex items-center gap-1.5">
-              <span className="text-zinc-200 text-xs">
-                {formatShort(weekendRange.from)} → {formatShort(weekendRange.to)}
-                <span className="text-zinc-500">/{weekendRange.to.getFullYear()}</span>
-              </span>
-              <span
-                className="inline-flex items-center gap-1 rounded bg-purple-500/15 text-purple-200 border border-purple-500/30 text-[10px] px-1.5 py-0"
-                title={`Édition weekend combinée sur ${weekendRange.days} jours`}
-              >
-                📰 weekend ({weekendRange.days}j)
-              </span>
-            </div>
+        {weekendDates ? (
+          <div className="flex flex-col gap-0.5 text-xs text-zinc-300 leading-tight">
+            {weekendDates.map((d, i) => (
+              <span key={i}>{formatDayLine(d)}</span>
+            ))}
           </div>
         ) : (
           displayDate
         )}
+      </TableCell>
+      {/* Colonne Type — HS / Weekend / Régulier */}
+      <TableCell>
+        <span
+          className={`inline-flex items-center rounded border text-[10px] px-1.5 py-0.5 whitespace-nowrap ${issueTypeLabel.cls}`}
+          title={issueTypeLabel.title}
+        >
+          {issueTypeLabel.label}
+        </span>
       </TableCell>
       <TableCell>
         {issue.title && (
