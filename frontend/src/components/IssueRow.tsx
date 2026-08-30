@@ -45,6 +45,11 @@ interface IssueRowProps {
   queueItem?: QueueEntry
   deduced?: DeducedFields
   numberIncoherence?: NumberIncoherence
+  /** Weekdays (0=Lun..6=Dim) qui se regroupent en 1 issue weekend.
+   *  Passé du magazine pour calculer le range de dates couvert par
+   *  cette issue (ex Le Monde Sam+Dim+Lun → issue affichée
+   *  "Sam 15 → Lun 17/08"). */
+  weekendDays?: number[]
   onSelect: (id: number, checked: boolean) => void
   onToggleMonitor: (id: number, monitored: boolean) => void
   onEdit: (issue: Issue) => void
@@ -68,6 +73,7 @@ export function IssueRow({
   queueItem,
   deduced,
   numberIncoherence,
+  weekendDays,
   onSelect,
   onToggleMonitor,
   onEdit,
@@ -111,6 +117,37 @@ export function IssueRow({
         : '-'
 
   const isDateDeduced = !hasRealDate && deduced?.deducedYear != null
+
+  // Détection issue weekend combinée : si le publication_date de l'issue
+  // tombe sur un des weekend_days du magazine, on remonte les jours
+  // consécutifs dans weekend_days pour reconstituer le range couvert.
+  // Ex Le Monde weekend_days=[5,6,0], issue publiée Lun 17/08 →
+  // range = Sam 15/08 → Lun 17/08 (3 jours combinés).
+  let weekendRange: { from: Date; to: Date; days: number } | null = null
+  if (weekendDays && weekendDays.length > 0 && issue.year && issue.month && issue.day) {
+    const to = new Date(issue.year, issue.month - 1, issue.day)
+    if (weekendDays.includes(to.getDay() === 0 ? 6 : to.getDay() - 1)) {
+      // to.getDay() : 0=Sun..6=Sat, on convertit vers 0=Mon..6=Sun
+      const jsToIsoWd = (d: Date) => (d.getDay() === 0 ? 6 : d.getDay() - 1)
+      let from = new Date(to)
+      // Recule tant que le weekday précédent est dans weekend_days
+      // et qu'on est toujours dans la même semaine (< 7 jours).
+      while (true) {
+        const prev = new Date(from)
+        prev.setDate(prev.getDate() - 1)
+        if (jsToIsoWd(prev) in { 0:1,1:1,2:1,3:1,4:1,5:1,6:1 } &&
+            weekendDays.includes(jsToIsoWd(prev)) &&
+            (to.getTime() - prev.getTime()) < 7 * 24 * 3600 * 1000) {
+          from = prev
+        } else break
+      }
+      const days = Math.round((to.getTime() - from.getTime()) / (24 * 3600 * 1000)) + 1
+      if (days >= 2) weekendRange = { from, to, days }
+    }
+  }
+
+  const formatShort = (d: Date) =>
+    `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 
   // Queue progress
   const isInQueue = !!queueItem
@@ -157,7 +194,24 @@ export function IssueRow({
         )}
       </TableCell>
       <TableCell className={isDateDeduced ? 'text-amber-400 italic' : 'text-zinc-400'}>
-        {displayDate}
+        {weekendRange ? (
+          <div className="flex flex-col gap-0.5">
+            <div className="inline-flex items-center gap-1.5">
+              <span className="text-zinc-200 text-xs">
+                {formatShort(weekendRange.from)} → {formatShort(weekendRange.to)}
+                <span className="text-zinc-500">/{weekendRange.to.getFullYear()}</span>
+              </span>
+              <span
+                className="inline-flex items-center gap-1 rounded bg-purple-500/15 text-purple-200 border border-purple-500/30 text-[10px] px-1.5 py-0"
+                title={`Édition weekend combinée sur ${weekendRange.days} jours`}
+              >
+                📰 weekend ({weekendRange.days}j)
+              </span>
+            </div>
+          </div>
+        ) : (
+          displayDate
+        )}
       </TableCell>
       <TableCell>
         {issue.title && (

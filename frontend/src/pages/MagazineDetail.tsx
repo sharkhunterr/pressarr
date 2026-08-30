@@ -1521,6 +1521,7 @@ export default function MagazineDetail() {
                         queueItem={queueByIssueId.get(issue.id)}
                         deduced={deductions.get(issue.id)}
                         numberIncoherence={numberIncoherences.get(issue.id)}
+                        weekendDays={magazine?.weekendDays ?? undefined}
                         onSelect={handleSelect}
                         onToggleMonitor={(issueId, monitored) =>
                           monitorMutation.mutate({ issueId, monitored })
