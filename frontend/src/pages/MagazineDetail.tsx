@@ -1325,6 +1325,20 @@ export default function MagazineDetail() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={handleSearchWanted}
+                disabled={searchingWanted}
+                title="Lance le pipeline wanted_search (Prowlarr + IA + rules + auto-grab) sur toutes les issues wanted de ce magazine"
+              >
+                {searchingWanted ? (
+                  <Loader2 className="size-3.5 animate-spin text-purple-400" />
+                ) : (
+                  <Sparkles className="size-3.5 text-purple-400" />
+                )}
+                Recherche wanted
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setAiRefreshOpen(true)}
                 title="Refresh multi-issues avec métadonnées + IA"
               >
