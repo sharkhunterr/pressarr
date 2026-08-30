@@ -83,6 +83,19 @@ class MagazineResource(CamelModel):
     is_placeholder: bool = False
     wanted_search_enabled: bool = True
     date_tolerance_days: int = 0
+    weekend_days: list[int] | None = None
+
+    @field_validator("weekend_days", mode="before")
+    @classmethod
+    def _parse_weekend_days(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                return [int(d) for d in v.split(",") if d.strip() != ""]
+            except ValueError:
+                return None
+        return v
     patterns: list[MagazinePatternResource] = []
     rules: list[MagazineRuleResource] = []
     statistics: MagazineStatistics = MagazineStatistics()
@@ -121,6 +134,7 @@ class MagazineCreateResource(CamelModel):
     excluded_days: list[int] | None = None
     release_weekday: int | None = None
     date_tolerance_days: int | None = None
+    weekend_days: list[int] | None = None
     search_for_missing_issues: bool = True
     # ISSN-first cascade enrichment — allseerr's dispatcher forwards
     # what its search already resolved so pressarr persists the
@@ -152,6 +166,7 @@ class MagazineUpdateResource(CamelModel):
     is_placeholder: bool | None = None
     wanted_search_enabled: bool | None = None
     date_tolerance_days: int | None = None
+    weekend_days: list[int] | None = None
 
 
 class SourceInfo(CamelModel):

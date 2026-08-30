@@ -235,6 +235,8 @@ def _migrate_add_columns(connection) -> None:
         # Tolérance jours pour magazines à issue combinée weekend
         # (ex: Le Monde "15,16 et 17 août" = 1 issue, tolerance=2).
         ("magazine", "date_tolerance_days", "INTEGER NOT NULL DEFAULT 0"),
+        # Weekdays regroupés en 1 issue weekend (CSV "5,6,0" = sam+dim+lun).
+        ("magazine", "weekend_days", "VARCHAR(20)"),
     ]
     for table, column, col_type in migrations:
         try:

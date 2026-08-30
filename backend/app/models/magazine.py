@@ -119,13 +119,18 @@ class Magazine(Base):
         Boolean, nullable=False, default=True, server_default="1"
     )
     # Tolérance en jours pour matcher une issue à un release. Défaut 0
-    # (match strict day == day). Utile pour les magazines qui sortent
-    # une édition combinée weekend (ex: Le Monde "15, 16 et 17 août"
-    # publiée comme une seule issue). Avec tolerance=2, un release
-    # daté 15/08 matche l'issue publiée le 17/08. S'applique
-    # uniquement au filtre date-match du pipeline wanted_search.
+    # (match strict day == day). Fallback simple si weekend_days ne
+    # colle pas au cas d'usage.
     date_tolerance_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
+    )
+    # Jours de la semaine (0=Lundi ... 6=Dimanche) qui se REGROUPENT en
+    # une seule issue "édition weekend". CSV, ex "5,6,0" = samedi +
+    # dimanche + lundi combinés (cas Le Monde weekend). Filtre :
+    # deux dates dont les weekdays tombent tous les deux dans ce set
+    # ET sont dans la même semaine matchent la même issue.
+    weekend_days: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None
     )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")

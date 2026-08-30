@@ -120,6 +120,12 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         if excluded_days_raw
         else None
     )
+    weekend_days_raw = data.get("weekend_days")
+    weekend_days_str = (
+        ",".join(str(d) for d in weekend_days_raw)
+        if weekend_days_raw
+        else None
+    )
 
     magazine = Magazine(
         title=title,
@@ -149,6 +155,7 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         excluded_days=excluded_days_str,
         release_weekday=data.get("release_weekday"),
         date_tolerance_days=int(data.get("date_tolerance_days") or 0),
+        weekend_days=weekend_days_str,
         # Cascade enrichment fields when caller already has them
         # (allseerr's dispatcher forwards what its search showed).
         language=data.get("language"),
@@ -254,10 +261,10 @@ async def update_magazine(
             magazine.cover_path = issue.cover_path
 
     for key, value in data.items():
-        if key == "excluded_days" and hasattr(magazine, key):
+        if key in ("excluded_days", "weekend_days") and hasattr(magazine, key):
             if isinstance(value, list):
                 setattr(magazine, key, ",".join(str(d) for d in value) if value else None)
-            else:
+            elif value is None:
                 setattr(magazine, key, None)
         elif value is not None and hasattr(magazine, key):
             setattr(magazine, key, value)

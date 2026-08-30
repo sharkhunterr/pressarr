@@ -397,6 +397,7 @@ def _candidate_matches_issue(
     cand: "ScoredCandidate",
     issue: Issue,
     date_tolerance_days: int = 0,
+    weekend_days: list[int] | None = None,
 ) -> bool:
     """Vérifie qu'un candidat correspond à l'issue cible (date OU numéro).
 
@@ -433,10 +434,31 @@ def _candidate_matches_issue(
             if issue.day:
                 if cand.parsed_day is None:
                     return False
-                # Tolérance jour magazine-driven pour éditions combinées.
+                # Match exact day
+                if cand.parsed_day == issue.day:
+                    return True
+                # Tolérance numérique (fallback simple).
                 tol = max(0, int(date_tolerance_days))
-                if abs(cand.parsed_day - issue.day) > tol:
-                    return False
+                if tol and abs(cand.parsed_day - issue.day) <= tol:
+                    return True
+                # Grouping weekend_days : deux dates dont les weekdays
+                # tombent tous deux dans le set weekend_days ET sont dans
+                # la même fenêtre semaine matchent la même issue (cas
+                # Le Monde "samedi, dimanche, lundi" = 1 issue).
+                if weekend_days:
+                    try:
+                        from datetime import date as _date
+                        i_d = _date(issue.year, issue.month, issue.day)
+                        c_d = _date(cand.parsed_year, cand.parsed_month, cand.parsed_day)
+                        if (
+                            i_d.weekday() in weekend_days
+                            and c_d.weekday() in weekend_days
+                            and abs((i_d - c_d).days) < 7
+                        ):
+                            return True
+                    except (ValueError, TypeError):
+                        pass
+                return False
         return True
 
     # Aucune info parsée → bénéfice du doute
@@ -684,8 +706,21 @@ async def run_wanted_search(
     # l'issue cible avec drop_reason lisible côté UI.
     date_matched: list[ScoredCandidate] = []
     mag_tol = int(getattr(magazine, "date_tolerance_days", 0) or 0)
+    _wd_raw = getattr(magazine, "weekend_days", None)
+    mag_weekend_days: list[int] | None = None
+    if _wd_raw:
+        try:
+            mag_weekend_days = [
+                int(d) for d in str(_wd_raw).split(",") if d.strip()
+            ]
+        except ValueError:
+            mag_weekend_days = None
     for c in surviving:
-        if _candidate_matches_issue(c, issue, date_tolerance_days=mag_tol):
+        if _candidate_matches_issue(
+            c, issue,
+            date_tolerance_days=mag_tol,
+            weekend_days=mag_weekend_days,
+        ):
             date_matched.append(c)
         else:
             # Marque comme droppé pour trace UI (visible dans table "Rejetés")

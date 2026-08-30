@@ -163,7 +163,7 @@ export default function MagazineDetail() {
   const [editTitle, setEditTitle] = useState('')
   const [editMonitored, setEditMonitored] = useState(true)
   const [editWantedSearchEnabled, setEditWantedSearchEnabled] = useState(true)
-  const [editDateToleranceDays, setEditDateToleranceDays] = useState(0)
+  const [editWeekendDays, setEditWeekendDays] = useState<number[]>([])
   const [editQualityProfileId, setEditQualityProfileId] = useState('')
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
   const [editFrequency, setEditFrequency] = useState('monthly')
@@ -812,7 +812,7 @@ export default function MagazineDetail() {
     setEditCoverIssueId(null)
     setEditIssn(magazine.issn ?? '')
     setEditWantedSearchEnabled(magazine.wantedSearchEnabled)
-    setEditDateToleranceDays(magazine.dateToleranceDays ?? 0)
+    setEditWeekendDays(magazine.weekendDays ?? [])
     setEditOpen(true)
   }
 
@@ -833,7 +833,7 @@ export default function MagazineDetail() {
       // le user a explicitement validé les infos.
       isPlaceholder: false,
       wantedSearchEnabled: editWantedSearchEnabled,
-      dateToleranceDays: editDateToleranceDays,
+      weekendDays: editWeekendDays.length > 0 ? editWeekendDays : null,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
   }
@@ -2274,24 +2274,42 @@ export default function MagazineDetail() {
 
                 <div className="grid gap-1.5">
                   <label className="text-sm font-medium text-zinc-300">
-                    Tolérance jour (édition combinée weekend)
+                    Édition weekend (jours regroupés)
                   </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={7}
-                    value={editDateToleranceDays}
-                    onChange={(e) =>
-                      setEditDateToleranceDays(Math.max(0, Number(e.target.value) || 0))
-                    }
-                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
-                  />
+                  <div className="flex gap-1 flex-wrap">
+                    {([
+                      [0, 'addMagazine.mon'],
+                      [1, 'addMagazine.tue'],
+                      [2, 'addMagazine.wed'],
+                      [3, 'addMagazine.thu'],
+                      [4, 'addMagazine.fri'],
+                      [5, 'addMagazine.sat'],
+                      [6, 'addMagazine.sun'],
+                    ] as [number, string][]).map(([day, key]) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() =>
+                          setEditWeekendDays((prev) =>
+                            prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                          )
+                        }
+                        className={`px-2 py-1 text-xs rounded border ${
+                          editWeekendDays.includes(day)
+                            ? 'bg-purple-900/50 border-purple-600 text-purple-200'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-400'
+                        }`}
+                      >
+                        {t(key)}
+                      </button>
+                    ))}
+                  </div>
                   <p className="text-xs text-zinc-500">
-                    Nombre de jours de tolérance autour de la date de
-                    l'issue pour matcher un release. Défaut <strong>0</strong>{' '}
-                    (strict). Utile pour Le Monde qui publie
-                    "15,16,17 août" en une seule issue → <strong>2</strong>{' '}
-                    accepte tout release daté 15, 16 ou 17 pour l'issue du 17.
+                    Sélectionne les jours qui composent une <strong>seule</strong>{' '}
+                    issue combinée. Ex Le Monde publie samedi+dimanche+lundi
+                    en une issue → coche Sam·Dim·Lun. Un release daté
+                    n'importe lequel de ces jours matchera l'issue de ce
+                    weekend. Rien coché = comportement strict.
                   </p>
                 </div>
 
