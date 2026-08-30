@@ -63,7 +63,7 @@ const DEFAULT: LocalState = {
   wantedSearchEnabled: true,
   wantedSearchAutoGrabEnabled: false,
   wantedSearchAutoGrabThreshold: 78,
-  wantedSearchMinTitleMatch: 60,
+  wantedSearchMinTitleMatch: 80,
   wantedSearchMinPythonScore: 55,
   wantedSearchIntervalMinutes: 240,
   wantedSearchCooldownHours: 12,

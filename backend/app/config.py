@@ -288,7 +288,7 @@ class Config:
         # Le score python inclut déjà un fuzzy titre (50 pts max), mais
         # un release quality+seeds pouvait franchir le seuil sans
         # ressembler au titre attendu. Ce gate est indépendant.
-        self.wanted_search_min_title_match: float = 60.0
+        self.wanted_search_min_title_match: float = 80.0
         # Plancher de score Python indépendant. Le composite peut être
         # gonflé par l'IA (mode ai_wins boost jusqu'à +40 pts), mais si
         # le python natif reste bas c'est que le release ne colle pas

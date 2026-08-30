@@ -94,6 +94,7 @@ class ScoredCandidate:
     parsed_year: int | None = None
     parsed_month: int | None = None
     parsed_day: int | None = None
+    parsed_title: str | None = None
 
     python_score: float = 0.0
 
@@ -760,6 +761,7 @@ async def run_wanted_search(
             parsed_year=parsed.year,
             parsed_month=parsed.month,
             parsed_day=parsed.day,
+            parsed_title=(parsed.title or None),
             python_score=py_score,
             rules_verdict="excluded" if excluded else "neutral",
             rules_reason=reason,
@@ -814,10 +816,14 @@ async def run_wanted_search(
             detail = " ".join(bits) or "aucune date parsée"
             c.dropped_reason = f"date mismatch ({detail} ≠ cible {_issue_label(issue)})"
     total_after_date_match = len(date_matched)
-    # Utilise les date-matched pour la suite ; si vide, on garde
-    # surviving (fallback : mieux vaut ranker mal que rien du tout,
-    # l'user verra le résultat et pourra grabber manuellement).
-    ranker_pool = date_matched if date_matched else surviving
+    # Choix crucial : si aucun candidat ne matche la date/numéro cible,
+    # on NE FALLBACK PAS sur `surviving` (tous les candidats bruts).
+    # Le fallback pouvait laisser passer des off-topic complets comme
+    # "Le Monde du Plein Air N200 Août-Septembre 2026" pour l'issue
+    # Le Monde daily 30/08/2026 → auto-grab d'un magazine complètement
+    # différent. Mieux vaut zéro winner qu'un winner absurde ; l'user
+    # peut toujours grabber manuellement via Manual Research.
+    ranker_pool = date_matched
     ranker_pool.sort(key=lambda c: c.python_score, reverse=True)
 
     # 4. IA batch + arbiter (top-K)
@@ -926,20 +932,57 @@ async def run_wanted_search(
         and winner.download_url != ""
     )
     if auto_grab_gate_ok and winner is not None:
-        # Hard gate fuzzy titre — le release doit ressembler au titre
-        # magazine à un plancher minimum. Empêche IA d'auto-grab un
-        # "Le Figaro Magazine" quand la cible est "Le Monde".
+        # Hard gate combiné :
+        #   a) Fuzzy titre >= min_title_match (défaut 80)
+        #   b) Word-boundary : chaque mot significatif du titre magazine
+        #      DOIT être présent dans le titre release. Empêche
+        #      "Le Monde du Plein Air" de passer pour "Le Monde" alors
+        #      que fuzzy dépasse le seuil parce que les 2 premiers mots
+        #      matchent. Sans ce gate word, tout release commençant par
+        #      "Le Monde" passait — même "Le Monde du Plein Air N200".
         min_title = float(
-            getattr(config, "wanted_search_min_title_match", 60.0),
+            getattr(config, "wanted_search_min_title_match", 80.0),
         )
         title_gate_score: float | None = None
+        word_gate_ok = True
+        missing_words: list[str] = []
         try:
-            from app.parser.magazine_parser import fuzzy_match_title as _fuzzy
-            _m = _fuzzy(winner.title, [magazine.title], threshold=0.0)
-            if _m:
-                _, title_gate_score = _m
+            # STRICT ratio (Levenshtein pur), pas WRatio.
+            # WRatio inclut partial_ratio → "Le Monde du Plein Air"
+            # matche "Le Monde" à 90% parce que "Le Monde" est un
+            # sous-string. Ratio strict compare les 2 chaines à
+            # longueur égale → "Le Monde du Plein Air Septembre"
+            # (32 chars) vs "Le Monde" (8 chars) donne ~35%.
+            #
+            # Compare parsed_title (parser strip déjà les dates,
+            # numéros, quality, format, group) plutôt que title BRUT.
+            # Ça élimine les faux positifs dus au bruit d'uploader.
+            from rapidfuzz import fuzz as _fz
+            probe = (winner.parsed_title or winner.title or "").strip()
+            title_gate_score = float(_fz.ratio(
+                probe.lower(), magazine.title.lower(),
+            ))
+            # Word-boundary check en plus : chaque mot significatif
+            # (>= 3 chars, non stop-word) du titre magazine doit être
+            # présent dans le titre release (case-insensitive, boundary).
+            # Complémentaire au fuzzy — catch les cas où fuzzy passe
+            # par accident sur un mot commun.
+            import re
+            _STOP = {"le","la","les","du","de","des","un","une","au","aux",
+                     "the","of","and","for","in","on","at"}
+            words = [
+                w.lower() for w in re.findall(r"[\wÀ-ÿ]+", magazine.title)
+                if len(w) >= 3 and w.lower() not in _STOP
+            ]
+            rel_lower = winner.title.lower()
+            missing_words = [
+                w for w in words
+                if not re.search(rf"\b{re.escape(w)}\b", rel_lower)
+            ]
+            if missing_words:
+                word_gate_ok = False
         except Exception:
-            logger.debug("fuzzy title gate check failed", exc_info=True)
+            logger.debug("title gate check failed", exc_info=True)
 
         if title_gate_score is None or title_gate_score < min_title:
             logger.warning(
@@ -953,6 +996,18 @@ async def run_wanted_search(
             result.auto_grab_message = (
                 f"blocked: title match {title_gate_score:.0f}% < {min_title:.0f}%"
                 if title_gate_score is not None else "blocked: title gate error"
+            )
+            auto_grab_gate_ok = False
+        elif not word_gate_ok:
+            logger.warning(
+                "auto-grab bloqué pour issue %s : word-boundary — mots "
+                "manquants du titre %r dans release %s : %s",
+                issue_id, magazine.title, winner.title[:60], missing_words,
+            )
+            result.auto_grab_attempted = False
+            result.auto_grab_success = False
+            result.auto_grab_message = (
+                f"blocked: word-boundary — mots manquants: {', '.join(missing_words)}"
             )
             auto_grab_gate_ok = False
 
