@@ -104,9 +104,12 @@ export default function AISettingsPage() {
     setLocal(serverSettings)
     setPagesStr((serverSettings.enrichmentVisionPages ?? [1]).join(', '))
     setInitialised(true)
-    // Pas d'auto-probe au load — le probe est distant, prend
-    // ~500 ms et bloque la page. L'utilisateur clique « Test »
-    // quand il veut vérifier la connexion.
+    // Auto-probe silencieux au load : le probe backend cache la
+    // liste des modèles Ollama (~1 s à froid, ~50 ms warm), donc
+    // pas de blocage UI perceptible. Fait que les sélecteurs de
+    // modèle s'ouvrent DIRECTEMENT en dropdown, sans obliger
+    // l'user à cliquer « Test » avant de choisir.
+    runProbe(serverSettings.ollamaUrl)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverSettings, initialised])
 
