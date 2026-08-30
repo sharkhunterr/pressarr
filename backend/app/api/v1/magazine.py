@@ -194,13 +194,55 @@ async def create_magazine(
     body: MagazineCreateResource,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new magazine. Returns 409 if title slug already exists."""
+    """Create a new magazine. Returns 409 if title slug already exists.
+
+    Si `search_for_missing_issues=True` (défaut) et
+    `monitoring_start_date` est renseignée dans le passé, génère
+    immédiatement :
+      - le BACKLOG d'issues wanted entre monitoring_start_date et
+        aujourd'hui (respecte excluded_days et coalesce weekend_days)
+      - les FORECASTS upcoming pour les 6 mois à venir
+    Puis fire-and-forget un `wanted_search` sur chaque issue backlog
+    si wanted_search est activé — l'utilisateur n'attend pas 4h le
+    prochain cycle scheduler.
+    """
     try:
         magazine = await magazine_service.create_magazine(
             db, body.model_dump(exclude={"search_for_missing_issues"})
         )
     except ValueError as e:
         raise HTTPException(409, str(e))
+
+    # Génération immédiate du backlog + forecasts. Sans ça, un magazine
+    # nouvellement ajouté avec start_date dans le passé restait vide
+    # (le job scheduler daily aurait fini par générer les forecasts,
+    # mais aucun backlog wanted n'aurait jamais été créé — bug).
+    if body.search_for_missing_issues and magazine is not None and magazine.monitored:
+        try:
+            from app.services.calendar_service import (
+                generate_backlog_wanted,
+                generate_forecasts,
+            )
+            backlog = await generate_backlog_wanted(db, magazine)
+            await generate_forecasts(db, magazine)
+            await db.commit()
+            # Auto-trigger wanted_search sur chaque issue backlog en
+            # background pour que l'utilisateur voie du mouvement dès
+            # les premières minutes (au lieu d'attendre 4h le cycle).
+            if backlog:
+                from app.services.wanted_search_service import (
+                    trigger_wanted_search_in_background,
+                )
+                for iss in backlog:
+                    trigger_wanted_search_in_background(iss.id)
+        except Exception as exc:
+            # Backlog génération est un bonus — un échec ne doit pas
+            # empêcher le magazine d'être créé.
+            import logging
+            logging.getLogger(__name__).warning(
+                "create_magazine: backlog generation failed for %s: %s",
+                magazine.title, exc, exc_info=True,
+            )
 
     stats = await magazine_service.get_statistics(db, magazine.id)
     resource = MagazineResource.model_validate(magazine)

@@ -236,6 +236,134 @@ async def generate_forecasts(
     return created
 
 
+async def generate_backlog_wanted(
+    db: AsyncSession,
+    magazine: Magazine,
+    up_to: date | None = None,
+) -> list[Issue]:
+    """Génère les issues WANTED entre monitoring_start_date et today.
+
+    Distinct de `generate_forecasts` qui génère les issues FUTURES en
+    statut `upcoming`. Ici on remplit le backlog : toutes les issues
+    qui auraient dû sortir depuis le début du monitoring jusqu'à
+    maintenant, marquées directement en `wanted` prêtes pour recherche.
+
+    Respecte :
+      - ``excluded_days`` : jour skippé (pas d'édition ce jour)
+      - ``weekend_days`` : jours regroupés en 1 seule issue combinée
+        (émise avec publication_date = dernier jour du groupe)
+      - Duplicates : skip si une issue existe déjà pour cette date
+
+    Cas d'usage : user ajoute Le Monde le 30/08 avec
+    monitoring_start_date=24/08 → génère issues wanted 24, 25, 26,
+    27, 28, 29, 30/08 (moins les excluded, moins les weekend_days
+    coalescés en 1 issue).
+    """
+    if not magazine.monitored:
+        return []
+    freq = getattr(magazine, "frequency", None)
+    if freq == "irregular" or freq not in FREQUENCY_DELTAS:
+        return []
+    start = magazine.monitoring_start_date
+    if not start:
+        return []
+    if isinstance(start, str):
+        start = date.fromisoformat(start)
+    end = up_to or date.today()
+    if start > end:
+        return []
+
+    excluded: set[int] = set()
+    if magazine.excluded_days:
+        excluded = {
+            int(d) for d in magazine.excluded_days.split(",") if d.strip()
+        }
+    weekend: set[int] = set()
+    if getattr(magazine, "weekend_days", None):
+        weekend = {
+            int(d) for d in magazine.weekend_days.split(",") if d.strip()
+        }
+
+    # Nettoie les FORECASTS non-actionnés qui tombent dans la fenêtre
+    # [start, end] — ceux-là sont techniquement du BACKLOG, pas du
+    # future : ils vont être remplacés par des `wanted` immédiatement.
+    # On préserve les forecasts déjà promus (wanted/snatched) ainsi
+    # que les issues non-forecast (vraies issues importées).
+    stale_forecasts = await db.execute(
+        select(Issue).where(
+            Issue.magazine_id == magazine.id,
+            Issue.is_forecast == True,  # noqa: E712
+            Issue.status.in_(["upcoming", "delayed", "skipped"]),
+            Issue.publication_date >= start,
+            Issue.publication_date <= end,
+        )
+    )
+    for stale in stale_forecasts.scalars().all():
+        await db.delete(stale)
+    await db.flush()
+
+    # Dates déjà présentes après nettoyage → skip pour éviter doublons.
+    existing_res = await db.execute(
+        select(Issue.publication_date).where(
+            Issue.magazine_id == magazine.id,
+            Issue.publication_date.isnot(None),
+        )
+    )
+    existing_dates: set[date] = {r[0] for r in existing_res.all() if r[0]}
+
+    created: list[Issue] = []
+
+    def _emit(pub_date: date) -> None:
+        if pub_date in existing_dates:
+            return
+        issue = Issue(
+            magazine_id=magazine.id,
+            publication_date=pub_date,
+            year=pub_date.year,
+            month=pub_date.month,
+            day=pub_date.day,
+            status="wanted",
+            monitored=magazine.monitored,
+            is_forecast=False,
+        )
+        db.add(issue)
+        created.append(issue)
+        existing_dates.add(pub_date)
+
+    if freq == "daily":
+        # Iteration day-by-day, avec coalescing des weekend_days
+        # consécutifs en 1 issue (publication_date = dernier jour).
+        cur = start
+        buf: list[date] = []
+        while cur <= end:
+            wd = cur.weekday()
+            if wd in excluded:
+                if buf:
+                    _emit(buf[-1])
+                    buf = []
+            elif wd in weekend:
+                buf.append(cur)
+            else:
+                if buf:
+                    _emit(buf[-1])
+                    buf = []
+                _emit(cur)
+            cur = cur + timedelta(days=1)
+        if buf:
+            _emit(buf[-1])
+    else:
+        # Fréquence period-based : une issue par tick, pas de weekend
+        # coalescing (concept ne s'applique pas au monthly+).
+        cur = start
+        while cur <= end:
+            if cur.weekday() not in excluded:
+                _emit(cur)
+            cur = _advance_date(cur, freq)
+
+    await db.flush()
+    return created
+
+
 async def reconcile_forecast(
     db: AsyncSession,
     issue: Issue,
