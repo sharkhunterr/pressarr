@@ -605,6 +605,13 @@ class CropZone(CamelModel):
     label: str | None = None
     tag: str = "all"
     custom_tag: str | None = None
+    # Facteur multiplicatif appliqué sur le zoom auto (qui garantit
+    # déjà ~160 px min sur la plus petite dimension). 1.0 = auto,
+    # 2.0 = double la résolution, 4.0 = quadruple. Utile quand la
+    # zone contient du texte fin/gras que minicpm-v peine à lire
+    # même après boost auto (ex. « N° 26 290 » en 8 pt).
+    # Clampé côté render à [1.0, 4.0].
+    upscale: float = 1.0
 
 
 class CropRectResponse(CamelModel):
@@ -634,6 +641,7 @@ def _zone_from_dict(z: dict) -> CropZone | None:
             label=(z.get("label") or None),
             tag=(z.get("tag") or "all"),
             custom_tag=(z.get("custom_tag") or None),
+            upscale=float(z.get("upscale") or 1.0),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -698,6 +706,9 @@ def _clamp_zones(zones: list[CropZone]) -> list[dict]:
             entry["label"] = z.label.strip()[:40]
         if tag == "custom" and z.custom_tag:
             entry["custom_tag"] = z.custom_tag.strip()[:120]
+        upscale = max(1.0, min(4.0, float(z.upscale or 1.0)))
+        if upscale > 1.001:
+            entry["upscale"] = round(upscale, 2)
         out.append(entry)
     return out
 

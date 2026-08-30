@@ -250,6 +250,12 @@ export interface CropZone {
   /** Free-text hint used only when tag === "custom".
    *  Injected into the vision prompt for that specific zone. */
   customTag?: string | null
+  /** Multiplier applied on top of the auto zoom that already targets
+   *  ~160 px min on the shortest zone side. 1.0 = auto only.
+   *  2.0 = double the resolution, 4.0 = quadruple. Cap 4×.
+   *  Useful when auto isn't enough on very fine bold text
+   *  (e.g. « N° 26 290 » in 8 pt). */
+  upscale?: number
 }
 
 export interface CropRectResponse {

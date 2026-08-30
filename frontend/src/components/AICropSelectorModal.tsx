@@ -1134,6 +1134,29 @@ function ZoneRow({
           </button>
         ))}
       </div>
+      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-zinc-500">
+            Upscale OCR{' '}
+            <span className="text-zinc-600">
+              (auto garantit déjà ~160 px min)
+            </span>
+          </span>
+          <span className="text-[10px] font-mono text-purple-300">
+            {(zone.upscale ?? 1).toFixed(1)}×
+          </span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={4}
+          step={0.5}
+          value={zone.upscale ?? 1}
+          onChange={(e) => onUpdate({ upscale: Number(e.target.value) })}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 w-full h-1.5 accent-purple-500 bg-zinc-800 rounded-full"
+        />
+      </div>
     </div>
   )
 }

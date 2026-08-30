@@ -1027,6 +1027,17 @@ def _render_page_pngs(
                 if shorter_px < TARGET_MIN_PX:
                     boost = TARGET_MIN_PX / shorter_px
                     local_zoom = min(base_zoom * boost, MAX_ZOOM)
+            # User upscale multiplier — appliqué EN PLUS du boost auto,
+            # capé à MAX_ZOOM. Utile quand auto ne suffit pas sur du
+            # texte fin (ex. « N° 26 290 » en 8 pt).
+            user_up = 1.0
+            if zone_meta and isinstance(zone_meta, dict):
+                try:
+                    user_up = max(1.0, min(4.0, float(zone_meta.get("upscale") or 1.0)))
+                except (TypeError, ValueError):
+                    user_up = 1.0
+            if user_up > 1.001:
+                local_zoom = min(local_zoom * user_up, MAX_ZOOM)
             local_matrix = fitz.Matrix(local_zoom, local_zoom)
             pix = page.get_pixmap(matrix=local_matrix, alpha=False, clip=clip)
             png_bytes = pix.tobytes(output="png")
@@ -1079,6 +1090,7 @@ def _normalise_crop_zones(data: Any) -> list[dict[str, Any]] | None:
                 "label": (z.get("label") or "").strip() or None,
                 "tag": (z.get("tag") or "all"),
                 "custom_tag": (z.get("custom_tag") or "").strip() or None,
+                "upscale": max(1.0, min(4.0, float(z.get("upscale") or 1.0))),
             }
         except (TypeError, ValueError):
             continue
