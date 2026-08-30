@@ -27,7 +27,9 @@ import hashlib
 import io
 import json
 import logging
+import re
 import time
+import unicodedata as _unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -181,22 +183,71 @@ def _build_zone_vision_prompt(
     return base_prompt + suffix
 
 
+# Placeholders que minicpm-v recopie parfois depuis un ancien prompt
+# example (même si le prompt actuel n'en contient plus). Signature nette.
+_VISION_PLACEHOLDER_TOKENS = (
+    "<TITRE>", "<MAGAZINE>", "<SOUS-TITRE>", "<SOUSTITRE>",
+    "<NOUVELLE-EDITION>", "<NUMÉRO>", "<NUMERO>", "<JOUR>",
+    "<DATE>", "<DATE-EN-TOUTES-LETTRES>", "<ANNÉE>", "<ANNEE>",
+    "<affichage publicitaire>",
+)
+
+# HTML/XML tags jamais légitimes dans un OCR — minicpm-v en produit
+# quand il « imagine » être en mode structured output.
+_HTML_TAG_RE = re.compile(r"<\s*/?\s*(table|tr|td|tbody|thead|div|span|p|img|image|line|logo|strong|em|sub|sup|small|br|hr|ul|ol|li|a|body|html)\b[^>]*>", re.IGNORECASE)
+
+
+def _scrub_vision_text(text: str) -> str:
+    """Nettoie un raw_text vision de tout ce qu'un OCR ne devrait pas
+    produire mais que minicpm-v injecte parfois :
+      - Private Use Area (-)
+      - HTML/XML tags
+      - Caractères de contrôle (hors \n \t)
+      - Placeholders littéraux (< TITRE >…)
+    Ne touche PAS aux vrais accents FR ni au symbole €.
+    Idempotent."""
+    if not isinstance(text, str) or not text:
+        return text
+    for ph in _VISION_PLACEHOLDER_TOKENS:
+        text = text.replace(ph, "")
+    text = _HTML_TAG_RE.sub("", text)
+    cleaned: list[str] = []
+    for ch in text:
+        cp = ord(ch)
+        if 0xE000 <= cp <= 0xF8FF:
+            continue  # PUA — jamais légitime
+        if 0xF0000 <= cp <= 0x10FFFF:
+            continue  # Supplementary PUA
+        cat_first = _unicodedata.category(ch)[0]
+        if cat_first == "C" and ch not in ("\n", "\t"):
+            continue
+        cleaned.append(ch)
+    return "".join(cleaned)
+
+
+def scrub_vision_output(vision_out: dict[str, Any]) -> dict[str, Any]:
+    """Applique `_scrub_vision_text` à tous les champs textuels de la
+    sortie vision. Retourne un nouveau dict (n'altère pas l'entrée)."""
+    if not isinstance(vision_out, dict):
+        return vision_out
+    return {
+        k: _scrub_vision_text(v) if isinstance(v, str) else v
+        for k, v in vision_out.items()
+    }
+
+
 def _is_vision_garbage(vision_out: dict[str, Any]) -> tuple[bool, str]:
     """Détecte les sorties vision « poubelle » — mojibake, CJK massif,
-    caractères de contrôle, symboles bizarres.
+    caractères de contrôle, symboles bizarres, HTML tags, placeholders.
 
     Cible principale : minicpm-v qui sort parfois des blocs de kanji /
     caractères Zalgo / répétitions de glyphes non-ASCII quand l'image
-    l'a désorienté (bandeau trop étroit, zone quasi-vide, texte pivoté).
+    l'a désorienté (bandeau trop étroit, zone quasi-vide, texte pivoté),
+    ou qui recopie un placeholder ( <TITRE>, <MAGAZINE> ) au lieu de
+    lire l'image.
 
+    Cette fonction est appliquée SUR LA SORTIE BRUTE, avant scrub.
     Renvoie (True, raison) si la sortie doit être ignorée.
-    Seuils empiriques — on veut catcher les vrais garbage sans
-    pénaliser un magazine étranger légitime (ex: プレイボーイ) :
-      - > 25 % de caractères hors alphabet latin étendu
-      - > 3 caractères de contrôle
-      - > 10 caractères de la plage « symboles » Unicode (mathematical,
-        arrows, misc technical) qui ne devraient pas apparaître dans
-        un titre de magazine occidental.
     """
     if not isinstance(vision_out, dict):
         return False, ""
@@ -206,44 +257,89 @@ def _is_vision_garbage(vision_out: dict[str, Any]) -> tuple[bool, str]:
         if isinstance(v, str):
             parts.append(v)
     blob = " ".join(parts).strip()
-    if len(blob) < 4:
+    if len(blob) < 2:
         return False, ""
-    import unicodedata as _ud
+
+    # 1. Placeholders : signature nette d'une hallucination de prompt.
+    blob_upper = blob.upper()
+    for ph in _VISION_PLACEHOLDER_TOKENS:
+        if ph.upper() in blob_upper:
+            return True, f"placeholder recopié ({ph})"
+
+    # 2. HTML/XML tags : jamais légitime en OCR.
+    if _HTML_TAG_RE.search(blob):
+        return True, "balise HTML/XML dans le texte OCR"
+
     ctrl = 0
     weird_sym = 0
+    pua = 0
     non_latin = 0
+    foreign_script = 0
+    foreign_sample = ""
     total = 0
     for ch in blob:
         if ch.isspace():
             continue
         total += 1
-        cat = _ud.category(ch)
-        # Cc = control, Cf = format, Cs = surrogate
+        cat = _unicodedata.category(ch)
         if cat in ("Cc", "Cf", "Cs"):
             ctrl += 1
             continue
         cp = ord(ch)
+        # Private Use Area — TOUJOURS garbage (glyphes propriétaires).
+        if 0xE000 <= cp <= 0xF8FF or 0xF0000 <= cp <= 0x10FFFF:
+            pua += 1
+            weird_sym += 1
+            non_latin += 1
+            continue
         # Latin étendu OK
         if cp < 0x0250 or 0x1E00 <= cp <= 0x1EFF:
             continue
-        # Symboles techniques / flèches / mathematical (garbage typique)
+        # Scripts jamais légitimes dans un OCR de magazine FR :
+        # présence d'UN SEUL caractère de ces scripts = garbage
+        # (contrairement aux Latin étendus rares qui peuvent apparaître
+        # dans un nom propre). Un magazine étranger vrai passerait par
+        # le seuil ratio non_latin.
+        is_foreign = (
+            0x0370 <= cp <= 0x03FF   # Greek
+            or 0x0400 <= cp <= 0x052F  # Cyrillic (+ supplement)
+            or 0x0590 <= cp <= 0x077F  # Hebrew + Arabic + Syriac
+            or 0x0900 <= cp <= 0x097F  # Devanagari
+            or 0x2E80 <= cp <= 0x2EFF  # CJK radicals
+            or 0x3000 <= cp <= 0x9FFF  # CJK
+        )
+        if is_foreign:
+            foreign_script += 1
+            if len(foreign_sample) < 8:
+                foreign_sample += ch
+            non_latin += 1
+            continue
+        # Symboles techniques / formes numériques / dingbats
         if (
-            0x2190 <= cp <= 0x21FF   # arrows
+            0x2150 <= cp <= 0x218F  # Number forms (½, ↉, ↋…)
+            or 0x2190 <= cp <= 0x21FF  # arrows
             or 0x2200 <= cp <= 0x22FF  # mathematical
             or 0x2300 <= cp <= 0x23FF  # misc technical
+            or 0x2500 <= cp <= 0x257F  # box drawing
+            or 0x2580 <= cp <= 0x259F  # block elements
             or 0x25A0 <= cp <= 0x25FF  # geometric
-            or 0x2E80 <= cp <= 0x2EFF  # CJK radicals supplement
+            or 0x2700 <= cp <= 0x27BF  # dingbats
+            or 0xA700 <= cp <= 0xA7FF  # Modifier tone / Latin ext-D
         ):
             weird_sym += 1
         non_latin += 1
     if total == 0:
         return False, ""
+    if pua > 0:
+        return True, f"{pua} caractère(s) Private Use Area"
     if ctrl > 3:
         return True, f"{ctrl} caractères de contrôle"
-    if weird_sym > 10:
-        return True, f"{weird_sym} symboles bizarres"
+    if foreign_script > 0:
+        return True, f"caractère(s) script étranger ({foreign_sample!r})"
+    if weird_sym > 0:
+        return True, f"{weird_sym} symbole(s) technique(s)/dingbat"
     ratio = non_latin / total
-    if ratio > 0.25 and non_latin > 8:
+    if ratio > 0.15 and non_latin > 3:
         return True, f"{non_latin}/{total} chars hors latin ({ratio:.0%})"
     return False, ""
 
@@ -910,9 +1006,29 @@ def _render_page_pngs(
         else:  # "full" or unknown
             renders = [("full", None, 0, None)]
 
+        # Cible : min 160 px sur la plus petite dimension du crop.
+        # Une zone type "Date" à 1% de hauteur produit ~30 px à 260 DPI —
+        # illisible pour minicpm-v. On boost le zoom par zone jusqu'à
+        # atteindre le seuil, capé à 20× (PDF vectoriel = zoom safe,
+        # le texte reste net). Cap max pour éviter des PNG > 4 MB.
+        TARGET_MIN_PX = 160
+        MAX_ZOOM = 20.0
+        base_zoom = zoom
+
         out: list[tuple[str, bytes, dict[str, Any] | None]] = []
         for label, clip, rot, zone_meta in renders:
-            pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
+            local_zoom = base_zoom
+            if clip is not None:
+                pdf_w = max(1e-6, clip.width)
+                pdf_h = max(1e-6, clip.height)
+                px_w = pdf_w * base_zoom
+                px_h = pdf_h * base_zoom
+                shorter_px = min(px_w, px_h)
+                if shorter_px < TARGET_MIN_PX:
+                    boost = TARGET_MIN_PX / shorter_px
+                    local_zoom = min(base_zoom * boost, MAX_ZOOM)
+            local_matrix = fitz.Matrix(local_zoom, local_zoom)
+            pix = page.get_pixmap(matrix=local_matrix, alpha=False, clip=clip)
             png_bytes = pix.tobytes(output="png")
             # Priorité 1 : rotation explicite user (multi-zone).
             if rot % 360 != 0:
@@ -1302,9 +1418,9 @@ class AIEnrichmentService:
                     steps.append(v_step)
                     if v_output is not None:
                         # Anti-garbage : rejette les sorties mojibake /
-                        # CJK massif / caractères de contrôle. Cible les
-                        # cas où minicpm-v part en vrille sur une image
-                        # qu'il ne sait pas lire et remonte du bruit.
+                        # CJK massif / caractères de contrôle / PUA /
+                        # HTML tags / placeholders <TITRE>. Ces signaux
+                        # sont nets — pas de faux positif.
                         garbage, reason = _is_vision_garbage(v_output)
                         if garbage:
                             logger.warning(
@@ -1314,17 +1430,22 @@ class AIEnrichmentService:
                             )
                             v_step["garbage_dropped"] = reason
                             continue
+                        # Anti-pollution soft : scrub les résidus (PUA
+                        # isolé, tag html orphelin) qui ont passé le
+                        # gate strict. Le résultat reste utilisable
+                        # côté arbiter sans polluer les regex.
+                        v_output = scrub_vision_output(v_output)
+                        v_step["output"] = v_output
                         # Anti-leak : appliqué UNIQUEMENT sur les zones
-                        # dont l'output est CENSÉ contenir le titre du
-                        # magazine (title / all / publisher). Sur une
-                        # zone Prix "38€", Date "20 Août 2026", Numéro
-                        # "N°26290", Sous-titre (accroche éditoriale),
-                        # ISSN — le vision output NE DOIT PAS contenir
-                        # le titre magazine, le leak check trouvait
-                        # évidemment 0 token commun et flaggait
-                        # faussement toutes ces zones valides.
-                        title_scoped_tags = {"title", "all", "publisher", None}
-                        if zone_tag in title_scoped_tags:
+                        # tagguées "title". Toute autre zone (Prix "38€",
+                        # Date "20 Août", Numéro "N°26290", Sous-titre,
+                        # ISSN, all=full-page, publisher, custom…) N'EST
+                        # PAS censée contenir le titre magazine : le
+                        # leak check trouverait 0 token commun et
+                        # flaguerait faussement une sortie valide.
+                        # Le garbage detector au-dessus catche déjà les
+                        # vrais leaks minicpm-v (placeholders, PUA, HTML).
+                        if zone_tag == "title":
                             expected_title = (
                                 (text_result or {}).get("title") or ""
                             ).strip().lower()
