@@ -386,6 +386,18 @@ async def _apply_ai_ranker(
             mag_context["include_rules"] = incl
         if excl:
             mag_context["exclude_rules"] = excl
+    # Patterns appris/manuels (naming conventions vues sur les
+    # releases précédents du magazine). Précieux pour l'IA : ils
+    # décrivent COMMENT ce magazine est typiquement nommé par les
+    # uploaders → aide à picker un candidat qui match la convention
+    # historique. Cap 15 pour ne pas gonfler le prompt outre mesure.
+    if getattr(magazine, "patterns", None):
+        pats = [
+            p.pattern for p in magazine.patterns
+            if p.pattern and p.pattern.strip()
+        ][:15]
+        if pats:
+            mag_context["known_patterns"] = pats
     # Formats de date attendus pour cette issue précise — mêmes formats
     # que ceux envoyés à Prowlarr, permet à l'IA de tolérer les
     # différentes conventions ("30 août 2026" == "30/08/2026").
@@ -616,6 +628,7 @@ async def run_wanted_search(
         select(Issue)
         .options(
             selectinload(Issue.magazine).selectinload(Magazine.rules),
+            selectinload(Issue.magazine).selectinload(Magazine.patterns),
         )
         .where(Issue.id == issue_id)
     )

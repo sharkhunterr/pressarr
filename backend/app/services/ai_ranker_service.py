@@ -469,6 +469,17 @@ class AIRankerService:
                     f"\nRules EXCLUDE (rejeter si le titre matche) : "
                     + " · ".join(ctx["exclude_rules"])
                 )
+            if ctx.get("known_patterns"):
+                # Cap 10 patterns dans le prompt pour bornage taille —
+                # les 15 max côté service laissent 5 en réserve pour
+                # d'autres consumers.
+                pats = ctx["known_patterns"][:10]
+                hint += (
+                    f"\nPatterns de nommage historiques du magazine "
+                    f"(les uploaders utilisent typiquement ces "
+                    f"conventions) : "
+                    + " · ".join(f"'{p}'" for p in pats)
+                )
 
         prompt = (
             f"{cfg.ai_ranker_prompt}\n\n---\n{header}{hint}\n"
