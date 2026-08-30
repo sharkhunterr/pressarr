@@ -1661,7 +1661,18 @@ class AIEnrichmentService:
         data.
         """
         t0 = time.monotonic()
-        num_ctx = 8192 if images_b64 else None
+        # num_ctx : contexte Ollama pour vision. Une image PDF crop
+        # zoomée peut consommer 4k-10k tokens vision.
+        # - minicpm-v:8b : 8192 suffit (tient dans 8 Go VRAM)
+        # - qwen2.5vl:7b : 16384 minimum sinon `unexpected EOF` HTTP
+        #   500 côté Ollama (le modèle crash quand il déborde du ctx
+        #   pendant l'encodage de l'image, sans même sortir 400).
+        # 16384 est le safe upper bound qui tient dans 8 Go pour les
+        # deux modèles. Au-dessus, minicpm-v peut OOM.
+        if images_b64:
+            num_ctx = 16384 if "qwen" in (model or "").lower() else 8192
+        else:
+            num_ctx = None
         num_predict = 800 if images_b64 else None
         repeat_penalty = 1.3 if images_b64 else None
         # Structured input / params for the History drill-down. Un
@@ -1706,6 +1717,34 @@ class AIEnrichmentService:
             step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
             return out, step
         except OllamaError as exc:
+            # Retry défensif : Ollama HTTP 500 « unexpected EOF » sur
+            # vision = ctx trop petit pour digérer l'image. On retente
+            # UNE fois avec un ctx doublé (jusqu'à 32k, plafond raisonnable
+            # pour tenir dans 8 Go VRAM avec qwen2.5vl:7b).
+            msg = str(exc)
+            if images_b64 and "unexpected EOF" in msg and num_ctx and num_ctx < 32768:
+                bumped_ctx = min(32768, (num_ctx or 8192) * 2)
+                logger.warning(
+                    "AI step %s crashed (unexpected EOF) — retry avec "
+                    "num_ctx=%d (était %d)",
+                    step_name, bumped_ctx, num_ctx,
+                )
+                try:
+                    out = await self._ollama.generate_json(
+                        model=model,
+                        prompt=prompt,
+                        images_b64=images_b64,
+                        num_ctx=bumped_ctx,
+                        num_predict=num_predict,
+                        repeat_penalty=repeat_penalty,
+                    )
+                    step["params"]["num_ctx"] = bumped_ctx
+                    step["params"]["retry_reason"] = "unexpected_eof"
+                    step["output"] = out
+                    step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+                    return out, step
+                except OllamaError as exc2:
+                    exc = exc2  # tombe dans le path d'échec ci-dessous
             step["error"] = str(exc)
             step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
             logger.warning("AI step %s failed: %s", step_name, exc)
