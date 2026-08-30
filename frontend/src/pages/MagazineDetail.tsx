@@ -1497,6 +1497,7 @@ export default function MagazineDetail() {
                       onSort={toggleIssueSort}
                     />
                     <TableHead className="text-zinc-400">{t('issues.fileInfo')}</TableHead>
+                    <TableHead className="text-zinc-400">Source</TableHead>
                     <TableHead className="text-zinc-400">{t('issues.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1556,7 +1557,7 @@ export default function MagazineDetail() {
                                 })
                               }}
                             >
-                              <TableCell colSpan={7} className="py-2">
+                              <TableCell colSpan={10} className="py-2">
                                 <div className="flex items-center gap-2 text-sm text-zinc-400">
                                   {isExpanded
                                     ? <ChevronDown className="size-4" />

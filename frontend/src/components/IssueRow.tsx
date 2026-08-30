@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen, Clock, Sparkles, AlertTriangle } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Eye, EyeOff, Trash2, Search, Loader2, Download, RefreshCw, Pencil, Import, BookOpen, Clock, Sparkles, AlertTriangle, Package, ExternalLink } from 'lucide-react'
 
 import { type Issue } from '@/api/issues'
 import { type QueueEntry } from '@/api/queue'
@@ -204,47 +205,24 @@ export function IssueRow({
           <StatusBadge status={issue.status} />
         )}
       </TableCell>
+      {/* Colonne File — format/quality/size uniquement (source déportée). */}
       <TableCell className="text-zinc-400 text-sm">
         {issue.file ? (
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="uppercase text-zinc-300">{issue.file.format}</span>
-              {issue.file.quality && issue.file.quality !== 'unknown' && (
-                <>
-                  <span className="text-zinc-500">|</span>
-                  <span>{issue.file.quality}</span>
-                </>
-              )}
-              <span className="text-zinc-500">|</span>
-              <span>{formatBytes(issue.file.size)}</span>
-              {issue.file.releaseGroup && (
-                <>
-                  <span className="text-zinc-500">|</span>
-                  <span className="text-zinc-500">{issue.file.releaseGroup}</span>
-                </>
-              )}
-              {issue.file.sourceType === 'pack' && issue.file.sourcePackName && (
-                <span
-                  className="inline-flex items-center gap-1 rounded bg-fuchsia-500/15 text-fuchsia-200 border border-fuchsia-500/30 text-[10px] px-1.5 py-0.5"
-                  title={`Importé depuis le pack ${issue.file.sourcePackName}`}
-                >
-                  📦 pack
-                </span>
-              )}
-            </div>
-            {(issue.file.sourceReleaseTitle || issue.file.sourcePackName) && (
-              <div
-                className="text-[10px] text-zinc-500 truncate max-w-[280px]"
-                title={
-                  issue.file.sourceType === 'pack'
-                    ? `Pack : ${issue.file.sourcePackName ?? '?'} · fichier : ${issue.file.originalFilename}`
-                    : `Release : ${issue.file.sourceReleaseTitle ?? issue.file.originalFilename}`
-                }
-              >
-                {issue.file.sourceType === 'pack'
-                  ? `📦 ${issue.file.sourcePackName ?? '?'}`
-                  : `↓ ${issue.file.sourceReleaseTitle ?? issue.file.originalFilename}`}
-              </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="uppercase text-zinc-300">{issue.file.format}</span>
+            {issue.file.quality && issue.file.quality !== 'unknown' && (
+              <>
+                <span className="text-zinc-500">|</span>
+                <span>{issue.file.quality}</span>
+              </>
+            )}
+            <span className="text-zinc-500">|</span>
+            <span>{formatBytes(issue.file.size)}</span>
+            {issue.file.releaseGroup && (
+              <>
+                <span className="text-zinc-500">|</span>
+                <span className="text-zinc-500">{issue.file.releaseGroup}</span>
+              </>
             )}
           </div>
         ) : isInQueue ? (
@@ -254,6 +232,42 @@ export function IssueRow({
           </span>
         ) : (
           <span className="text-zinc-600">{t('issues.noFile')}</span>
+        )}
+      </TableCell>
+      {/* Colonne Source — badge type (Pack violet / Torrent ambre) +
+           nom court + lien cliquable (pack → sa page, torrent → détail
+           fiche technique). Détails complets dans le crayon. */}
+      <TableCell className="text-sm">
+        {issue.file ? (
+          issue.file.sourceType === 'pack' && issue.file.sourcePackId ? (
+            <Link
+              to={`/pack/${issue.file.sourcePackId}`}
+              className="inline-flex items-center gap-1.5 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-200 px-2 py-1 text-xs max-w-[220px]"
+              title={`Pack : ${issue.file.sourcePackName ?? '?'} — fichier : ${issue.file.originalFilename}`}
+            >
+              <Package className="size-3 shrink-0" />
+              <span className="truncate">
+                {issue.file.sourcePackName ?? 'Pack'}
+              </span>
+              <ExternalLink className="size-2.5 shrink-0 opacity-60" />
+            </Link>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-200 px-2 py-1 text-xs max-w-[220px]"
+              title={
+                issue.file.sourceReleaseTitle
+                  ? `Torrent : ${issue.file.sourceReleaseTitle}`
+                  : `Fichier : ${issue.file.originalFilename}`
+              }
+            >
+              <Download className="size-3 shrink-0" />
+              <span className="truncate">
+                {issue.file.sourceReleaseTitle ?? issue.file.originalFilename}
+              </span>
+            </span>
+          )
+        ) : (
+          <span className="text-zinc-600 text-xs">—</span>
         )}
       </TableCell>
       <TableCell>
