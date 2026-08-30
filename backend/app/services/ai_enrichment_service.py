@@ -1210,7 +1210,7 @@ class AIEnrichmentService:
             crop_mode = getattr(cfg, "ai_enrichment_vision_crop", "full")
             # Custom rect prioritaire : l'user l'a défini visuellement
             # dans le UI Refresh IA → persisté sur Magazine.ai_crop_rect.
-            custom_rect = await self._lookup_magazine_crop(magazine_id)
+            custom_rect = await self._lookup_magazine_crop(magazine_id, issue_id)
             # Chaque page peut générer 1 ou 2 crops (top_bottom).
             # On les traite comme des appels vision distincts et on
             # laisse l'arbitre déterministe agréger.
@@ -1579,31 +1579,92 @@ class AIEnrichmentService:
             return None, step
 
     async def _lookup_magazine_crop(
-        self, magazine_id: int | None
+        self,
+        magazine_id: int | None,
+        issue_id: int | None = None,
     ) -> list[dict[str, Any]] | None:
-        """Charge la liste des zones custom sauvegardées sur le magazine.
+        """Charge la liste des zones custom pour l'issue cible.
 
-        Renvoie ``None`` quand aucun crop custom n'est défini (fallback
-        sur le mode global). Rétro-compat : un ancien row single-dict
-        est promu en list-of-one silencieusement.
+        Le magazine stocke jusqu'à 3 sets (normal / weekend / hs) dans
+        ai_crop_rect (JSON dict). Le pipeline sélectionne :
+          - `hs` si issue.is_special=True
+          - `weekend` si issue tombe sur un weekend_days consécutif
+            regroupé (édition combinée)
+          - `normal` sinon (défaut)
+        Fallback vers `normal` si le set typé est vide.
+
+        Rétro-compat : legacy single-list ou single-dict est traité
+        comme `normal`.
         """
         if magazine_id is None:
             return None
         from sqlalchemy import select
         from app.models.magazine import Magazine
+        from app.models.issue import Issue
         try:
             async with self._session_factory() as session:
-                row = (
+                mag_row = (
                     await session.execute(
-                        select(Magazine.ai_crop_rect).where(
-                            Magazine.id == magazine_id
-                        )
+                        select(
+                            Magazine.ai_crop_rect,
+                            Magazine.weekend_days,
+                        ).where(Magazine.id == magazine_id)
                     )
                 ).first()
-                raw = row[0] if row else None
+                if mag_row is None:
+                    return None
+                raw, weekend_days_str = mag_row[0], mag_row[1]
                 if not raw:
                     return None
-                return _normalise_crop_zones(json.loads(raw))
+                data = json.loads(raw)
+
+                # Détermine le type d'issue (normal / weekend / hs)
+                issue_type = "normal"
+                if issue_id is not None:
+                    iss_row = (
+                        await session.execute(
+                            select(
+                                Issue.is_special,
+                                Issue.year,
+                                Issue.month,
+                                Issue.day,
+                            ).where(Issue.id == issue_id)
+                        )
+                    ).first()
+                    if iss_row is not None:
+                        is_special, y, m, d = iss_row
+                        if is_special:
+                            issue_type = "hs"
+                        elif weekend_days_str and y and m and d:
+                            wd_set = set()
+                            try:
+                                wd_set = {
+                                    int(x) for x in weekend_days_str.split(",")
+                                    if x.strip()
+                                }
+                            except ValueError:
+                                pass
+                            if wd_set:
+                                from datetime import date as _date
+                                try:
+                                    js_wd = _date(y, m, d).weekday()
+                                    if js_wd in wd_set:
+                                        issue_type = "weekend"
+                                except ValueError:
+                                    pass
+
+                # Résolution du set à utiliser
+                selected: list[Any] | None = None
+                if isinstance(data, dict) and any(
+                    k in data for k in ("normal", "weekend", "hs")
+                ):
+                    selected = data.get(issue_type) or data.get("normal") or []
+                elif isinstance(data, (list, dict)):
+                    # Legacy shape → tout est en `normal`
+                    selected = data if isinstance(data, list) else [data]
+                if not selected:
+                    return None
+                return _normalise_crop_zones(selected)
         except Exception as exc:  # noqa: BLE001
             logger.warning("magazine crop lookup failed: %s", exc)
         return None

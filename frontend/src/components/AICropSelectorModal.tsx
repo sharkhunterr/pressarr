@@ -18,12 +18,14 @@ import { toast } from 'sonner'
 
 import {
   getMagazineCrop,
+  setMagazineCropByType,
+  type IssueType,
   issueCoverPreviewUrl,
   magazineCoverPreviewUrl,
-  setMagazineCrop,
   type CropZone,
 } from '@/api/ai'
-import { getIssues } from '@/api/issues'
+import { getIssues, type Issue } from '@/api/issues'
+import { getMagazine } from '@/api/magazines'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -112,6 +114,9 @@ export function AICropSelectorModal({
   const imgRef = useRef<HTMLImageElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [zones, setZones] = useState<CropZone[]>([])
+  // Type d'issue actif dans l'éditeur (3 sets distincts).
+  // Le switch entre types re-hydrate zones depuis cropQ.data[type].
+  const [currentType, setCurrentType] = useState<IssueType>('normal')
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   const [mode, setMode] = useState<Mode>('draw')
   // Espace tenu → override temporaire vers pan
@@ -164,12 +169,33 @@ export function AICropSelectorModal({
     () => (issuesQ.data ?? []).filter((i) => i.file != null),
     [issuesQ.data],
   )
+  const magazineQ = useQuery({
+    queryKey: ['magazine', magazineId],
+    queryFn: () => getMagazine(magazineId),
+    enabled: open,
+  })
+  const weekendDays = magazineQ.data?.weekendDays ?? null
 
-  // Hydrate zones from server on open.
+  // Détermine le type d'une issue (mêmes règles que backend
+  // _lookup_magazine_crop : isSpecial → hs, weekday ∈ weekend_days →
+  // weekend, sinon normal).
+  const getIssueType = (i: Issue): IssueType => {
+    if (i.isSpecial) return 'hs'
+    if (weekendDays && weekendDays.length > 0 && i.year && i.month && i.day) {
+      // JS getDay : 0=Sun..6=Sat → conv 0=Mon..6=Sun
+      const d = new Date(i.year, i.month - 1, i.day)
+      const wd = d.getDay() === 0 ? 6 : d.getDay() - 1
+      if (weekendDays.includes(wd)) return 'weekend'
+    }
+    return 'normal'
+  }
+
+  // Hydrate zones from server on open + à chaque changement de type.
   useEffect(() => {
     if (open && cropQ.data) {
-      setZones(cropQ.data.zones ?? [])
-      setSelectedIdx((cropQ.data.zones?.length ?? 0) > 0 ? 0 : null)
+      const typedZones = cropQ.data[currentType] ?? []
+      setZones(typedZones)
+      setSelectedIdx(typedZones.length > 0 ? 0 : null)
       setImgLoaded(false)
       setNeedsFit(true)
     }
@@ -179,7 +205,7 @@ export function AICropSelectorModal({
       setZoom(1)
       setPan({ x: 0, y: 0 })
     }
-  }, [open, cropQ.data])
+  }, [open, cropQ.data, currentType])
 
   // Space key = pan override
   useEffect(() => {
@@ -533,7 +559,10 @@ export function AICropSelectorModal({
   }
 
   const saveMut = useMutation({
-    mutationFn: () => setMagazineCrop(magazineId, zones),
+    // PATCH d'un set spécifique — les 2 autres restent inchangés.
+    mutationFn: () => setMagazineCropByType(magazineId, {
+      [currentType]: zones,
+    }),
     onSuccess: (res) => {
       toast.success(
         zones.length > 0
@@ -580,6 +609,37 @@ export function AICropSelectorModal({
           <DialogTitle className="text-zinc-100">
             Zones IA — {magazineTitle}
           </DialogTitle>
+          {/* Tabs type d'issue : chaque set indépendant, badge coloré
+              même sémantique que la colonne Type des issues (violet
+              weekend, ambre HS, zinc normal). */}
+          <div className="flex gap-1 pt-1">
+            {([
+              { key: 'normal', label: 'Régulier', cls: 'bg-zinc-700 text-zinc-200 border-zinc-600' },
+              { key: 'weekend', label: 'Weekend', cls: 'bg-purple-500/20 text-purple-200 border-purple-500/40' },
+              { key: 'hs', label: 'Hors-série', cls: 'bg-amber-500/20 text-amber-200 border-amber-500/40' },
+            ] as { key: IssueType; label: string; cls: string }[]).map((t) => {
+              const active = currentType === t.key
+              const count = (cropQ.data?.[t.key]?.length ?? 0)
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setCurrentType(t.key)}
+                  className={`px-3 py-1 text-xs rounded border transition-all ${
+                    active
+                      ? t.cls + ' ring-1 ring-offset-1 ring-offset-zinc-950 ring-white/20'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                  }`}
+                  title={`${t.label} — ${count} zone${count > 1 ? 's' : ''}`}
+                >
+                  {t.label}
+                  {count > 0 && (
+                    <span className="ml-1.5 text-[10px] opacity-70">({count})</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
         </DialogHeader>
 
         <div
@@ -772,6 +832,7 @@ export function AICropSelectorModal({
                       label={issueLabel(i)}
                       active={previewIssueId === i.id}
                       onClick={() => { setPreviewIssueId(i.id); setNeedsFit(true) }}
+                      issueType={getIssueType(i)}
                     />
                   ))}
                 </div>
@@ -939,22 +1000,42 @@ function IssueChip({
   label,
   active,
   onClick,
+  issueType,
 }: {
   label: string
   active: boolean
   onClick: () => void
+  /** Type d'issue pour dot coloré à gauche du label. Omit = pas de dot. */
+  issueType?: IssueType
 }) {
+  const dotCls = issueType === 'weekend'
+    ? 'bg-purple-400'
+    : issueType === 'hs'
+      ? 'bg-amber-400'
+      : issueType === 'normal'
+        ? 'bg-zinc-500'
+        : ''
   return (
     <button
       type="button"
       onClick={onClick}
       className={
-        'px-2 py-1 text-xs rounded border ' +
+        'px-2 py-1 text-xs rounded border inline-flex items-center gap-1.5 ' +
         (active
           ? 'bg-purple-900/50 border-purple-600 text-purple-200'
           : 'bg-zinc-900 border-zinc-700 text-zinc-400')
       }
+      title={
+        issueType === 'weekend'
+          ? `${label} — édition weekend`
+          : issueType === 'hs'
+            ? `${label} — hors-série`
+            : label
+      }
     >
+      {issueType && (
+        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
+      )}
       {label}
     </button>
   )

@@ -254,8 +254,18 @@ export interface CropZone {
 
 export interface CropRectResponse {
   magazineId: number
+  /** Legacy = équivalent de `normal`. Conservé pour compat descendante. */
   zones: CropZone[]
+  /** Zones pour issues régulières (défaut). */
+  normal: CropZone[]
+  /** Zones pour issues weekend combinées (édition Le Monde Sam+Dim+Lun). */
+  weekend: CropZone[]
+  /** Zones pour hors-série (is_special=true). */
+  hs: CropZone[]
 }
+
+/** Type d'issue pour sélection du set de zones OCR. */
+export type IssueType = 'normal' | 'weekend' | 'hs'
 
 export const getMagazineCrop = (magazineId: number) =>
   apiFetch<CropRectResponse>(`/ai/magazine/${magazineId}/crop`)
@@ -267,6 +277,18 @@ export const setMagazineCrop = (
   apiFetch<CropRectResponse>(`/ai/magazine/${magazineId}/crop`, {
     method: 'PUT',
     body: JSON.stringify({ zones }),
+  })
+
+/** Nouvelle API : PATCH d'un set spécifique (normal / weekend / hs).
+ *  Les sets omis restent inchangés côté serveur. Envoyer une liste
+ *  vide efface ce set spécifique. */
+export const setMagazineCropByType = (
+  magazineId: number,
+  patch: Partial<Record<IssueType, CropZone[]>>,
+) =>
+  apiFetch<CropRectResponse>(`/ai/magazine/${magazineId}/crop`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
   })
 
 /** URL directe vers le PNG de la couverture (sert dans <img>) —

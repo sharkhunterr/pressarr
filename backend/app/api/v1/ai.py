@@ -609,44 +609,96 @@ class CropZone(CamelModel):
 
 class CropRectResponse(CamelModel):
     magazine_id: int
+    # Legacy — équivalent à `normal` pour compat avec le frontend qui
+    # n'utilise pas encore les 3 sets. À supprimer quand l'UI est migrée.
     zones: list[CropZone] = []
+    # Nouveaux : 3 sets de zones distincts, un par type d'issue.
+    # Pipeline vision pick automatiquement le bon set selon issue.is_special
+    # / detected weekend_dates.
+    normal: list[CropZone] = []
+    weekend: list[CropZone] = []
+    hs: list[CropZone] = []
 
 
-def _parse_stored_crop(raw: str | None) -> list[CropZone]:
-    """Parse the ai_crop_rect DB blob, tolerant to legacy shapes.
+CROP_TYPES = ("normal", "weekend", "hs")
 
-    Old shape (single dict) -> promoted to a single-zone list.
-    New shape (list of dicts) -> kept as-is (rotation/label optional).
+
+def _zone_from_dict(z: dict) -> CropZone | None:
+    try:
+        return CropZone(
+            x=float(z["x"]),
+            y=float(z["y"]),
+            w=float(z["w"]),
+            h=float(z["h"]),
+            rotation=int(z.get("rotation") or 0) % 360,
+            label=(z.get("label") or None),
+            tag=(z.get("tag") or "all"),
+            custom_tag=(z.get("custom_tag") or None),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _parse_stored_crop(raw: str | None) -> dict[str, list[CropZone]]:
+    """Parse le blob DB ai_crop_rect en dict {normal, weekend, hs}.
+
+    Compat legacy :
+      - dict {"normal": [...], "weekend": [...], "hs": [...]} : NEW shape
+      - list de zones : LEGACY shape → promoted to {"normal": list, ...}
+      - dict {"x": ..., "y": ...} : SUPER-legacy 1-zone → {"normal": [1]}
+      - None / invalide → {"normal": [], "weekend": [], "hs": []}
     """
+    empty = {t: [] for t in CROP_TYPES}
     if not raw:
-        return []
+        return empty
     try:
         data = json.loads(raw)
     except Exception:  # noqa: BLE001
-        return []
+        return empty
+    out: dict[str, list[CropZone]] = {t: [] for t in CROP_TYPES}
+    # NEW shape : dict avec au moins une des 3 clés typées
+    if isinstance(data, dict) and any(k in data for k in CROP_TYPES):
+        for t in CROP_TYPES:
+            for z in (data.get(t) or []):
+                if isinstance(z, dict) and (parsed := _zone_from_dict(z)):
+                    out[t].append(parsed)
+        return out
+    # LEGACY : liste plate de zones → toutes en `normal`
+    if isinstance(data, list):
+        for z in data:
+            if isinstance(z, dict) and (parsed := _zone_from_dict(z)):
+                out["normal"].append(parsed)
+        return out
+    # SUPER-legacy : 1 seul dict de zone
     if isinstance(data, dict):
-        raw_zones = [data]
-    elif isinstance(data, list):
-        raw_zones = data
-    else:
-        return []
-    out: list[CropZone] = []
-    for z in raw_zones:
-        if not isinstance(z, dict):
-            continue
-        try:
-            out.append(CropZone(
-                x=float(z["x"]),
-                y=float(z["y"]),
-                w=float(z["w"]),
-                h=float(z["h"]),
-                rotation=int(z.get("rotation") or 0) % 360,
-                label=(z.get("label") or None),
-                tag=(z.get("tag") or "all"),
-                custom_tag=(z.get("custom_tag") or None),
-            ))
-        except (KeyError, TypeError, ValueError):
-            continue
+        parsed = _zone_from_dict(data)
+        if parsed:
+            out["normal"].append(parsed)
+    return out
+
+
+def _clamp_zones(zones: list[CropZone]) -> list[dict]:
+    """Sanitize + clamp les coordonnées d'une liste de zones."""
+    valid_tags = {
+        "number", "date", "title", "subtitle",
+        "price", "publisher", "issn", "all", "custom",
+    }
+    out: list[dict] = []
+    for z in zones:
+        x = max(0.0, min(1.0, z.x))
+        y = max(0.0, min(1.0, z.y))
+        w = max(0.01, min(1.0 - x, z.w))
+        h = max(0.01, min(1.0 - y, z.h))
+        rot = int(z.rotation or 0) % 360
+        if rot not in (0, 90, 180, 270):
+            rot = 0
+        tag = z.tag if z.tag in valid_tags else "all"
+        entry: dict = {"x": x, "y": y, "w": w, "h": h, "rotation": rot, "tag": tag}
+        if z.label:
+            entry["label"] = z.label.strip()[:40]
+        if tag == "custom" and z.custom_tag:
+            entry["custom_tag"] = z.custom_tag.strip()[:120]
+        out.append(entry)
     return out
 
 
@@ -658,22 +710,37 @@ async def get_magazine_crop(
     magazine_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """Renvoie la liste des zones custom du magazine (peut etre vide)."""
+    """Renvoie les 3 listes de zones custom (normal / weekend / hs).
+
+    Le champ `zones` legacy retourne le contenu de `normal` pour la
+    compat avec les clients qui n'utilisent pas encore les 3 sets.
+    """
     mag = (
         await session.execute(select(Magazine).where(Magazine.id == magazine_id))
     ).scalars().first()
     if not mag:
         raise HTTPException(404, "Magazine not found")
+    parsed = _parse_stored_crop(mag.ai_crop_rect)
     return CropRectResponse(
         magazine_id=magazine_id,
-        zones=_parse_stored_crop(mag.ai_crop_rect),
+        zones=parsed["normal"],  # legacy fallback
+        normal=parsed["normal"],
+        weekend=parsed["weekend"],
+        hs=parsed["hs"],
     )
 
 
 class CropUpdateRequest(CamelModel):
-    """Body for PUT /crop -- always a list (empty = clear all)."""
-
-    zones: list[CropZone] = []
+    """Body for PUT /crop — supporte 2 shapes :
+      - `{"zones": [...]}` (legacy) → écrase le set `normal` uniquement
+      - `{"normal": [...], "weekend": [...], "hs": [...]}` (new) →
+        écrase les 3 sets. Chaque set omis reste inchangé.
+    Envoyer une liste vide efface ce set spécifique.
+    """
+    zones: list[CropZone] | None = None
+    normal: list[CropZone] | None = None
+    weekend: list[CropZone] | None = None
+    hs: list[CropZone] | None = None
 
 
 @router.put(
@@ -685,39 +752,33 @@ async def set_magazine_crop(
     body: CropUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Remplace intégralement la liste des zones custom.
-
-    Envoyer ``{"zones": []}`` efface le crop custom (fallback global).
+    """Remplace les zones custom. 2 shapes acceptés (voir CropUpdateRequest).
     """
     mag = (
         await session.execute(select(Magazine).where(Magazine.id == magazine_id))
     ).scalars().first()
     if not mag:
         raise HTTPException(404, "Magazine not found")
-    if not body.zones:
+    # Charge l'état actuel comme base — permet de PATCH un seul set.
+    current = _parse_stored_crop(mag.ai_crop_rect)
+    # Convertit CropZone Pydantic → dict pour reserialize
+    current_dicts: dict[str, list[dict]] = {
+        t: [z.model_dump(exclude_none=True) for z in current[t]]
+        for t in CROP_TYPES
+    }
+    # Legacy shape : "zones" écrase normal only
+    if body.zones is not None:
+        current_dicts["normal"] = _clamp_zones(body.zones)
+    # New shape : chaque set optionnel écrase le sien
+    for t in CROP_TYPES:
+        v = getattr(body, t)
+        if v is not None:
+            current_dicts[t] = _clamp_zones(v)
+    # Si TOUS les sets sont vides, on nullifie complètement
+    if not any(current_dicts[t] for t in CROP_TYPES):
         mag.ai_crop_rect = None
     else:
-        valid_tags = {
-            "number", "date", "title", "subtitle",
-            "price", "publisher", "issn", "all", "custom",
-        }
-        clamped: list[dict] = []
-        for z in body.zones:
-            x = max(0.0, min(1.0, z.x))
-            y = max(0.0, min(1.0, z.y))
-            w = max(0.01, min(1.0 - x, z.w))
-            h = max(0.01, min(1.0 - y, z.h))
-            rot = int(z.rotation or 0) % 360
-            if rot not in (0, 90, 180, 270):
-                rot = 0
-            tag = z.tag if z.tag in valid_tags else "all"
-            entry: dict = {"x": x, "y": y, "w": w, "h": h, "rotation": rot, "tag": tag}
-            if z.label:
-                entry["label"] = z.label.strip()[:40]
-            if tag == "custom" and z.custom_tag:
-                entry["custom_tag"] = z.custom_tag.strip()[:120]
-            clamped.append(entry)
-        mag.ai_crop_rect = json.dumps(clamped)
+        mag.ai_crop_rect = json.dumps(current_dicts)
     await session.commit()
     return await get_magazine_crop(magazine_id, session)
 
