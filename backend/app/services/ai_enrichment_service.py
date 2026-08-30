@@ -1314,26 +1314,29 @@ class AIEnrichmentService:
                             )
                             v_step["garbage_dropped"] = reason
                             continue
-                        # Anti-leak : rejette les vision outputs qui
-                        # remontent un magazine sans rapport avec le
-                        # torrent (ex. minicpm-v recopie « L'ÉQUIPE »
-                        # sur un scan Paris Match parce que l'exemple
-                        # du prompt le lui a suggéré). On compare le
-                        # title vision aux titres attendus — si zéro
-                        # recouvrement, on drop cette sortie et on
-                        # journalise pour observabilité.
-                        expected_title = (
-                            (text_result or {}).get("title") or ""
-                        ).strip().lower()
-                        if _is_vision_leak(v_output, expected_title):
-                            logger.warning(
-                                "Vision leak detected (page %s zone %s) — "
-                                "vision output ignored : %r",
-                                page_num, zone_label,
-                                v_output,
-                            )
-                            v_step["leak_dropped"] = True
-                            continue
+                        # Anti-leak : appliqué UNIQUEMENT sur les zones
+                        # dont l'output est CENSÉ contenir le titre du
+                        # magazine (title / all / publisher). Sur une
+                        # zone Prix "38€", Date "20 Août 2026", Numéro
+                        # "N°26290", Sous-titre (accroche éditoriale),
+                        # ISSN — le vision output NE DOIT PAS contenir
+                        # le titre magazine, le leak check trouvait
+                        # évidemment 0 token commun et flaggait
+                        # faussement toutes ces zones valides.
+                        title_scoped_tags = {"title", "all", "publisher", None}
+                        if zone_tag in title_scoped_tags:
+                            expected_title = (
+                                (text_result or {}).get("title") or ""
+                            ).strip().lower()
+                            if _is_vision_leak(v_output, expected_title):
+                                logger.warning(
+                                    "Vision leak detected (page %s zone %s) — "
+                                    "vision output ignored : %r",
+                                    page_num, zone_label,
+                                    v_output,
+                                )
+                                v_step["leak_dropped"] = True
+                                continue
                         vision_outputs.append({
                             "page": page_num,
                             "zone": zone_label,
