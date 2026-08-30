@@ -78,6 +78,7 @@ import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { WantedSearchNowModal } from '@/components/WantedSearchNowModal'
 import { WeekdaySelector } from '@/components/WeekdaySelector'
+import { IssueTechnicalDetail } from '@/components/IssueTechnicalDetail'
 import { shortenPath } from '@/lib/utils'
 import { FileManagerModal } from '@/components/FileManagerModal'
 import { AIRefreshModal } from '@/components/AIRefreshModal'
@@ -2592,17 +2593,28 @@ export default function MagazineDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Issue Dialog */}
+      {/* Edit Issue Dialog — 2 onglets : Métadonnées + Fiche technique */}
       <Dialog open={editIssueOpen} onOpenChange={(open) => {
         setEditIssueOpen(open)
         if (!open) setEditingIssue(null)
       }}>
-        <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800">
+        <DialogContent className="sm:max-w-2xl bg-zinc-950 border-zinc-800 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-zinc-100">
               {t('issues.editIssueTitle')}
+              {editingIssue?.number != null && (
+                <span className="text-sm text-zinc-500 ml-2 font-normal">
+                  #{editingIssue.number}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
+          <Tabs defaultValue="metadata" className="w-full">
+            <TabsList className="w-full">
+              <TabsTrigger value="metadata" className="flex-1">Métadonnées</TabsTrigger>
+              <TabsTrigger value="technical" className="flex-1">Fiche technique</TabsTrigger>
+            </TabsList>
+            <TabsContent value="metadata" className="pt-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-zinc-400">{t('issues.editNumber')}</label>
@@ -2774,6 +2786,11 @@ export default function MagazineDetail() {
               </>
             )}
           </div>
+            </TabsContent>
+            <TabsContent value="technical" className="pt-3">
+              <IssueTechnicalDetail issueId={editingIssue?.id ?? null} />
+            </TabsContent>
+          </Tabs>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditIssueOpen(false)}>
               {t('common.cancel')}

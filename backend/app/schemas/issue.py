@@ -67,6 +67,7 @@ class IssueResource(CamelModel):
     is_forecast: bool
     cover_path: str | None = None
     added_at: datetime
+    last_searched_at: datetime | None = None
     issn: str | None = None
     file: IssueFileResource | None = None
 

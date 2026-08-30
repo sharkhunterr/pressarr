@@ -39,6 +39,9 @@ export interface Issue {
   isForecast: boolean
   coverPath: string | null
   addedAt: string
+  /** Timestamp du dernier run wanted_search pour cette issue.
+   *  Utilisé par la fiche technique et le cooldown scheduler. */
+  lastSearchedAt: string | null
   issn: string | null
   file: IssueFile | null
 }
