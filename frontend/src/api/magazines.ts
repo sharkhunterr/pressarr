@@ -119,6 +119,14 @@ export const searchMetadata = (query: string) =>
 export const refreshMetadata = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}/refresh`, { method: 'POST' })
 
+/** Déclenche wanted_search en background sur toutes les issues wanted
+ *  du magazine (équivalent manuel du cycle scheduler pour ce mag). */
+export const searchWantedMagazine = (id: number) =>
+  apiFetch<{ magazineId: number; queued: number; message: string }>(
+    `/magazine/${id}/search-wanted`,
+    { method: 'POST' },
+  )
+
 export interface RenamePreview {
   old_path: string
   new_path: string

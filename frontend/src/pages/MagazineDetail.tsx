@@ -36,6 +36,7 @@ import {
   uploadMagazineCover,
   deleteMagazine,
   refreshMetadata,
+  searchWantedMagazine,
   addMagazinePattern,
   updateMagazinePattern,
   deleteMagazinePattern,
@@ -886,6 +887,27 @@ export default function MagazineDetail() {
     }
   }
 
+  const [searchingWanted, setSearchingWanted] = useState(false)
+  async function handleSearchWanted() {
+    setSearchingWanted(true)
+    const tid = toast.loading('Lancement recherche wanted…')
+    try {
+      const res = await searchWantedMagazine(magazineId)
+      if (res.queued === 0) {
+        toast.info('Aucune issue wanted à rechercher', { id: tid })
+      } else {
+        toast.success(
+          `${res.queued} recherche(s) lancée(s) — voir /activity pour le déroulé`,
+          { id: tid, duration: 6000 },
+        )
+      }
+    } catch (e) {
+      toast.error(`Échec : ${(e as Error).message}`, { id: tid })
+    } finally {
+      setSearchingWanted(false)
+    }
+  }
+
 
   async function handleRefreshIssue(issueId: number) {
     setRefreshingIssueId(issueId)
@@ -1218,6 +1240,20 @@ export default function MagazineDetail() {
                 >
                   <Search className="size-3.5" />
                   {t('magazineDetail.manualResearch')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSearchWanted}
+                  disabled={searchingWanted}
+                  title="Lance le pipeline wanted_search (Prowlarr + IA + rules + auto-grab) sur toutes les issues wanted de ce magazine"
+                >
+                  {searchingWanted ? (
+                    <Loader2 className="size-3.5 animate-spin text-purple-400" />
+                  ) : (
+                    <Sparkles className="size-3.5 text-purple-400" />
+                  )}
+                  Recherche wanted
                 </Button>
                 <Button
                   variant="outline"

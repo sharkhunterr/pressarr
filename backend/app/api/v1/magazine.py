@@ -408,6 +408,57 @@ async def execute_rename(
     renamed = [r for r in results if r["old_path"] != r["new_path"]]
     return {"renamed": len(renamed), "results": renamed}
 
+@router.post("/{magazine_id}/search-wanted")
+async def search_wanted_issues(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Déclenche wanted_search en background sur TOUTES les issues wanted
+    du magazine. Équivalent manuel du cycle scheduler `wanted_search_sync`,
+    limité à ce magazine et sans respecter le cooldown 4h (l'utilisateur
+    a explicitement cliqué → il veut du feedback immédiat).
+
+    Retourne le nombre d'issues wanted qui ont été mises en file.
+    Les résultats apparaîtront dans /activity + l'historique de
+    chaque issue au fil du pipeline (30-60s par issue avec IA).
+    """
+    from sqlalchemy import select
+    from app.models.issue import Issue
+    from app.models.magazine import Magazine
+    from app.services.wanted_search_service import (
+        trigger_wanted_search_in_background,
+    )
+    magazine = await db.get(Magazine, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+    if not magazine.monitored:
+        raise HTTPException(400, "Magazine non monitored")
+    if not getattr(magazine, "wanted_search_enabled", True):
+        raise HTTPException(
+            400, "Recherche auto désactivée sur ce magazine",
+        )
+    stmt = (
+        select(Issue.id)
+        .where(
+            Issue.magazine_id == magazine_id,
+            Issue.status == "wanted",
+            Issue.monitored.is_(True),
+            Issue.is_forecast.is_(False),
+        )
+    )
+    issue_ids = list((await db.execute(stmt)).scalars().all())
+    for iid in issue_ids:
+        trigger_wanted_search_in_background(iid)
+    return {
+        "magazine_id": magazine_id,
+        "queued": len(issue_ids),
+        "message": (
+            f"{len(issue_ids)} issue(s) wanted mise(s) en file — "
+            "voir /activity pour le déroulé"
+        ),
+    }
+
+
 @router.post("/{magazine_id}/refresh", status_code=200)
 async def refresh_magazine(
     magazine_id: int,
