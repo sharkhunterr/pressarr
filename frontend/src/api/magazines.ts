@@ -59,6 +59,13 @@ export interface Magazine {
    *  Deux dates dont les weekdays tombent tous dans ce set ET dans la
    *  même semaine matchent la même issue. */
   weekendDays: number[] | null
+  /** Trier les candidats envoyés au ranker IA par publish_date desc.
+   *  Défaut true : les releases récents en premier — l'IA voit d'abord
+   *  les candidats plausibles pour l'issue cible. */
+  sortByRecentDate: boolean
+  /** Override per-magazine du plancher fuzzy titre (0-100). Null =
+   *  suit le défaut global wanted_search_min_title_match (80%). */
+  minTitleMatchOverride: number | null
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {

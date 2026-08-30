@@ -168,6 +168,8 @@ export default function MagazineDetail() {
   const [editMonitored, setEditMonitored] = useState(true)
   const [editWantedSearchEnabled, setEditWantedSearchEnabled] = useState(true)
   const [editWeekendDays, setEditWeekendDays] = useState<number[]>([])
+  const [editSortByRecent, setEditSortByRecent] = useState(true)
+  const [editMinTitleOverride, setEditMinTitleOverride] = useState<string>('')
   const [editQualityProfileId, setEditQualityProfileId] = useState('')
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
   const [editFrequency, setEditFrequency] = useState('monthly')
@@ -817,6 +819,12 @@ export default function MagazineDetail() {
     setEditIssn(magazine.issn ?? '')
     setEditWantedSearchEnabled(magazine.wantedSearchEnabled)
     setEditWeekendDays(magazine.weekendDays ?? [])
+    setEditSortByRecent(magazine.sortByRecentDate ?? true)
+    setEditMinTitleOverride(
+      magazine.minTitleMatchOverride != null
+        ? String(magazine.minTitleMatchOverride)
+        : ''
+    )
     setEditOpen(true)
   }
 
@@ -838,6 +846,10 @@ export default function MagazineDetail() {
       isPlaceholder: false,
       wantedSearchEnabled: editWantedSearchEnabled,
       weekendDays: editWeekendDays.length > 0 ? editWeekendDays : null,
+      sortByRecentDate: editSortByRecent,
+      minTitleMatchOverride: editMinTitleOverride.trim()
+        ? Number(editMinTitleOverride)
+        : null,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
   }
@@ -2312,6 +2324,49 @@ export default function MagazineDetail() {
                     checked={editWantedSearchEnabled}
                     onCheckedChange={(checked) => setEditWantedSearchEnabled(checked === true)}
                   />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-3">
+                    <label className="text-sm font-medium text-zinc-300 block">
+                      Tri IA par date récente
+                    </label>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      Envoie les candidats au ranker IA par publish_date
+                      décroissant → les releases récents arrivent dans
+                      les premiers batches. Défaut ON. OFF = ordre
+                      python_score, utile si les uploaders re-publient
+                      sans mettre à jour la date.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={editSortByRecent}
+                    onCheckedChange={(checked) => setEditSortByRecent(checked === true)}
+                  />
+                </div>
+
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium text-zinc-300">
+                    Plancher fuzzy titre (override, %)
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={editMinTitleOverride}
+                    onChange={(e) => setEditMinTitleOverride(e.target.value)}
+                    placeholder="Auto (défaut global)"
+                    className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                  />
+                  <p className="text-xs text-zinc-500">
+                    Ratio Levenshtein strict entre parsed_title du
+                    release et titre magazine, requis pour auto-grab.
+                    Laisse vide pour suivre le défaut global{' '}
+                    <strong>(80%)</strong>. Monte à 90 pour un mag
+                    ambigu (ex "Le Monde" à protéger de "Le Monde
+                    Diplomatique"). Baisse à 70 pour un mag au nom
+                    court/générique.
+                  </p>
                 </div>
 
 

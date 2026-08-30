@@ -824,7 +824,28 @@ async def run_wanted_search(
     # différent. Mieux vaut zéro winner qu'un winner absurde ; l'user
     # peut toujours grabber manuellement via Manual Research.
     ranker_pool = date_matched
-    ranker_pool.sort(key=lambda c: c.python_score, reverse=True)
+    # Ordre d'envoi au ranker : par publish_date DESC quand
+    # magazine.sort_by_recent_date=True (défaut). Les releases récents
+    # arrivent dans les premiers batches → l'IA voit d'abord les
+    # candidats plausibles pour l'issue cible (date proche). Fallback
+    # sur publish_date manquante = ordre python_score.
+    if getattr(magazine, "sort_by_recent_date", True):
+        def _sort_key(c):
+            # Tuple (has_date, date_ts_desc, python_score_desc).
+            # has_date=0 vient AVANT (Python tri croissant) — on
+            # inverse pour mettre les dated en tête, puis date desc.
+            has_date = 0 if c.publish_date else 1
+            try:
+                from datetime import datetime as _dt
+                ts = _dt.fromisoformat(
+                    (c.publish_date or "").replace("Z", "+00:00")
+                ).timestamp() if c.publish_date else 0
+            except (ValueError, TypeError):
+                ts = 0
+            return (has_date, -ts, -c.python_score)
+        ranker_pool.sort(key=_sort_key)
+    else:
+        ranker_pool.sort(key=lambda c: c.python_score, reverse=True)
 
     # 4. IA batch + arbiter (top-K)
     ai_run_id: int | None = None
@@ -940,8 +961,11 @@ async def run_wanted_search(
         #      que fuzzy dépasse le seuil parce que les 2 premiers mots
         #      matchent. Sans ce gate word, tout release commençant par
         #      "Le Monde" passait — même "Le Monde du Plein Air N200".
+        # Override per-magazine si défini, sinon défaut global.
+        mag_override = getattr(magazine, "min_title_match_override", None)
         min_title = float(
-            getattr(config, "wanted_search_min_title_match", 80.0),
+            mag_override if mag_override is not None
+            else getattr(config, "wanted_search_min_title_match", 80.0)
         )
         title_gate_score: float | None = None
         word_gate_ok = True

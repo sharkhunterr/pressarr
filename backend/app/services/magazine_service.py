@@ -156,6 +156,8 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         release_weekday=data.get("release_weekday"),
         date_tolerance_days=int(data.get("date_tolerance_days") or 0),
         weekend_days=weekend_days_str,
+        sort_by_recent_date=bool(data.get("sort_by_recent_date", True)),
+        min_title_match_override=data.get("min_title_match_override"),
         # Cascade enrichment fields when caller already has them
         # (allseerr's dispatcher forwards what its search showed).
         language=data.get("language"),

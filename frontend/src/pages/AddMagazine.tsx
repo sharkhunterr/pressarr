@@ -50,6 +50,8 @@ export default function AddMagazine() {
   const [excludedDays, setExcludedDays] = useState<number[]>([])
   const [releaseWeekday, setReleaseWeekday] = useState<number | null>(null)
   const [weekendDays, setWeekendDays] = useState<number[]>([])
+  const [sortByRecentDate, setSortByRecentDate] = useState(true)
+  const [minTitleMatchOverride, setMinTitleMatchOverride] = useState<string>('')
   const [rootFolderId, setRootFolderId] = useState<string>('')
   const [qualityProfileId, setQualityProfileId] = useState<string>('')
   const [monitoringStartDate, setMonitoringStartDate] = useState('')
@@ -132,6 +134,10 @@ export default function AddMagazine() {
         excludedDays: excludedDays.length > 0 ? excludedDays : undefined,
         releaseWeekday: releaseWeekday,
         weekendDays: weekendDays.length > 0 ? weekendDays : undefined,
+        sortByRecentDate,
+        minTitleMatchOverride: minTitleMatchOverride.trim()
+          ? Number(minTitleMatchOverride)
+          : undefined,
         rootFolderId: rootFolderId ? Number(rootFolderId) : undefined,
         qualityProfileId: qualityProfileId ? Number(qualityProfileId) : undefined,
         monitoringStartDate: monitoringStartDate || undefined,
@@ -318,6 +324,42 @@ export default function AddMagazine() {
                   </p>
                 </div>
               )}
+
+              <div className="flex items-center justify-between mt-2">
+                <div className="flex-1 pr-3">
+                  <label className="text-sm font-medium text-zinc-300 block">
+                    Tri IA par date récente
+                  </label>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Envoie les candidats au ranker IA par publish_date
+                    décroissant. Défaut ON.
+                  </p>
+                </div>
+                <Switch
+                  checked={sortByRecentDate}
+                  onCheckedChange={(v) => setSortByRecentDate(v === true)}
+                />
+              </div>
+
+              <div className="grid gap-1.5 mt-2">
+                <label className="text-sm font-medium text-zinc-300">
+                  Plancher fuzzy titre (override, %)
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={minTitleMatchOverride}
+                  onChange={(e) => setMinTitleMatchOverride(e.target.value)}
+                  placeholder="Auto (défaut global 80%)"
+                  className="bg-zinc-900 border-zinc-700 text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500">
+                  Override per-magazine. Vide = défaut global. Monte
+                  à 90 pour un mag ambigu, baisse à 70 pour un mag au
+                  nom court.
+                </p>
+              </div>
               {['weekly', 'biweekly'].includes(manualFrequency) && (
                 <div className="grid gap-1.5 mt-2">
                   <label className="text-sm font-medium text-zinc-300">

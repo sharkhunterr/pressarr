@@ -237,6 +237,10 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "date_tolerance_days", "INTEGER NOT NULL DEFAULT 0"),
         # Weekdays regroupés en 1 issue weekend (CSV "5,6,0" = sam+dim+lun).
         ("magazine", "weekend_days", "VARCHAR(20)"),
+        # Tri des candidats vers ranker IA par publish_date desc (default ON).
+        ("magazine", "sort_by_recent_date", "BOOLEAN NOT NULL DEFAULT 1"),
+        # Override per-mag du plancher fuzzy titre (NULL = suit global).
+        ("magazine", "min_title_match_override", "REAL"),
     ]
     for table, column, col_type in migrations:
         try:

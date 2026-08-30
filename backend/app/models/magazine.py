@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -131,6 +132,23 @@ class Magazine(Base):
     # ET sont dans la même semaine matchent la même issue.
     weekend_days: Mapped[str | None] = mapped_column(
         String(20), nullable=True, default=None
+    )
+    # Tri des candidats envoyés au ranker IA par publish_date desc.
+    # Défaut ON : les releases récents en premier — l'IA batch voit
+    # d'abord les candidats plausibles (date proche de l'issue cible),
+    # les vieilles rééditions arrivent en batches ultérieurs. Sur des
+    # magazines exotiques où les uploaders re-publient sans MAJ date,
+    # OFF conserve l'ordre python_score.
+    sort_by_recent_date: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    # Override per-mag du plancher fuzzy titre (0-100). NULL = suit
+    # le défaut global wanted_search_min_title_match. Utile pour un
+    # magazine dont le nom est court/générique et cause faux négatifs
+    # au seuil global (baisse à 70) — ou l'inverse, mag ambigu à
+    # protéger (monte à 90).
+    min_title_match_override: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=None
     )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
