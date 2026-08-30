@@ -77,6 +77,7 @@ import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { WantedSearchNowModal } from '@/components/WantedSearchNowModal'
+import { WeekdaySelector } from '@/components/WeekdaySelector'
 import { FileManagerModal } from '@/components/FileManagerModal'
 import { AIRefreshModal } from '@/components/AIRefreshModal'
 import { MagazineActivitiesPanel } from '@/components/MagazineActivitiesPanel'
@@ -2272,46 +2273,6 @@ export default function MagazineDetail() {
                   />
                 </div>
 
-                <div className="grid gap-1.5">
-                  <label className="text-sm font-medium text-zinc-300">
-                    Édition weekend (jours regroupés)
-                  </label>
-                  <div className="flex gap-1 flex-wrap">
-                    {([
-                      [0, 'addMagazine.mon'],
-                      [1, 'addMagazine.tue'],
-                      [2, 'addMagazine.wed'],
-                      [3, 'addMagazine.thu'],
-                      [4, 'addMagazine.fri'],
-                      [5, 'addMagazine.sat'],
-                      [6, 'addMagazine.sun'],
-                    ] as [number, string][]).map(([day, key]) => (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() =>
-                          setEditWeekendDays((prev) =>
-                            prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-                          )
-                        }
-                        className={`px-2 py-1 text-xs rounded border ${
-                          editWeekendDays.includes(day)
-                            ? 'bg-purple-900/50 border-purple-600 text-purple-200'
-                            : 'bg-zinc-900 border-zinc-700 text-zinc-400'
-                        }`}
-                      >
-                        {t(key)}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-zinc-500">
-                    Sélectionne les jours qui composent une <strong>seule</strong>{' '}
-                    issue combinée. Ex Le Monde publie samedi+dimanche+lundi
-                    en une issue → coche Sam·Dim·Lun. Un release daté
-                    n'importe lequel de ces jours matchera l'issue de ce
-                    weekend. Rien coché = comportement strict.
-                  </p>
-                </div>
 
                 <div className="grid gap-1.5">
                   <label className="text-sm font-medium text-zinc-300">
@@ -2398,36 +2359,22 @@ export default function MagazineDetail() {
                   {['daily', 'weekly', 'biweekly'].includes(editFrequency) && (
                     <div className="grid gap-1.5 mt-2">
                       <label className="text-sm font-medium text-zinc-300">
-                        {t('addMagazine.excludedDays')}
+                        Jours de publication
                       </label>
-                      <div className="flex gap-1">
-                        {([
-                          [0, 'addMagazine.mon'],
-                          [1, 'addMagazine.tue'],
-                          [2, 'addMagazine.wed'],
-                          [3, 'addMagazine.thu'],
-                          [4, 'addMagazine.fri'],
-                          [5, 'addMagazine.sat'],
-                          [6, 'addMagazine.sun'],
-                        ] as [number, string][]).map(([day, key]) => (
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() =>
-                              setEditExcludedDays((prev) =>
-                                prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-                              )
-                            }
-                            className={`px-2 py-1 text-xs rounded border ${
-                              editExcludedDays.includes(day)
-                                ? 'bg-red-900/50 border-red-700 text-red-300'
-                                : 'bg-zinc-900 border-zinc-700 text-zinc-400'
-                            }`}
-                          >
-                            {t(key)}
-                          </button>
-                        ))}
-                      </div>
+                      <WeekdaySelector
+                        excluded={editExcludedDays}
+                        weekend={editWeekendDays}
+                        onChange={({ excluded, weekend }) => {
+                          setEditExcludedDays(excluded)
+                          setEditWeekendDays(weekend)
+                        }}
+                      />
+                      <p className="text-xs text-zinc-500">
+                        Clique un jour pour cycler <strong>normal → exclu → weekend</strong>.
+                        <em> Exclu</em> = pas d'édition ce jour.{' '}
+                        <em>Weekend</em> = jour regroupé dans l'édition
+                        combinée (ex Le Monde Sam+Dim+Lun en 1 issue).
+                      </p>
                     </div>
                   )}
                   {['weekly', 'biweekly'].includes(editFrequency) && (
