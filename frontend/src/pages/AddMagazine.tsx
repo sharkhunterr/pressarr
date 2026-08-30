@@ -32,17 +32,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-function shortenPath(path: string, maxLen = 35): string {
-  if (path.length <= maxLen) return path
-  const parts = path.split('/')
-  let short = parts[parts.length - 1]
-  for (let i = parts.length - 2; i >= 0; i--) {
-    const candidate = parts[i] + '/' + short
-    if (candidate.length + 4 > maxLen) break
-    short = candidate
-  }
-  return '.../' + short
-}
+import { shortenPath } from '@/lib/utils'
 
 export default function AddMagazine() {
   const { t } = useTranslation()

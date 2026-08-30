@@ -78,6 +78,7 @@ import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { WantedSearchNowModal } from '@/components/WantedSearchNowModal'
 import { WeekdaySelector } from '@/components/WeekdaySelector'
+import { shortenPath } from '@/lib/utils'
 import { FileManagerModal } from '@/components/FileManagerModal'
 import { AIRefreshModal } from '@/components/AIRefreshModal'
 import { MagazineActivitiesPanel } from '@/components/MagazineActivitiesPanel'
@@ -2219,7 +2220,7 @@ export default function MagazineDetail() {
 
       {/* Edit Modal */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800">
+        <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-zinc-100">
               {t('magazineDetail.editTitle')}
@@ -2429,13 +2430,18 @@ export default function MagazineDetail() {
                     {t('addMagazine.rootFolder')}
                   </label>
                   <Select value={editRootFolderPath} onValueChange={setEditRootFolderPath}>
-                    <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full">
-                      <SelectValue />
+                    <SelectTrigger
+                      className="bg-zinc-900 border-zinc-700 text-zinc-100 w-full min-w-0 max-w-full [&>span]:truncate"
+                      title={editRootFolderPath}
+                    >
+                      <SelectValue>
+                        {editRootFolderPath ? shortenPath(editRootFolderPath, 40) : ''}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {rootFolders.map((folder) => (
                         <SelectItem key={folder.id} value={folder.path}>
-                          {folder.path}
+                          {shortenPath(folder.path, 50)}
                         </SelectItem>
                       ))}
                     </SelectContent>
