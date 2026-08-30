@@ -361,6 +361,63 @@ async def _apply_ai_ranker(
         )
         for c in candidates
     ]
+    # Contexte magazine enrichi pour le prompt IA — permet au LLM de
+    # rejeter les off-topic (packs génériques, mauvaise date, rules
+    # violées) au lieu de piquer aveuglément un candidat par titre seul.
+    mag_context: dict[str, Any] = {"frequency": getattr(magazine, "frequency", None)}
+    if magazine.excluded_days:
+        try:
+            mag_context["excluded_days"] = [
+                int(d) for d in magazine.excluded_days.split(",") if d.strip()
+            ]
+        except ValueError:
+            pass
+    if getattr(magazine, "weekend_days", None):
+        try:
+            mag_context["weekend_days"] = [
+                int(d) for d in magazine.weekend_days.split(",") if d.strip()
+            ]
+        except ValueError:
+            pass
+    if magazine.rules:
+        incl = [r.pattern for r in magazine.rules if r.rule_type == "include"]
+        excl = [r.pattern for r in magazine.rules if r.rule_type == "exclude"]
+        if incl:
+            mag_context["include_rules"] = incl
+        if excl:
+            mag_context["exclude_rules"] = excl
+    # Formats de date attendus pour cette issue précise — mêmes formats
+    # que ceux envoyés à Prowlarr, permet à l'IA de tolérer les
+    # différentes conventions ("30 août 2026" == "30/08/2026").
+    if issue.year and issue.month:
+        try:
+            from datetime import date as _date
+            _months_fr = ["janvier","février","mars","avril","mai","juin",
+                          "juillet","août","septembre","octobre","novembre","décembre"]
+            _months_en = ["january","february","march","april","may","june",
+                          "july","august","september","october","november","december"]
+            y, m = issue.year, issue.month
+            d = issue.day
+            formats = []
+            if d:
+                formats.extend([
+                    f"{d:02d}/{m:02d}/{y}",
+                    f"{d:02d}-{m:02d}-{y}",
+                    f"{d:02d}.{m:02d}.{y}",
+                    f"{y}-{m:02d}-{d:02d}",
+                    f"{d} {_months_fr[m-1]} {y}",
+                    f"{d} {_months_en[m-1]} {y}",
+                ])
+            else:
+                formats.extend([
+                    f"{m:02d}/{y}",
+                    f"{_months_fr[m-1]} {y}",
+                    f"{_months_en[m-1]} {y}",
+                ])
+            mag_context["expected_dates"] = formats
+        except (IndexError, ValueError):
+            pass
+
     svc = AIRankerService(config, session_factory)
     result = await svc.rank(
         candidates=ranker_candidates,
@@ -369,6 +426,7 @@ async def _apply_ai_ranker(
         magazine_title_hint=magazine.title,
         issue_hint=_issue_label(issue),
         issue_id=issue.id,
+        magazine_context=mag_context,
     )
 
     per_candidate: dict[int, dict] = {}
@@ -461,14 +519,22 @@ def _candidate_matches_issue(
                 return False
         return True
 
-    # Aucune info parsée → bénéfice du doute
+    # Aucune info parsée. Bénéfice du doute UNIQUEMENT si l'issue
+    # cible est floue (pas de date précise ET pas de numéro). Sur une
+    # daily comme Le Monde avec issue précise 30/08/2026, un candidat
+    # sans aucune info parsée (ex: "6000 Romans Ebook Pack") ne peut
+    # pas être vérifié → drop pour ne pas polluer le ranker.
     if (
         cand.parsed_year is None
         and cand.parsed_month is None
         and cand.parsed_day is None
         and cand.parsed_number is None
     ):
-        return True
+        issue_has_precise = (
+            issue.number is not None
+            or (issue.year and issue.month and issue.day)
+        )
+        return not issue_has_precise
 
     # Il y a de l'info parsée mais elle ne matche pas → drop
     return False

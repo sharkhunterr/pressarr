@@ -115,6 +115,7 @@ class AIRankerService:
         issue_hint: str | None,
         progress_cb: ProgressCb | None = None,
         issue_id: int | None = None,
+        magazine_context: dict[str, Any] | None = None,
     ) -> RankerResult:
         """Rank the candidates.
 
@@ -234,6 +235,7 @@ class AIRankerService:
                 magazine_title_hint=magazine_title_hint,
                 issue_hint=issue_hint,
                 batch_index=bi,
+                magazine_context=magazine_context,
             )
             batches_recorded.append(step)
             if out is None:
@@ -296,6 +298,7 @@ class AIRankerService:
                 issue_hint=issue_hint,
                 batch_index=99,
                 is_final=True,
+                magazine_context=magazine_context,
             )
             batches_recorded.append(step)
             if (
@@ -415,10 +418,10 @@ class AIRankerService:
         issue_hint: str | None,
         batch_index: int,
         is_final: bool = False,
+        magazine_context: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         cfg = self._config
         t0 = time.monotonic()
-        # LLM sees title + publish_date only (per user requirement).
         cand_lines = "\n".join(
             f"  [{i}] title={c.title!r} publish_date={c.publish_date!r}"
             for i, c in enumerate(batch)
@@ -429,6 +432,43 @@ class AIRankerService:
             hint += f"\nMagazine attendu : {magazine_title_hint}"
         if issue_hint:
             hint += f"\nNuméro attendu : {issue_hint}"
+
+        # Contexte magazine enrichi : fréquence, jours exclus/weekend,
+        # rules include/exclude, formats de date attendus. Sans ça
+        # l'IA voit juste "Le Monde 30/08/2026" et pique un release
+        # aléatoire qui contient "Le Monde" et un chiffre. Le context
+        # complet lui permet de rejeter les off-topic (packs génériques,
+        # numéros d'une autre date, dates hors du weekend combiné, etc.).
+        if magazine_context:
+            ctx = magazine_context
+            if ctx.get("frequency"):
+                hint += f"\nFréquence : {ctx['frequency']}"
+            if ctx.get("excluded_days"):
+                _wd = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+                names = [_wd[d] for d in ctx["excluded_days"] if 0 <= d < 7]
+                hint += f"\nJours EXCLUS (pas d'édition) : {', '.join(names)}"
+            if ctx.get("weekend_days"):
+                _wd = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+                names = [_wd[d] for d in ctx["weekend_days"] if 0 <= d < 7]
+                hint += (
+                    f"\nÉdition WEEKEND combinée (une seule issue pour ces "
+                    f"jours consécutifs) : {', '.join(names)}"
+                )
+            if ctx.get("expected_dates"):
+                hint += (
+                    f"\nFormats de date ACCEPTABLES pour cette issue : "
+                    + " · ".join(ctx["expected_dates"])
+                )
+            if ctx.get("include_rules"):
+                hint += (
+                    f"\nRules INCLUDE (le titre doit contenir au moins un) : "
+                    + " · ".join(ctx["include_rules"])
+                )
+            if ctx.get("exclude_rules"):
+                hint += (
+                    f"\nRules EXCLUDE (rejeter si le titre matche) : "
+                    + " · ".join(ctx["exclude_rules"])
+                )
 
         prompt = (
             f"{cfg.ai_ranker_prompt}\n\n---\n{header}{hint}\n"
