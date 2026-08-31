@@ -37,6 +37,7 @@ import {
   deleteMagazine,
   refreshMetadata,
   searchWantedMagazine,
+  resyncMagazineIssues,
   addMagazinePattern,
   updateMagazinePattern,
   deleteMagazinePattern,
@@ -899,6 +900,31 @@ export default function MagazineDetail() {
     }
   }
 
+  const [resyncingIssues, setResyncingIssues] = useState(false)
+  async function handleResyncIssues() {
+    if (!confirm(
+      'Régulariser la liste des issues ?\n\n'
+      + 'Supprime toutes les issues wanted / upcoming / delayed SANS '
+      + 'fichier, puis regénère backlog + forecasts selon la config '
+      + 'actuelle (weekend_days, excluded_days).\n\n'
+      + 'Préserve les issues available, imported et snatched.',
+    )) return
+    setResyncingIssues(true)
+    const tid = toast.loading('Régularisation en cours…')
+    try {
+      const res = await resyncMagazineIssues(magazineId)
+      toast.success(
+        `${res.deleted} supprimée(s), ${res.backlogCreated + res.forecastsCreated} régénérée(s)`,
+        { id: tid, duration: 6000 },
+      )
+      invalidateIssues()
+    } catch (e) {
+      toast.error(`Échec : ${(e as Error).message}`, { id: tid })
+    } finally {
+      setResyncingIssues(false)
+    }
+  }
+
   const [searchingWanted, setSearchingWanted] = useState(false)
   async function handleSearchWanted() {
     setSearchingWanted(true)
@@ -1279,6 +1305,20 @@ export default function MagazineDetail() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleResyncIssues}
+                  disabled={resyncingIssues}
+                  title="Purge les issues wanted/upcoming sans fichier et regénère avec la config actuelle (weekend_days, excluded_days). Préserve les available / imported."
+                >
+                  {resyncingIssues ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3.5" />
+                  )}
+                  Régulariser
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setDeleteFiles(false)
                     setDeleteOpen(true)
@@ -1344,6 +1384,20 @@ export default function MagazineDetail() {
               >
                 <Sparkles className="size-3.5 text-purple-400" />
                 Refresh IA…
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResyncIssues}
+                disabled={resyncingIssues}
+                title="Purge les issues wanted/upcoming sans fichier et regénère avec la config actuelle"
+              >
+                {resyncingIssues ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+                Régulariser
               </Button>
               <Button
                 variant="outline"

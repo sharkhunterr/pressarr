@@ -476,6 +476,82 @@ async def refresh_magazine(
     return command
 
 
+@router.post("/{magazine_id}/resync-issues", status_code=200)
+async def resync_issues(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Régularise les issues d'un magazine selon sa config actuelle.
+
+    Supprime toutes les issues non-actionnées (wanted / upcoming /
+    delayed / skipped) qui ne portent PAS de fichier, puis re-génère
+    le backlog + les forecasts avec la config actuelle (weekend_days,
+    excluded_days, frequency).
+
+    À utiliser quand :
+      - `weekend_days` a été modifié (des issues doublons persistent)
+      - `frequency` a changé
+      - `monitoring_start_date` a été reculée
+      - Bug antérieur a laissé des doublons dans la timeline
+
+    Préserve TOUJOURS :
+      - Issues avec statut `available` / `imported` (fichier présent)
+      - Issues `snatched` (téléchargement en cours)
+      - Issues portant un `issue_file` (jamais supprimées)
+    """
+    from sqlalchemy import select
+
+    from app.models.issue import Issue
+    from app.models.issue_file import IssueFile
+    from app.services.calendar_service import (
+        generate_backlog_wanted,
+        generate_forecasts,
+    )
+
+    magazine = await magazine_service.get_magazine(db, magazine_id)
+    if magazine is None:
+        raise HTTPException(404, "Magazine not found")
+
+    # Sélectionne les issues purgeables : statut non-terminal + pas de fichier
+    purgeable_res = await db.execute(
+        select(Issue.id).where(
+            Issue.magazine_id == magazine_id,
+            Issue.status.in_(["wanted", "upcoming", "delayed", "skipped"]),
+        )
+    )
+    purgeable_ids = [row[0] for row in purgeable_res.all()]
+
+    # Filtre : garde celles qui ont un fichier (safety net absolu)
+    if purgeable_ids:
+        with_file_res = await db.execute(
+            select(IssueFile.issue_id).where(
+                IssueFile.issue_id.in_(purgeable_ids),
+            )
+        )
+        has_file = {row[0] for row in with_file_res.all()}
+        purgeable_ids = [i for i in purgeable_ids if i not in has_file]
+
+    # Supprime
+    deleted = 0
+    if purgeable_ids:
+        del_res = await db.execute(
+            Issue.__table__.delete().where(Issue.id.in_(purgeable_ids))
+        )
+        deleted = del_res.rowcount or 0
+    await db.flush()
+
+    # Regénère backlog puis forecasts avec la config actuelle
+    backlog = await generate_backlog_wanted(db, magazine)
+    forecasts = await generate_forecasts(db, magazine)
+    await db.commit()
+
+    return {
+        "deleted": deleted,
+        "backlog_created": len(backlog),
+        "forecasts_created": len(forecasts),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Pattern management
 # ---------------------------------------------------------------------------

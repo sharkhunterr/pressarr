@@ -134,6 +134,17 @@ export const searchWantedMagazine = (id: number) =>
     { method: 'POST' },
   )
 
+/** Purge les issues wanted/upcoming/delayed sans fichier et régénère
+ *  le backlog + les forecasts selon la config actuelle du magazine.
+ *  Utile après un changement de weekend_days / excluded_days pour
+ *  supprimer les doublons résiduels. Préserve les issues available/
+ *  imported/snatched. */
+export const resyncMagazineIssues = (id: number) =>
+  apiFetch<{ deleted: number; backlogCreated: number; forecastsCreated: number }>(
+    `/magazine/${id}/resync-issues`,
+    { method: 'POST' },
+  )
+
 export interface RenamePreview {
   old_path: string
   new_path: string
