@@ -86,6 +86,7 @@ class MagazineResource(CamelModel):
     weekend_days: list[int] | None = None
     sort_by_recent_date: bool = True
     min_title_match_override: float | None = None
+    auto_grab_threshold_override: float | None = None
 
     @field_validator("weekend_days", mode="before")
     @classmethod
@@ -139,6 +140,7 @@ class MagazineCreateResource(CamelModel):
     weekend_days: list[int] | None = None
     sort_by_recent_date: bool = True
     min_title_match_override: float | None = None
+    auto_grab_threshold_override: float | None = None
     search_for_missing_issues: bool = True
     # ISSN-first cascade enrichment — allseerr's dispatcher forwards
     # what its search already resolved so pressarr persists the
@@ -173,6 +175,7 @@ class MagazineUpdateResource(CamelModel):
     weekend_days: list[int] | None = None
     sort_by_recent_date: bool | None = None
     min_title_match_override: float | None = None
+    auto_grab_threshold_override: float | None = None
 
 
 class SourceInfo(CamelModel):

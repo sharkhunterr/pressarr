@@ -150,6 +150,13 @@ class Magazine(Base):
     min_title_match_override: Mapped[float | None] = mapped_column(
         Float, nullable=True, default=None
     )
+    # Override per-mag du seuil composite auto-grab (0-100). NULL = suit
+    # le défaut global wanted_search_auto_grab_threshold. Utile pour un
+    # magazine facile à retrouver (baisse à 65) ou au contraire un mag
+    # à titre générique où on veut être prudent (monte à 85).
+    auto_grab_threshold_override: Mapped[float | None] = mapped_column(
+        Float, nullable=True, default=None
+    )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")

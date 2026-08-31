@@ -171,6 +171,7 @@ export default function MagazineDetail() {
   const [editWeekendDays, setEditWeekendDays] = useState<number[]>([])
   const [editSortByRecent, setEditSortByRecent] = useState(true)
   const [editMinTitleOverride, setEditMinTitleOverride] = useState<string>('')
+  const [editAutoGrabThresholdOverride, setEditAutoGrabThresholdOverride] = useState<string>('')
   const [editQualityProfileId, setEditQualityProfileId] = useState('')
   const [editRootFolderPath, setEditRootFolderPath] = useState('')
   const [editFrequency, setEditFrequency] = useState('monthly')
@@ -826,6 +827,11 @@ export default function MagazineDetail() {
         ? String(magazine.minTitleMatchOverride)
         : ''
     )
+    setEditAutoGrabThresholdOverride(
+      magazine.autoGrabThresholdOverride != null
+        ? String(magazine.autoGrabThresholdOverride)
+        : ''
+    )
     setEditOpen(true)
   }
 
@@ -850,6 +856,9 @@ export default function MagazineDetail() {
       sortByRecentDate: editSortByRecent,
       minTitleMatchOverride: editMinTitleOverride.trim()
         ? Number(editMinTitleOverride)
+        : null,
+      autoGrabThresholdOverride: editAutoGrabThresholdOverride.trim()
+        ? Number(editAutoGrabThresholdOverride)
         : null,
       ...(editCoverIssueId != null ? { coverIssueId: editCoverIssueId } : {}),
     })
@@ -2425,6 +2434,50 @@ export default function MagazineDetail() {
                         <button
                           type="button"
                           onClick={() => setEditMinTitleOverride('')}
+                          className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
+                        >
+                          Reset auto
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <div className="flex items-baseline justify-between">
+                      <label className="text-sm font-medium text-zinc-300">
+                        Seuil auto-grab
+                      </label>
+                      <span className="text-xs font-mono text-zinc-400 tabular-nums">
+                        {editAutoGrabThresholdOverride === ''
+                          ? 'Auto (défaut global)'
+                          : `${editAutoGrabThresholdOverride} %`}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={editAutoGrabThresholdOverride === '' ? 78 : Number(editAutoGrabThresholdOverride)}
+                      onChange={(e) => setEditAutoGrabThresholdOverride(e.target.value)}
+                      className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
+                      <span>Permissif (0)</span>
+                      <span>Strict (100)</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-zinc-500 flex-1 pr-2">
+                        Score composite (Python + IA) minimum pour
+                        déclencher l'auto-grab. Override du seuil global
+                        défini dans Settings › IA. Baisse (65) pour un
+                        magazine facile à retrouver, monte (85+) pour
+                        un mag à titre ambigu qui doit rester prudent.
+                      </p>
+                      {editAutoGrabThresholdOverride !== '' && (
+                        <button
+                          type="button"
+                          onClick={() => setEditAutoGrabThresholdOverride('')}
                           className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
                         >
                           Reset auto

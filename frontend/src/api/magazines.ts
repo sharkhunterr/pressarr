@@ -66,6 +66,9 @@ export interface Magazine {
   /** Override per-magazine du plancher fuzzy titre (0-100). Null =
    *  suit le défaut global wanted_search_min_title_match (80%). */
   minTitleMatchOverride: number | null
+  /** Override per-magazine du seuil composite auto-grab (0-100).
+   *  Null = suit le défaut global wanted_search_auto_grab_threshold. */
+  autoGrabThresholdOverride: number | null
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {

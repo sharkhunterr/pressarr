@@ -241,6 +241,8 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "sort_by_recent_date", "BOOLEAN NOT NULL DEFAULT 1"),
         # Override per-mag du plancher fuzzy titre (NULL = suit global).
         ("magazine", "min_title_match_override", "REAL"),
+        # Override per-mag du seuil composite auto-grab (NULL = global).
+        ("magazine", "auto_grab_threshold_override", "REAL"),
     ]
     for table, column, col_type in migrations:
         try:

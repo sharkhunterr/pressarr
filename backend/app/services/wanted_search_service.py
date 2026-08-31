@@ -912,13 +912,20 @@ async def run_wanted_search(
         winner_guid=winner.guid if winner else None,
         winner_title=winner.title if winner else None,
         winner_confidence=winner.final_score if winner else None,
-        auto_grab_threshold=float(
-            getattr(config, "wanted_search_auto_grab_threshold", 78.0),
+        auto_grab_threshold=(
+            # Override per-mag prioritaire, sinon défaut global.
+            float(getattr(magazine, "auto_grab_threshold_override", None))
+            if getattr(magazine, "auto_grab_threshold_override", None) is not None
+            else float(getattr(config, "wanted_search_auto_grab_threshold", 78.0))
         ),
         auto_grab_eligible=(
             winner is not None
             and winner.final_score
-            >= float(getattr(config, "wanted_search_auto_grab_threshold", 78.0))
+            >= (
+                float(getattr(magazine, "auto_grab_threshold_override", None))
+                if getattr(magazine, "auto_grab_threshold_override", None) is not None
+                else float(getattr(config, "wanted_search_auto_grab_threshold", 78.0))
+            )
         ),
         candidates=candidates,
     )
