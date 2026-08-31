@@ -7,6 +7,34 @@ from pathlib import Path
 import yaml
 
 
+# Prompt par défaut vision — module-level pour être réutilisable dans
+# la migration au load (remplace l'ancien prompt user avec exemple).
+_DEFAULT_VISION_PROMPT: str = (
+    "Tu es un OCR. Transcris MOT POUR MOT tout le texte "
+    "lisible sur l'image. Rien d'autre.\n\n"
+    "### Règles strictes\n"
+    "1. Lis l'image ligne par ligne, de haut en bas.\n"
+    "2. Transcris chaque ligne visible, y compris les petits "
+    "caractères (dates, numéros, prix, mentions légales).\n"
+    "3. N'invente RIEN. Si tu ne vois pas un caractère "
+    "clairement, ne le devine pas — laisse un espace.\n"
+    "4. Si l'image ne contient AUCUN texte lisible (floue, "
+    "photo sans texte, illisible), réponds avec raw_text "
+    "vide (\"\").\n"
+    "5. INTERDIT : les balises HTML/XML (<...>), les "
+    "placeholders (<TITRE>, <MAGAZINE>…), les caractères "
+    "de la zone Unicode « Private Use Area ». N'écris QUE "
+    "des caractères latins standard + accents FR + "
+    "chiffres + ponctuation courante + € $ £ ¥.\n\n"
+    "### Format JSON strict\n"
+    "{\"title\": str|null, \"raw_text\": str}\n\n"
+    "- title : le nom du magazine si visible en gros dans "
+    "l'image (masthead), sinon null. JAMAIS un placeholder.\n"
+    "- raw_text : tout le texte lu, lignes séparées par \\n. "
+    "Chaîne vide si rien de lisible."
+)
+
+
 class Config:
     """Configuration loaded from YAML with PRESSARR__* env overrides."""
 
@@ -196,30 +224,7 @@ class Config:
             "Hors-Série, Spécial, Numéro spécial). `series_number` = "
             "numéro de la série si HS numéroté."
         )
-        self.ai_vision_prompt: str = (
-            "Tu es un OCR. Transcris MOT POUR MOT tout le texte "
-            "lisible sur l'image. Rien d'autre.\n\n"
-            "### Règles strictes\n"
-            "1. Lis l'image ligne par ligne, de haut en bas.\n"
-            "2. Transcris chaque ligne visible, y compris les petits "
-            "caractères (dates, numéros, prix, mentions légales).\n"
-            "3. N'invente RIEN. Si tu ne vois pas un caractère "
-            "clairement, ne le devine pas — laisse un espace.\n"
-            "4. Si l'image ne contient AUCUN texte lisible (floue, "
-            "photo sans texte, illisible), réponds avec raw_text "
-            "vide (\"\").\n"
-            "5. INTERDIT : les balises HTML/XML (<...>), les "
-            "placeholders (<TITRE>, <MAGAZINE>…), les caractères "
-            "de la zone Unicode « Private Use Area ». N'écris QUE "
-            "des caractères latins standard + accents FR + "
-            "chiffres + ponctuation courante + € $ £ ¥.\n\n"
-            "### Format JSON strict\n"
-            "{\"title\": str|null, \"raw_text\": str}\n\n"
-            "- title : le nom du magazine si visible en gros dans "
-            "l'image (masthead), sinon null. JAMAIS un placeholder.\n"
-            "- raw_text : tout le texte lu, lignes séparées par \\n. "
-            "Chaîne vide si rien de lisible."
-        )
+        self.ai_vision_prompt: str = _DEFAULT_VISION_PROMPT
         self.ai_arbiter_prompt: str = (
             "Tu reçois deux extractions de métadonnées pour le même "
             "magazine : l'une venant du nom du fichier torrent (source "
@@ -449,6 +454,22 @@ class Config:
         self.ai_arbiter_model = enr.get("arbiter_model", self.ai_arbiter_model)
         self.ai_text_prompt = enr.get("text_prompt", self.ai_text_prompt)
         self.ai_vision_prompt = enr.get("vision_prompt", self.ai_vision_prompt)
+        # Migration : l'ancien prompt vision contenait une section
+        # « Exemple générique de FORMAT » avec des placeholders
+        # <TITRE>/<SOUS-TITRE>/<MAGAZINE> que minicpm-v ET granite
+        # recopient littéralement dans leur sortie. Le prompt par
+        # défaut a été purgé mais la config du user peut encore
+        # contenir l'ancien. On détecte via des marqueurs UNIQUES
+        # à l'ancien exemple (pas juste "<TITRE>" qui apparaît aussi
+        # dans le nouveau prompt sous forme d'interdiction).
+        old_markers = (
+            "à NE PAS recopier",
+            "Exemple générique de FORMAT",
+            "à NE PAS recopier",
+            "sous aucun prétexte",
+        )
+        if any(m in (self.ai_vision_prompt or "") for m in old_markers):
+            self.ai_vision_prompt = _DEFAULT_VISION_PROMPT
         self.ai_arbiter_prompt = enr.get("arbiter_prompt", self.ai_arbiter_prompt)
         rnk = ai.get("ranker", {})
         self.ai_ranker_enabled = rnk.get("enabled", self.ai_ranker_enabled)

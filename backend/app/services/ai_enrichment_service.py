@@ -2116,15 +2116,19 @@ class AIEnrichmentService:
                     k: v for k, v in (final or {}).items()
                     if v is not None and v != "" and v != []
                 }
+                # IMPORTANT : garder tous les champs pipeline utiles au
+                # rendu History (ZoneCard). Le whitelist précédent
+                # droppait zone/tag/crop_file/custom_tag/garbage_dropped/
+                # leak_dropped/engine → l'UI ne pouvait ni grouper les
+                # steps par zone ni afficher les tags/images.
+                _KEEP_STEP_FIELDS = (
+                    "step", "model", "page", "zone", "tag", "custom_tag",
+                    "engine", "crop_file", "input", "params", "output",
+                    "error", "elapsed_ms",
+                    "garbage_dropped", "leak_dropped",
+                )
                 step_summary = [
-                    {
-                        "step": s.get("step"),
-                        "model": s.get("model"),
-                        "page": s.get("page"),
-                        "error": s.get("error"),
-                        "output": s.get("output"),
-                        "elapsed_ms": s.get("elapsed_ms"),
-                    }
+                    {k: s.get(k) for k in _KEEP_STEP_FIELDS if k in s}
                     for s in (steps or [])
                 ]
                 await create_event(
