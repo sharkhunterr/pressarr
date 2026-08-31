@@ -768,20 +768,31 @@ export function AICropSelectorModal({
                     />
                     {imgLoaded && zones.map((z, idx) => {
                       const selected = idx === selectedIdx
+                      // Utilise `box-shadow: inset` au lieu de `border-2`
+                      // pour dessiner le trait À L'INTÉRIEUR du rectangle.
+                      // Comme ça la zone visible entourée = exactement
+                      // la zone qui sera envoyée à l'OCR (avec `border-2`,
+                      // le trait débordait de 2 px et l'user pensait à
+                      // tort que seul l'intérieur du trait était cropé).
+                      // Contre-scale l'épaisseur avec le zoom pour rester
+                      // à 2 px CSS visibles quelle que soit la vue.
+                      const strokePx = 2 / zoom
+                      const color = selected ? '167,139,250' : '52,211,153'
                       return (
                         <div
                           key={idx}
                           className={
-                            'absolute border-2 pointer-events-none ' +
+                            'absolute pointer-events-none ' +
                             (selected
-                              ? 'border-purple-400 bg-purple-500/25'
-                              : 'border-emerald-400/70 bg-emerald-500/15')
+                              ? 'bg-purple-500/25'
+                              : 'bg-emerald-500/15')
                           }
                           style={{
                             left: `${z.x * 100}%`,
                             top: `${z.y * 100}%`,
                             width: `${z.w * 100}%`,
                             height: `${z.h * 100}%`,
+                            boxShadow: `inset 0 0 0 ${strokePx}px rgba(${color},${selected ? 1 : 0.7})`,
                           }}
                         >
                           <div
