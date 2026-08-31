@@ -171,7 +171,7 @@ export default function MagazineDetail() {
   const [editWantedSearchEnabled, setEditWantedSearchEnabled] = useState(true)
   const [editWeekendDays, setEditWeekendDays] = useState<number[]>([])
   const [editIssueGroups, setEditIssueGroups] = useState<
-    { days: number[]; label: string | null }[]
+    { days: number[]; type: 'regular' | 'weekend' | 'special'; label: string | null }[]
   >([])
   const [editSortByRecent, setEditSortByRecent] = useState(true)
   const [editMinTitleOverride, setEditMinTitleOverride] = useState<string>('')
@@ -832,10 +832,12 @@ export default function MagazineDetail() {
       magazine.issueGroups && magazine.issueGroups.length > 0
         ? magazine.issueGroups.map((g) => ({
             days: [...g.days],
+            type: (g.type ?? 'regular') as 'regular' | 'weekend' | 'special',
             label: g.label ?? null,
           }))
         : magazine.weekendDays && magazine.weekendDays.length > 0
-          ? [{ days: [...magazine.weekendDays], label: null }]
+          // Migration soft : ancien weekend_days → 1 groupe type "weekend"
+          ? [{ days: [...magazine.weekendDays], type: 'weekend' as const, label: null }]
           : []
     )
     setEditSortByRecent(magazine.sortByRecentDate ?? true)
@@ -1635,6 +1637,7 @@ export default function MagazineDetail() {
                         deduced={deductions.get(issue.id)}
                         numberIncoherence={numberIncoherences.get(issue.id)}
                         weekendDays={magazine?.weekendDays ?? undefined}
+                        issueGroups={magazine?.issueGroups ?? undefined}
                         onSelect={handleSelect}
                         onToggleMonitor={(issueId, monitored) =>
                           monitorMutation.mutate({ issueId, monitored })

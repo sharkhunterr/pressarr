@@ -48,8 +48,15 @@ interface IssueRowProps {
   /** Weekdays (0=Lun..6=Dim) qui se regroupent en 1 issue weekend.
    *  Passé du magazine pour calculer le range de dates couvert par
    *  cette issue (ex Le Monde Sam+Dim+Lun → issue affichée
-   *  "Sam 15 → Lun 17/08"). */
+   *  "Sam 15 → Lun 17/08"). Utilisé en fallback si issueGroups vide. */
   weekendDays?: number[]
+  /** Groupes structurés multi-jours du magazine (source de vérité
+   *  pour typer les issues). Si absent, fallback sur weekendDays. */
+  issueGroups?: {
+    days: number[]
+    type: 'regular' | 'weekend' | 'special'
+    label: string | null
+  }[]
   onSelect: (id: number, checked: boolean) => void
   onToggleMonitor: (id: number, monitored: boolean) => void
   onEdit: (issue: Issue) => void
@@ -74,6 +81,7 @@ export function IssueRow({
   deduced,
   numberIncoherence,
   weekendDays,
+  issueGroups,
   onSelect,
   onToggleMonitor,
   onEdit,
@@ -118,34 +126,54 @@ export function IssueRow({
 
   const isDateDeduced = !hasRealDate && deduced?.deducedYear != null
 
-  // Détection issue weekend combinée : reconstitue toutes les dates
-  // couvertes par le groupe (weekdays consécutifs dans weekend_days).
-  // Ex Le Monde weekend_days=[5,6,0], issue publiée Lun 17/08 →
-  // dates = [Sam 15/08, Dim 16/08, Lun 17/08]. Peut faire 2, 3, ou
-  // plus de jours selon la config du magazine.
+  // Détection groupe multi-jours : reconstitue toutes les dates
+  // couvertes par le groupe (weekdays consécutifs dans le MÊME groupe).
+  // Priorité : issueGroups (nouveau, typé) → weekendDays (legacy, 1 groupe).
+  //
+  // Ex Le Monde issueGroups=[{days:[6,0], type:"regular"}, {days:[5],
+  // type:"weekend"}], issue publiée Lun 17/08 → group=[dim,lun] →
+  // dates couvertes = [Dim 16/08, Lun 17/08]. Une issue Sam 15/08 →
+  // group=[sam] → 1 seul jour, pas de coalescing multi-date.
   const jsToIsoWd = (d: Date) => (d.getDay() === 0 ? 6 : d.getDay() - 1)
-  let weekendDates: Date[] | null = null
-  if (weekendDays && weekendDays.length > 0 && issue.year && issue.month && issue.day) {
+
+  // Group résolu pour cette issue (typé + jours). Sinon null.
+  let matchedGroup: {
+    days: number[]
+    type: 'regular' | 'weekend' | 'special'
+    label: string | null
+  } | null = null
+  const effectiveGroups = issueGroups && issueGroups.length > 0
+    ? issueGroups
+    : (weekendDays && weekendDays.length > 0
+        ? [{ days: weekendDays, type: 'weekend' as const, label: null }]
+        : [])
+  if (effectiveGroups.length > 0 && issue.year && issue.month && issue.day) {
     const to = new Date(issue.year, issue.month - 1, issue.day)
-    if (weekendDays.includes(jsToIsoWd(to))) {
-      const collected: Date[] = [to]
-      let cur = new Date(to)
-      // Recule tant que la veille est dans weekend_days et qu'on
-      // reste dans la même semaine glissante (< 7 jours du dernier).
-      while (true) {
-        const prev = new Date(cur)
-        prev.setDate(prev.getDate() - 1)
-        if (
-          weekendDays.includes(jsToIsoWd(prev)) &&
-          (to.getTime() - prev.getTime()) < 7 * 24 * 3600 * 1000
-        ) {
-          collected.unshift(prev)
-          cur = prev
-        } else break
-      }
-      if (collected.length >= 2) weekendDates = collected
-    }
+    const wd = jsToIsoWd(to)
+    matchedGroup = effectiveGroups.find((g) => g.days.includes(wd)) ?? null
   }
+
+  let coalescedDates: Date[] | null = null
+  if (matchedGroup && issue.year && issue.month && issue.day) {
+    const to = new Date(issue.year, issue.month - 1, issue.day)
+    const groupDays = matchedGroup.days
+    const collected: Date[] = [to]
+    let cur = new Date(to)
+    while (true) {
+      const prev = new Date(cur)
+      prev.setDate(prev.getDate() - 1)
+      if (
+        groupDays.includes(jsToIsoWd(prev)) &&
+        to.getTime() - prev.getTime() < 7 * 24 * 3600 * 1000
+      ) {
+        collected.unshift(prev)
+        cur = prev
+      } else break
+    }
+    if (collected.length >= 2) coalescedDates = collected
+  }
+  // Alias pour compat des consommateurs existants (weekendDates)
+  const weekendDates = coalescedDates
 
   const WEEKDAY_LABELS_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
   const formatDayLine = (d: Date) => {
@@ -153,12 +181,45 @@ export function IssueRow({
     return `${wd} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
   }
 
-  // Type d'issue : HS (hors-série), weekend (édition combinée), régulier.
-  const issueTypeLabel = issue.isSpecial
-    ? { label: 'HS', cls: 'bg-amber-500/15 text-amber-200 border-amber-500/30', title: 'Hors-série' }
-    : weekendDates
-      ? { label: `Weekend (${weekendDates.length}j)`, cls: 'bg-purple-500/15 text-purple-200 border-purple-500/30', title: 'Édition weekend combinée' }
-      : { label: 'Régulier', cls: 'bg-zinc-800 text-zinc-400 border-zinc-700', title: 'Édition régulière' }
+  // Type d'issue : HS (hors-série) prioritaire, sinon type du groupe
+  // matché (regular / weekend / special), sinon "Régulier" par défaut.
+  const _typeMetaFallback: Record<string, { cls: string; typeLabel: string }> = {
+    regular: { cls: 'bg-zinc-800 text-zinc-300 border-zinc-700', typeLabel: 'Régulier' },
+    weekend: { cls: 'bg-purple-500/15 text-purple-200 border-purple-500/30', typeLabel: 'Weekend' },
+    special: { cls: 'bg-amber-500/15 text-amber-200 border-amber-500/30', typeLabel: 'Spécial' },
+  }
+  let issueTypeLabel: { label: string; cls: string; title: string }
+  if (issue.isSpecial) {
+    issueTypeLabel = {
+      label: 'HS',
+      cls: 'bg-amber-500/15 text-amber-200 border-amber-500/30',
+      title: 'Hors-série',
+    }
+  } else if (matchedGroup) {
+    const meta = _typeMetaFallback[matchedGroup.type] ?? _typeMetaFallback.regular
+    const nDays = coalescedDates?.length ?? 1
+    // Label custom (« WEEK-END », etc.) si défini, sinon type auto + nb jours.
+    const shown = matchedGroup.label
+      ? nDays > 1
+        ? `${matchedGroup.label} (${nDays}j)`
+        : matchedGroup.label
+      : nDays > 1
+        ? `${meta.typeLabel} (${nDays}j)`
+        : meta.typeLabel
+    issueTypeLabel = {
+      label: shown,
+      cls: meta.cls,
+      title: nDays > 1
+        ? `Édition combinée (${nDays} jours)`
+        : `Édition ${meta.typeLabel.toLowerCase()}`,
+    }
+  } else {
+    issueTypeLabel = {
+      label: 'Régulier',
+      cls: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+      title: 'Édition régulière',
+    }
+  }
 
   // Queue progress
   const isInQueue = !!queueItem

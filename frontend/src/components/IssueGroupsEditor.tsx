@@ -24,10 +24,42 @@ import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
+export type IssueGroupType = 'regular' | 'weekend' | 'special'
+
 export interface IssueGroup {
   days: number[]
+  /** Type structuré : détermine le rendu (badge couleur) dans les rows.
+   *  - regular : combinaison classique (ex: dim+lun réunis), badge neutre
+   *  - weekend : édition weekend, badge violet
+   *  - special : édition spéciale liée à un jour, badge ambre */
+  type: IssueGroupType
+  /** Label affiché à la place du type dans le badge, si défini.
+   *  Ex: « WEEK-END » (label custom uppercase) sinon fallback sur type. */
   label?: string | null
 }
+
+const TYPE_META: Record<
+  IssueGroupType,
+  { label: string; cls: string; badgeCls: string }
+> = {
+  regular: {
+    label: 'Régulier',
+    cls: 'bg-zinc-900 border-zinc-700 text-zinc-300',
+    badgeCls: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  },
+  weekend: {
+    label: 'Weekend',
+    cls: 'bg-purple-900/50 border-purple-600 text-purple-200',
+    badgeCls: 'bg-purple-500/15 text-purple-200 border-purple-500/30',
+  },
+  special: {
+    label: 'Spécial',
+    cls: 'bg-amber-900/50 border-amber-600 text-amber-200',
+    badgeCls: 'bg-amber-500/15 text-amber-200 border-amber-500/30',
+  },
+}
+
+const TYPES: IssueGroupType[] = ['regular', 'weekend', 'special']
 
 interface Props {
   groups: IssueGroup[]
@@ -47,15 +79,6 @@ const DAYS: [number, string][] = [
 
 // Palette de 6 couleurs distinctes pour visualiser les groupes.
 // Cycle si l'user crée > 6 groupes (peu probable en pratique).
-const GROUP_COLORS = [
-  'bg-purple-900/50 border-purple-600 text-purple-200',
-  'bg-amber-900/50 border-amber-600 text-amber-200',
-  'bg-emerald-900/50 border-emerald-600 text-emerald-200',
-  'bg-cyan-900/50 border-cyan-600 text-cyan-200',
-  'bg-pink-900/50 border-pink-600 text-pink-200',
-  'bg-blue-900/50 border-blue-600 text-blue-200',
-]
-
 export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
   const { t } = useTranslation()
 
@@ -87,12 +110,17 @@ export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
     onChange(next)
   }
 
+  const setType = (groupIdx: number, type: IssueGroupType) => {
+    const next = groups.map((g, i) => (i === groupIdx ? { ...g, type } : g))
+    onChange(next)
+  }
+
   const removeGroup = (groupIdx: number) => {
     onChange(groups.filter((_, i) => i !== groupIdx))
   }
 
   const addGroup = () => {
-    onChange([...groups, { days: [], label: null }])
+    onChange([...groups, { days: [], type: 'regular', label: null }])
   }
 
   return (
@@ -104,20 +132,24 @@ export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
       )}
 
       {groups.map((group, idx) => {
-        const cls = GROUP_COLORS[idx % GROUP_COLORS.length]
+        const type = group.type ?? 'regular'
+        const meta = TYPE_META[type]
         return (
           <div
             key={idx}
             className="rounded border border-zinc-800 bg-zinc-900/40 p-3 space-y-2"
           >
+            {/* Header : badge type + label + delete */}
             <div className="flex items-center gap-2">
-              <span className={`text-[10px] px-2 py-0.5 rounded border font-mono ${cls}`}>
-                Groupe {idx + 1}
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded border font-mono ${meta.cls}`}
+              >
+                {group.label || meta.label}
               </span>
               <Input
                 value={group.label ?? ''}
                 onChange={(e) => setLabel(idx, e.target.value)}
-                placeholder="Label (optionnel — ex. « WEEK-END »)"
+                placeholder={`Label (optionnel — défaut « ${meta.label} »)`}
                 className="flex-1 h-7 text-xs bg-zinc-900 border-zinc-700 text-zinc-100"
               />
               <Button
@@ -130,13 +162,40 @@ export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
               </Button>
             </div>
 
+            {/* Type selector — chips */}
+            <div className="flex flex-wrap gap-1">
+              <span className="text-[10px] text-zinc-500 mr-1 self-center">
+                Type
+              </span>
+              {TYPES.map((tp) => {
+                const active = tp === type
+                const meta2 = TYPE_META[tp]
+                return (
+                  <button
+                    key={tp}
+                    type="button"
+                    onClick={() => setType(idx, tp)}
+                    className={
+                      'px-1.5 py-0.5 text-[10px] rounded border transition-colors ' +
+                      (active
+                        ? meta2.cls
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300')
+                    }
+                  >
+                    {meta2.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Days chips */}
             <div className="flex gap-1 flex-wrap">
               {DAYS.map(([day, key]) => {
                 const inThisGroup = group.days.includes(day)
                 const isExcluded = excluded.includes(day)
                 const inOtherGroup = !inThisGroup && findGroupOf(day) !== -1
                 const baseCls = inThisGroup
-                  ? cls
+                  ? meta.cls
                   : isExcluded
                     ? 'bg-red-900/30 border-red-800 text-red-500 line-through opacity-50 cursor-not-allowed'
                     : inOtherGroup
@@ -150,7 +209,7 @@ export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
                     disabled={isExcluded}
                     title={
                       isExcluded
-                        ? 'Jour exclu — impossible d\'ajouter à un groupe'
+                        ? "Jour exclu — impossible d'ajouter à un groupe"
                         : inOtherGroup
                           ? `Déjà dans Groupe ${findGroupOf(day) + 1} — clic pour déplacer ici`
                           : inThisGroup
@@ -165,12 +224,13 @@ export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
               })}
             </div>
 
-            {group.days.length >= 2 && (
-              <div className="text-[10px] text-zinc-500">
-                {group.days.length} jours coalescés en 1 issue émise sur
-                le dernier jour du groupe consécutif.
-              </div>
-            )}
+            <div className="text-[10px] text-zinc-500">
+              {group.days.length === 0
+                ? '⚠ Groupe vide — ajoute au moins un jour'
+                : group.days.length === 1
+                  ? '1 jour → 1 issue seule (utile pour tagger un type distinct au samedi par ex.)'
+                  : `${group.days.length} jours consécutifs coalescés en 1 issue émise sur le dernier jour`}
+            </div>
           </div>
         )
       })}
@@ -186,4 +246,12 @@ export function IssueGroupsEditor({ groups, excluded, onChange }: Props) {
       </Button>
     </div>
   )
+}
+
+/** Retourne les meta (label + classes CSS) pour un type de groupe.
+ *  Exposé pour le rendu du badge dans IssueRow — évite de dupliquer
+ *  la palette entre l'éditeur et l'affichage. */
+export function issueGroupTypeMeta(type: IssueGroupType | string | null | undefined) {
+  const t = (type ?? 'regular') as IssueGroupType
+  return TYPE_META[t] ?? TYPE_META.regular
 }

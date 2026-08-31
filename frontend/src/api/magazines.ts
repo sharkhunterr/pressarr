@@ -71,8 +71,15 @@ export interface Magazine {
   autoGrabThresholdOverride: number | null
   /** Groupes multi-jours coalescés en 1 issue chacun. Remplace
    *  conceptuellement `weekendDays` (qui reste comme fallback legacy).
-   *  Ex: `[{days:[6,0], label:"weekend"}, {days:[5], label:"WEEK-END"}]` */
-  issueGroups: { days: number[]; label: string | null }[] | null
+   *  Chaque groupe a un `type` structuré qui pilote le rendu (badge
+   *  couleur) dans les rows d'issue.
+   *  Ex: `[{days:[6,0], type:"regular"}, {days:[5], type:"weekend",
+   *        label:"WEEK-END"}]` */
+  issueGroups: {
+    days: number[]
+    type: 'regular' | 'weekend' | 'special'
+    label: string | null
+  }[] | null
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {
