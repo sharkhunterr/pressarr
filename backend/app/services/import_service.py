@@ -438,11 +438,14 @@ async def process_downloaded_file(
                 await db.execute(_sel(_Mag).where(_Mag.id == magazine_id))
             ).scalars().first()
             if _mag_row is not None:
-                from rapidfuzz import fuzz as _fz
-                content_score = float(_fz.ratio(
-                    ai_title.lower(),
-                    _mag_row.title.lower(),
-                ))
+                # Jaccard content-tokens (module `title_match`), robuste
+                # face aux titres detectés par l'IA vision qui peuvent
+                # être longs (« Le Monde des 30 et 31 Août » vs
+                # magazine « Le Monde » → 100 % au lieu de 47 %
+                # avec fuzz.ratio strict). Même scoring que le gate
+                # anti-off-topic AVANT grab dans wanted_search_service.
+                from app.services.title_match import title_match_score
+                content_score = title_match_score(ai_title, _mag_row.title)
                 mag_override = getattr(_mag_row, "min_title_match_override", None)
                 min_content = float(
                     mag_override if mag_override is not None

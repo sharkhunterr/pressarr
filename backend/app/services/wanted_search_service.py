@@ -978,130 +978,29 @@ async def run_wanted_search(
         word_gate_ok = True
         missing_words: list[str] = []
         try:
-            # ─── SCORE TITRE ROBUSTE ────────────────────────────────
-            # Ancien fuzz.ratio() strict était trop pénalisant :
-            # sur des releases longs type
-            # « Le.Monde.Du.30.&.31.08.2026.FR.[PDF]-NoTag », le parser
-            # laisse « Le Monde Du 30 & FR » dans parsed_title (Du, FR
-            # non strippés), et ratio strict de longueur ≠ donne 59 %
-            # → refusé à 70 % ALORS que c'est le bon release.
-            #
-            # Nouveau : content-word overlap avec pénalité pour mots
-            # supplémentaires du release non expliqués. Robuste face
-            # à tout parser imparfait, safe contre les off-topics.
+            # Score Jaccard content-tokens partagé avec le gate
+            # anti-contamination d'import_service (module title_match).
+            # Cf. `title_match_score` : robuste face aux titres longs
+            # (« Le Monde des 30 et 31 Août » vs « Le Monde » → 100 %).
             import re
-            _STOP = {
-                # Articles / prépositions FR/EN
-                "le","la","les","du","de","des","un","une","au","aux","d","l",
-                "the","of","and","for","in","on","at","a","an","du","au",
-                # Codes langue
-                "fr","en","de","it","es","pt","french","english","italian",
-                # Formats
-                "pdf","epub","mobi","cbr","cbz","retail","hq","hd","sd",
-                "notag","nogrp","nopack","ebook","book","complete",
-                # Marqueurs édition (numéro, volume, tome — la valeur
-                # est un chiffre stripé par le regex issue-number)
-                "vol","tome","no","num","numero","edition","issue",
-                # Mots ultra-génériques présents dans énormément de
-                # noms de magazines et donc pas discriminants
-                "magazine","magasine","journal","revue","hebdo","mensuel",
-                "weekly","monthly","daily","special","specials","hs",
-                "collector","integrale",
-                # Saisons (souvent dans les HS/spéciaux)
-                "ete","hiver","printemps","automne",
-                "summer","winter","spring","autumn","fall",
-            }
-            _MONTH = {
-                # Français long
-                "janvier","fevrier","mars","avril","mai","juin",
-                "juillet","aout","septembre","octobre","novembre","decembre",
-                # Français abbrev (sept = septembre courant)
-                "jan","fev","fevr","avr","juil","sept","oct","nov","dec",
-                # English long
-                "january","february","march","april","may","june","july",
-                "august","september","october","november","december",
-                # English abbrev
-                "feb","mar","apr","jun","jul","aug","sep",
-                # Jours FR abbrev + long
-                "lun","mar","mer","jeu","ven","sam","dim",
-                "lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche",
-                # Jours EN
-                "mon","tue","wed","thu","fri","sat","sun",
-                "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
-            }
-            def _strip_accents(s: str) -> str:
-                import unicodedata
-                return "".join(
-                    c for c in unicodedata.normalize("NFD", s)
-                    if unicodedata.category(c) != "Mn"
-                )
-            def _content_tokens(txt: str) -> set[str]:
-                """Tokens content-words : >=3 chars, non stop, non mois,
-                pas 100 % chiffres, pas issue-number pattern.
-                Accents strippés + lower + apostrophes normalisées
-                comme séparateur (« L'Équipe » → « equipe » puis même
-                token que « L.Equipe »)."""
-                out = set()
-                s = _strip_accents(txt.lower())
-                # Apostrophes typographiques + curly + points → séparateur
-                s = re.sub(r"[''`.]", " ", s)
-                # Strip patterns issue-number type N1234, N°1234, #1234,
-                # No1234, num1234, vol1234, tome1234 (chiffres accolés).
-                s = re.sub(
-                    r"\b(?:n[o°]?|num|numero|vol|tome|t|#)\s*\d+\b",
-                    " ", s,
-                )
-                for w in re.findall(r"[a-z0-9À-ÿ]+", s):
-                    if len(w) < 3:
-                        continue
-                    if w in _STOP or w in _MONTH:
-                        continue
-                    if w.isdigit():
-                        continue
-                    # Rejette tokens alphanumériques dominés par digits
-                    # (n1234, 25396, hd1080p) — bruit d'uploader.
-                    _digits = sum(1 for c in w if c.isdigit())
-                    if _digits > len(w) // 2:
-                        continue
-                    out.add(w)
-                return out
+            import unicodedata as _ud
+            from app.services.title_match import (
+                content_tokens as _content_tokens,
+                title_match_score,
+            )
 
+            title_gate_score = title_match_score(winner.title, magazine.title)
             mag_tokens = _content_tokens(magazine.title)
-            rel_tokens = _content_tokens(winner.title)
-
-            if not mag_tokens:
-                # Magazine title n'a que des stop-words / mois (bizarre).
-                # Fallback fuzzy raw.
-                from rapidfuzz import fuzz as _fz
-                title_gate_score = float(_fz.ratio(
-                    winner.title.lower(), magazine.title.lower(),
-                ))
-            else:
-                # Jaccard-style score : |common| / |union content|.
-                # Robuste face aux releases longs (dates/format/langue
-                # ne comptent pas car strippés en amont) et anti-off-topic
-                # (chaque mot substantiel du release doit être dans le
-                # magazine ou ça baisse le score).
-                #
-                # Cas types :
-                #  « Le Monde » vs « Le.Monde.Du.25.08.FR.PDF » →
-                #    common={monde}, union={monde} → 100 % ✓
-                #  « Le Monde » vs « Le.Monde.Diplomatique.FR.PDF » →
-                #    common={monde}, union={monde,diplomatique} → 50 % ✕
-                #  « Le Monde » vs « Le.Monde.du.Plein.Air.N200 » →
-                #    common={monde}, union={monde,plein,air,n200} → 25 % ✕
-                #  « L'Équipe » vs « L.Equipe.24.08 » →
-                #    common={equipe}, union={equipe} → 100 % ✓
-                common = mag_tokens & rel_tokens
-                union = mag_tokens | rel_tokens
-                title_gate_score = 100.0 * len(common) / len(union)
 
             # Word-boundary check en plus (défense en profondeur) : chaque
             # mot content du magazine doit apparaître comme mot séparé
             # dans le release RAW (case-insensitive). Bloque les cas où
             # le token content matche via substring accidentel (ex.
             # « Monde » extrait de « MondeMagazine »).
-            rel_raw = _strip_accents(winner.title.lower())
+            rel_raw = "".join(
+                c for c in _ud.normalize("NFD", winner.title.lower())
+                if _ud.category(c) != "Mn"
+            )
             missing_words = [
                 w for w in mag_tokens
                 if not re.search(rf"\b{re.escape(w)}\b", rel_raw)
