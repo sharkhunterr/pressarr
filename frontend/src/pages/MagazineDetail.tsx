@@ -885,43 +885,35 @@ export default function MagazineDetail() {
     setCoverUrl('')
   }
 
-  // Refresh
+  // Refresh — combine 2 opérations :
+  //   1. `refreshMetadata` : recharge titre/publisher/frequency depuis
+  //      Wikidata/Google Books/BnF selon la config
+  //   2. `resyncMagazineIssues` : purge les issues wanted/upcoming/delayed
+  //      SANS fichier et regénère backlog + forecasts avec la config
+  //      actuelle (weekend_days, excluded_days). Préserve toujours les
+  //      available / imported / snatched.
+  // Utile après un changement de config (weekend/excluded) : plus besoin
+  // d'un 2ᵉ bouton — l'user clique juste Refresh et tout est cohérent.
   async function handleRefresh() {
     setRefreshing(true)
+    const tid = toast.loading('Refresh en cours…')
     try {
       await refreshMetadata(magazineId)
+      const sync = await resyncMagazineIssues(magazineId)
       invalidateMagazine()
       invalidateIssues()
-      toast.success(t('magazineDetail.refreshed'))
+      const parts: string[] = []
+      if (sync.deleted > 0) parts.push(`${sync.deleted} supprimée(s)`)
+      const regen = sync.backlogCreated + sync.forecastsCreated
+      if (regen > 0) parts.push(`${regen} régénérée(s)`)
+      toast.success(
+        parts.length > 0 ? parts.join(' · ') : t('magazineDetail.refreshed'),
+        { id: tid, duration: 5000 },
+      )
     } catch {
-      toast.error(t('magazineDetail.refreshError'))
+      toast.error(t('magazineDetail.refreshError'), { id: tid })
     } finally {
       setRefreshing(false)
-    }
-  }
-
-  const [resyncingIssues, setResyncingIssues] = useState(false)
-  async function handleResyncIssues() {
-    if (!confirm(
-      'Régulariser la liste des issues ?\n\n'
-      + 'Supprime toutes les issues wanted / upcoming / delayed SANS '
-      + 'fichier, puis regénère backlog + forecasts selon la config '
-      + 'actuelle (weekend_days, excluded_days).\n\n'
-      + 'Préserve les issues available, imported et snatched.',
-    )) return
-    setResyncingIssues(true)
-    const tid = toast.loading('Régularisation en cours…')
-    try {
-      const res = await resyncMagazineIssues(magazineId)
-      toast.success(
-        `${res.deleted} supprimée(s), ${res.backlogCreated + res.forecastsCreated} régénérée(s)`,
-        { id: tid, duration: 6000 },
-      )
-      invalidateIssues()
-    } catch (e) {
-      toast.error(`Échec : ${(e as Error).message}`, { id: tid })
-    } finally {
-      setResyncingIssues(false)
     }
   }
 
@@ -1259,8 +1251,13 @@ export default function MagazineDetail() {
                   size="sm"
                   onClick={handleRefresh}
                   disabled={refreshing}
+                  title="Recharge les métadonnées (Wikidata/Google Books/BnF) ET régularise la liste des issues (purge doublons wanted, regénère selon la config actuelle — weekend_days, excluded_days). Préserve les available."
                 >
-                  <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                  {refreshing ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3.5" />
+                  )}
                   {t('magazineDetail.refresh')}
                 </Button>
                 <Button
@@ -1302,21 +1299,7 @@ export default function MagazineDetail() {
                   <Sparkles className="size-3.5 text-purple-400" />
                   Refresh IA…
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleResyncIssues}
-                  disabled={resyncingIssues}
-                  title="Purge les issues wanted/upcoming sans fichier et regénère avec la config actuelle (weekend_days, excluded_days). Préserve les available / imported."
-                >
-                  {resyncingIssues ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-3.5" />
-                  )}
-                  Régulariser
-                </Button>
-                <Button
+<Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
@@ -1385,21 +1368,7 @@ export default function MagazineDetail() {
                 <Sparkles className="size-3.5 text-purple-400" />
                 Refresh IA…
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleResyncIssues}
-                disabled={resyncingIssues}
-                title="Purge les issues wanted/upcoming sans fichier et regénère avec la config actuelle"
-              >
-                {resyncingIssues ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-3.5" />
-                )}
-                Régulariser
-              </Button>
-              <Button
+<Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
