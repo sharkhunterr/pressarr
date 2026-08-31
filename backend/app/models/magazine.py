@@ -157,6 +157,20 @@ class Magazine(Base):
     auto_grab_threshold_override: Mapped[float | None] = mapped_column(
         Float, nullable=True, default=None
     )
+    # Groupes d'issues combinées : JSON `[{"days": [6,0], "label": null},
+    # {"days": [5], "label": "week-end"}]`. Chaque groupe = liste de
+    # weekdays (ISO 0=lun…6=dim) dont les jours CONSÉCUTIFS d'une
+    # même semaine sont coalescés en une seule issue émise sur le
+    # DERNIER jour du groupe. `label` sert à typer visuellement
+    # (« week-end », « double numéro ») dans le row de l'issue.
+    #
+    # Remplace conceptuellement `weekend_days` (qui est un cas
+    # particulier : 1 seul groupe sans label). Migration au load :
+    # si `issue_groups` NULL mais `weekend_days` set, hydrate un
+    # groupe unique. NULL des deux → pas de coalescing.
+    issue_groups: Mapped[str | None] = mapped_column(
+        Text, nullable=True, default=None
+    )
 
     root_folder: Mapped["RootFolder"] = relationship(back_populates="magazines")
     quality_profile: Mapped["QualityProfile"] = relationship(back_populates="magazines")

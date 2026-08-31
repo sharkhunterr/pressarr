@@ -126,6 +126,15 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         if weekend_days_raw
         else None
     )
+    # issue_groups : JSON array [{days:[int], label?:str}]. Sérialise
+    # à l'écriture (colonne Text côté DB). None ou liste vide → NULL.
+    import json as _json
+    issue_groups_raw = data.get("issue_groups")
+    issue_groups_str = (
+        _json.dumps(issue_groups_raw)
+        if isinstance(issue_groups_raw, list) and issue_groups_raw
+        else None
+    )
 
     magazine = Magazine(
         title=title,
@@ -159,6 +168,7 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
         sort_by_recent_date=bool(data.get("sort_by_recent_date", True)),
         min_title_match_override=data.get("min_title_match_override"),
         auto_grab_threshold_override=data.get("auto_grab_threshold_override"),
+        issue_groups=issue_groups_str,
         # Cascade enrichment fields when caller already has them
         # (allseerr's dispatcher forwards what its search showed).
         language=data.get("language"),
@@ -268,6 +278,13 @@ async def update_magazine(
             if isinstance(value, list):
                 setattr(magazine, key, ",".join(str(d) for d in value) if value else None)
             elif value is None:
+                setattr(magazine, key, None)
+        elif key == "issue_groups" and hasattr(magazine, key):
+            # JSON serialize [{days,label}] list ou reset à NULL
+            if isinstance(value, list) and value:
+                import json as _json
+                setattr(magazine, key, _json.dumps(value))
+            else:
                 setattr(magazine, key, None)
         elif value is not None and hasattr(magazine, key):
             setattr(magazine, key, value)

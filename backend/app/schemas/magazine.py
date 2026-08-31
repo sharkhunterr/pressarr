@@ -87,6 +87,9 @@ class MagazineResource(CamelModel):
     sort_by_recent_date: bool = True
     min_title_match_override: float | None = None
     auto_grab_threshold_override: float | None = None
+    # Groupes multi-jours coalescés en 1 issue chacun (JSON parsé).
+    # Ex: `[{"days":[6,0],"label":"weekend"}, {"days":[5],"label":"WEEK-END"}]`
+    issue_groups: list[dict] | None = None
 
     @field_validator("weekend_days", mode="before")
     @classmethod
@@ -97,6 +100,22 @@ class MagazineResource(CamelModel):
             try:
                 return [int(d) for d in v.split(",") if d.strip() != ""]
             except ValueError:
+                return None
+        return v
+
+    @field_validator("issue_groups", mode="before")
+    @classmethod
+    def _parse_issue_groups(cls, v):
+        """Deserialize le JSON stocké en Text côté DB → list[dict]."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            import json
+            try:
+                data = json.loads(v)
+                if isinstance(data, list):
+                    return data
+            except Exception:
                 return None
         return v
     patterns: list[MagazinePatternResource] = []
@@ -141,6 +160,9 @@ class MagazineCreateResource(CamelModel):
     sort_by_recent_date: bool = True
     min_title_match_override: float | None = None
     auto_grab_threshold_override: float | None = None
+    # Groupes multi-jours coalescés en 1 issue chacun (JSON parsé).
+    # Ex: `[{"days":[6,0],"label":"weekend"}, {"days":[5],"label":"WEEK-END"}]`
+    issue_groups: list[dict] | None = None
     search_for_missing_issues: bool = True
     # ISSN-first cascade enrichment — allseerr's dispatcher forwards
     # what its search already resolved so pressarr persists the
@@ -176,6 +198,7 @@ class MagazineUpdateResource(CamelModel):
     sort_by_recent_date: bool | None = None
     min_title_match_override: float | None = None
     auto_grab_threshold_override: float | None = None
+    issue_groups: list[dict] | None = None
 
 
 class SourceInfo(CamelModel):

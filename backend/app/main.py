@@ -243,6 +243,8 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "min_title_match_override", "REAL"),
         # Override per-mag du seuil composite auto-grab (NULL = global).
         ("magazine", "auto_grab_threshold_override", "REAL"),
+        # JSON : groupes d'issues combinées (remplace weekend_days).
+        ("magazine", "issue_groups", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:

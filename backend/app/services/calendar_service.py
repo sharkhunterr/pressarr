@@ -1,4 +1,5 @@
 """Calendar and forecast service."""
+import json
 import logging
 from datetime import date, timedelta
 
@@ -9,6 +10,47 @@ from app.models.issue import Issue
 from app.models.magazine import Magazine
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_issue_groups(magazine: Magazine) -> list[set[int]]:
+    """Retourne la liste des groupes de jours coalescés pour ce magazine.
+
+    Priorité :
+      1. `magazine.issue_groups` (JSON `[{days: [int], label?: str}]`)
+         → liste de sets
+      2. Fallback `magazine.weekend_days` (CSV historique) → 1 groupe
+      3. Ni l'un ni l'autre → liste vide (pas de coalescing)
+
+    Best-effort : JSON mal formé = fallback silencieux.
+    """
+    raw = getattr(magazine, "issue_groups", None)
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                out: list[set[int]] = []
+                for g in data:
+                    if isinstance(g, dict):
+                        days = g.get("days") or []
+                    elif isinstance(g, list):
+                        days = g
+                    else:
+                        continue
+                    s = {int(d) for d in days if 0 <= int(d) <= 6}
+                    if s:
+                        out.append(s)
+                if out:
+                    return out
+        except Exception:  # noqa: BLE001
+            logger.debug("issue_groups JSON parse failed for mag %s",
+                         magazine.id, exc_info=True)
+    # Fallback CSV legacy weekend_days → 1 groupe unique
+    wd_raw = getattr(magazine, "weekend_days", None)
+    if wd_raw:
+        s = {int(d) for d in wd_raw.split(",") if d.strip()}
+        if s:
+            return [s]
+    return []
 
 
 def _add_months(d: date, months: int) -> date:
@@ -206,15 +248,21 @@ async def generate_forecasts(
     # Generate new forecasts
     created = []
 
-    # Parse weekend_days pour coalescing en fréquence daily. Sans ça,
-    # dim 30 et lun 31 (weekend_days=[6,0]) devenaient 2 forecasts
-    # séparés au lieu d'être combinés en 1 issue weekend émise sur
-    # le dernier jour du groupe (comme le fait generate_backlog_wanted).
-    weekend: set[int] = set()
-    if getattr(magazine, "weekend_days", None):
-        weekend = {
-            int(d) for d in magazine.weekend_days.split(",") if d.strip()
-        }
+    # Parse issue_groups (JSON multi-groupes) avec fallback weekend_days.
+    # Chaque groupe = set de weekdays coalescés en 1 issue. Ex:
+    #   [{days:[6,0]}, {days:[5]}] pour Le Monde : (dim+lun) combinés
+    #   dans 1 issue, sam en issue séparée.
+    issue_groups_list = _resolve_issue_groups(magazine)
+    # Set flat de tous les jours couverts par au moins un groupe —
+    # sert au check « ce jour appartient-il à un groupe ? » (0(1)).
+    groups_flat: set[int] = set().union(*issue_groups_list) if issue_groups_list else set()
+
+    def _group_of(wd: int) -> set[int] | None:
+        """Retourne le set du groupe auquel appartient wd, ou None."""
+        for g in issue_groups_list:
+            if wd in g:
+                return g
+        return None
 
     def _emit_forecast(pub_date: date, next_number: int | None) -> int | None:
         """Crée un forecast pour pub_date, retourne le prochain numéro."""
@@ -237,11 +285,14 @@ async def generate_forecasts(
         created.append(forecast)
         return (num + 1) if num is not None else None
 
-    if magazine.frequency == "daily" and weekend:
-        # Iteration day-by-day avec coalescing weekend — même règle
-        # que generate_backlog_wanted (les 2 doivent produire la même
-        # cadence d'issues pour cohérence UX).
+    if magazine.frequency == "daily" and groups_flat:
+        # Iteration day-by-day avec coalescing par groupe. Un buffer
+        # accumule les jours consécutifs qui appartiennent au MÊME
+        # groupe ; on émet sur le dernier jour du groupe dès qu'on
+        # sort du groupe (jour excluded, jour non-groupé, ou changement
+        # de groupe entre 2 jours consécutifs).
         buf: list[date] = []
+        buf_group: set[int] | None = None
         cur = next_date
         while cur <= end_date:
             if cur >= start_date:
@@ -249,14 +300,22 @@ async def generate_forecasts(
                 if wd in excluded:
                     if buf:
                         number = _emit_forecast(buf[-1], number)
-                        buf = []
-                elif wd in weekend:
-                    buf.append(cur)
+                        buf, buf_group = [], None
                 else:
-                    if buf:
-                        number = _emit_forecast(buf[-1], number)
-                        buf = []
-                    number = _emit_forecast(cur, number)
+                    g = _group_of(wd)
+                    if g is not None:
+                        if buf_group is not None and g is not buf_group:
+                            # Changement de groupe → flush le précédent
+                            number = _emit_forecast(buf[-1], number)
+                            buf = []
+                        buf.append(cur)
+                        buf_group = g
+                    else:
+                        # Jour normal (pas dans un groupe) → flush et émet
+                        if buf:
+                            number = _emit_forecast(buf[-1], number)
+                            buf, buf_group = [], None
+                        number = _emit_forecast(cur, number)
             cur = cur + timedelta(days=1)
         if buf:
             number = _emit_forecast(buf[-1], number)
@@ -314,11 +373,15 @@ async def generate_backlog_wanted(
         excluded = {
             int(d) for d in magazine.excluded_days.split(",") if d.strip()
         }
-    weekend: set[int] = set()
-    if getattr(magazine, "weekend_days", None):
-        weekend = {
-            int(d) for d in magazine.weekend_days.split(",") if d.strip()
-        }
+    # Multi-groupes : voir _resolve_issue_groups.
+    issue_groups_list = _resolve_issue_groups(magazine)
+    groups_flat: set[int] = set().union(*issue_groups_list) if issue_groups_list else set()
+
+    def _group_of(wd: int) -> set[int] | None:
+        for g in issue_groups_list:
+            if wd in g:
+                return g
+        return None
 
     # Nettoie les FORECASTS non-actionnés qui tombent dans la fenêtre
     # [start, end] — ceux-là sont techniquement du BACKLOG, pas du
@@ -367,23 +430,32 @@ async def generate_backlog_wanted(
         existing_dates.add(pub_date)
 
     if freq == "daily":
-        # Iteration day-by-day, avec coalescing des weekend_days
-        # consécutifs en 1 issue (publication_date = dernier jour).
+        # Iteration day-by-day, avec coalescing multi-groupes des
+        # jours consécutifs en 1 issue. Un buffer accumule tant qu'on
+        # reste dans le MÊME groupe ; changement de groupe / jour non-
+        # groupé / jour excluded → flush le buffer sur son dernier jour.
         cur = start
         buf: list[date] = []
+        buf_group: set[int] | None = None
         while cur <= end:
             wd = cur.weekday()
             if wd in excluded:
                 if buf:
                     _emit(buf[-1])
-                    buf = []
-            elif wd in weekend:
-                buf.append(cur)
+                    buf, buf_group = [], None
             else:
-                if buf:
-                    _emit(buf[-1])
-                    buf = []
-                _emit(cur)
+                g = _group_of(wd)
+                if g is not None:
+                    if buf_group is not None and g is not buf_group:
+                        _emit(buf[-1])
+                        buf = []
+                    buf.append(cur)
+                    buf_group = g
+                else:
+                    if buf:
+                        _emit(buf[-1])
+                        buf, buf_group = [], None
+                    _emit(cur)
             cur = cur + timedelta(days=1)
         if buf:
             _emit(buf[-1])

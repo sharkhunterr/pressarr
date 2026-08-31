@@ -80,6 +80,7 @@ import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { WantedSearchNowModal } from '@/components/WantedSearchNowModal'
 import { WeekdaySelector } from '@/components/WeekdaySelector'
+import { IssueGroupsEditor } from '@/components/IssueGroupsEditor'
 import { IssueTechnicalDetail } from '@/components/IssueTechnicalDetail'
 import { shortenPath } from '@/lib/utils'
 import { FileManagerModal } from '@/components/FileManagerModal'
@@ -169,6 +170,9 @@ export default function MagazineDetail() {
   const [editMonitored, setEditMonitored] = useState(true)
   const [editWantedSearchEnabled, setEditWantedSearchEnabled] = useState(true)
   const [editWeekendDays, setEditWeekendDays] = useState<number[]>([])
+  const [editIssueGroups, setEditIssueGroups] = useState<
+    { days: number[]; label: string | null }[]
+  >([])
   const [editSortByRecent, setEditSortByRecent] = useState(true)
   const [editMinTitleOverride, setEditMinTitleOverride] = useState<string>('')
   const [editAutoGrabThresholdOverride, setEditAutoGrabThresholdOverride] = useState<string>('')
@@ -821,6 +825,19 @@ export default function MagazineDetail() {
     setEditIssn(magazine.issn ?? '')
     setEditWantedSearchEnabled(magazine.wantedSearchEnabled)
     setEditWeekendDays(magazine.weekendDays ?? [])
+    // Hydrate depuis issueGroups s'il existe, sinon migration soft
+    // depuis weekendDays (1 groupe unique). Permet à l'user de
+    // basculer sur l'éditeur multi-groupes sans perte.
+    setEditIssueGroups(
+      magazine.issueGroups && magazine.issueGroups.length > 0
+        ? magazine.issueGroups.map((g) => ({
+            days: [...g.days],
+            label: g.label ?? null,
+          }))
+        : magazine.weekendDays && magazine.weekendDays.length > 0
+          ? [{ days: [...magazine.weekendDays], label: null }]
+          : []
+    )
     setEditSortByRecent(magazine.sortByRecentDate ?? true)
     setEditMinTitleOverride(
       magazine.minTitleMatchOverride != null
@@ -853,6 +870,7 @@ export default function MagazineDetail() {
       isPlaceholder: false,
       wantedSearchEnabled: editWantedSearchEnabled,
       weekendDays: editWeekendDays.length > 0 ? editWeekendDays : null,
+      issueGroups: editIssueGroups.length > 0 ? editIssueGroups : null,
       sortByRecentDate: editSortByRecent,
       minTitleMatchOverride: editMinTitleOverride.trim()
         ? Number(editMinTitleOverride)
@@ -2595,25 +2613,82 @@ export default function MagazineDetail() {
                     )
                   )}
                   {editFrequency === 'daily' && (
-                    <div className="grid gap-1.5 mt-2">
-                      <label className="text-sm font-medium text-zinc-300">
-                        Jours de publication
-                      </label>
-                      <WeekdaySelector
-                        excluded={editExcludedDays}
-                        weekend={editWeekendDays}
-                        onChange={({ excluded, weekend }) => {
-                          setEditExcludedDays(excluded)
-                          setEditWeekendDays(weekend)
-                        }}
-                      />
-                      <p className="text-xs text-zinc-500">
-                        Clique un jour pour cycler{' '}
-                        <strong>normal → exclu → weekend</strong>.{' '}
-                        <em>Exclu</em> = pas d'édition ce jour.{' '}
-                        <em>Weekend</em> = jour regroupé dans l'édition
-                        combinée (ex Le Monde Sam+Dim+Lun en 1 issue).
-                      </p>
+                    <div className="grid gap-4 mt-2">
+                      {/* Jours exclus — pas d'édition ce jour-là. */}
+                      <div className="grid gap-1.5">
+                        <label className="text-sm font-medium text-zinc-300">
+                          Jours sans publication
+                        </label>
+                        <div className="flex gap-1 flex-wrap">
+                          {[
+                            [0, 'addMagazine.mon'],
+                            [1, 'addMagazine.tue'],
+                            [2, 'addMagazine.wed'],
+                            [3, 'addMagazine.thu'],
+                            [4, 'addMagazine.fri'],
+                            [5, 'addMagazine.sat'],
+                            [6, 'addMagazine.sun'],
+                          ].map(([day, key]) => {
+                            const d = day as number
+                            const isEx = editExcludedDays.includes(d)
+                            return (
+                              <button
+                                key={d}
+                                type="button"
+                                onClick={() => {
+                                  const next = isEx
+                                    ? editExcludedDays.filter((x) => x !== d)
+                                    : [...editExcludedDays, d]
+                                  setEditExcludedDays(next)
+                                  // Si on ajoute à excluded, retire des groupes
+                                  if (!isEx) {
+                                    setEditIssueGroups(
+                                      editIssueGroups
+                                        .map((g) => ({
+                                          ...g,
+                                          days: g.days.filter((x) => x !== d),
+                                        }))
+                                        .filter((g) => g.days.length > 0),
+                                    )
+                                  }
+                                }}
+                                className={
+                                  'px-2 py-1 text-xs rounded border transition-colors ' +
+                                  (isEx
+                                    ? 'bg-red-900/50 border-red-700 text-red-300'
+                                    : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600')
+                                }
+                              >
+                                {t(key as string)}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <p className="text-xs text-zinc-500">
+                          Jours rouges = pas d'édition (ex. dimanche pour
+                          la plupart des quotidiens FR).
+                        </p>
+                      </div>
+
+                      {/* Groupes d'issues combinées — multi. */}
+                      <div className="grid gap-1.5">
+                        <label className="text-sm font-medium text-zinc-300">
+                          Groupes d'issues combinées
+                        </label>
+                        <p className="text-xs text-zinc-500">
+                          Regroupe plusieurs jours consécutifs en <strong>1
+                          seule issue</strong> émise sur le dernier jour du
+                          groupe. Ex. Le Monde : groupe (dim + lun) pour
+                          l'édition weekend combinée, groupe (sam) taggé
+                          « WEEK-END » pour l'édition papier séparée du
+                          samedi.
+                        </p>
+                        <IssueGroupsEditor
+                          groups={editIssueGroups}
+                          excluded={editExcludedDays}
+                          onChange={setEditIssueGroups}
+                        />
+                      </div>
                     </div>
                   )}
                   {['weekly', 'biweekly'].includes(editFrequency) && (

@@ -69,6 +69,10 @@ export interface Magazine {
   /** Override per-magazine du seuil composite auto-grab (0-100).
    *  Null = suit le défaut global wanted_search_auto_grab_threshold. */
   autoGrabThresholdOverride: number | null
+  /** Groupes multi-jours coalescés en 1 issue chacun. Remplace
+   *  conceptuellement `weekendDays` (qui reste comme fallback legacy).
+   *  Ex: `[{days:[6,0], label:"weekend"}, {days:[5], label:"WEEK-END"}]` */
+  issueGroups: { days: number[]; label: string | null }[] | null
   patterns: MagazinePattern[]
   rules: MagazineRule[]
   statistics: {
