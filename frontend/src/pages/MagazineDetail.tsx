@@ -2398,91 +2398,115 @@ export default function MagazineDetail() {
                     />
                   </div>
 
-                  <div className="grid gap-1.5">
-                    <div className="flex items-baseline justify-between">
-                      <label className="text-sm font-medium text-zinc-300">
-                        Exigence de correspondance du titre
-                      </label>
-                      <span className="text-xs font-mono text-zinc-400 tabular-nums">
-                        {editMinTitleOverride === ''
-                          ? 'Auto (80 %)'
-                          : `${editMinTitleOverride} %`}
-                      </span>
+                  {/* Bloc « Conditions pour auto-grab » — regroupe les
+                      2 gates cumulatives avec un header explicite pour
+                      lever la confusion : ce sont 2 filtres différents
+                      qui doivent TOUS DEUX passer pour déclencher un
+                      grab automatique. */}
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 grid gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-200">
+                        Conditions pour auto-grab
+                      </div>
+                      <div className="text-[11px] text-zinc-500 mt-0.5">
+                        Les 2 filtres ci-dessous sont <strong>cumulatifs</strong> :
+                        le release doit passer <strong>les deux</strong> pour
+                        que l'auto-grab se déclenche.
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={5}
-                      value={editMinTitleOverride === '' ? 80 : Number(editMinTitleOverride)}
-                      onChange={(e) => setEditMinTitleOverride(e.target.value)}
-                      className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
-                      <span>Souple (0)</span>
-                      <span>Strict (100)</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-zinc-500 flex-1 pr-2">
-                        Similarité minimale entre le titre du release et
-                        celui du magazine pour autoriser l'auto-grab.
-                        Monte (90+) pour un mag ambigu ("Le Monde" ≠
-                        "Le Monde Diplomatique"). Baisse (70) pour un
-                        mag au nom court.
-                      </p>
-                      {editMinTitleOverride !== '' && (
-                        <button
-                          type="button"
-                          onClick={() => setEditMinTitleOverride('')}
-                          className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
-                        >
-                          Reset auto
-                        </button>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="grid gap-1.5">
-                    <div className="flex items-baseline justify-between">
-                      <label className="text-sm font-medium text-zinc-300">
-                        Seuil auto-grab
-                      </label>
-                      <span className="text-xs font-mono text-zinc-400 tabular-nums">
-                        {editAutoGrabThresholdOverride === ''
-                          ? 'Auto (défaut global)'
-                          : `${editAutoGrabThresholdOverride} %`}
-                      </span>
+                    {/* Gate 1 : fuzzy titre release vs titre magazine */}
+                    <div className="grid gap-1.5">
+                      <div className="flex items-baseline justify-between">
+                        <label className="text-sm font-medium text-zinc-300">
+                          1. Similarité du titre release / magazine
+                        </label>
+                        <span className="text-xs font-mono text-zinc-400 tabular-nums">
+                          {editMinTitleOverride === ''
+                            ? 'Auto (80 %)'
+                            : `${editMinTitleOverride} %`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={editMinTitleOverride === '' ? 80 : Number(editMinTitleOverride)}
+                        onChange={(e) => setEditMinTitleOverride(e.target.value)}
+                        className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
+                        <span>Souple (0)</span>
+                        <span>Strict (100)</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-zinc-500 flex-1">
+                          Compare fuzzy (Levenshtein) <strong>le nom
+                          du fichier release</strong> vs <strong>le
+                          titre du magazine</strong>. Bloque les grabs
+                          off-topic : « Le Monde du Plein Air » vs
+                          « Le Monde » donne ~35 %, refusé à 80. Monte
+                          (90+) pour un mag ambigu, baisse (60-70) si le
+                          nom est court ou stylisé.
+                        </p>
+                        {editMinTitleOverride !== '' && (
+                          <button
+                            type="button"
+                            onClick={() => setEditMinTitleOverride('')}
+                            className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
+                          >
+                            Reset auto
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={editAutoGrabThresholdOverride === '' ? 78 : Number(editAutoGrabThresholdOverride)}
-                      onChange={(e) => setEditAutoGrabThresholdOverride(e.target.value)}
-                      className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
-                      <span>Permissif (0)</span>
-                      <span>Strict (100)</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-zinc-500 flex-1 pr-2">
-                        Score composite (Python + IA) minimum pour
-                        déclencher l'auto-grab. Override du seuil global
-                        défini dans Settings › IA. Baisse (65) pour un
-                        magazine facile à retrouver, monte (85+) pour
-                        un mag à titre ambigu qui doit rester prudent.
-                      </p>
-                      {editAutoGrabThresholdOverride !== '' && (
-                        <button
-                          type="button"
-                          onClick={() => setEditAutoGrabThresholdOverride('')}
-                          className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
-                        >
-                          Reset auto
-                        </button>
-                      )}
+
+                    {/* Gate 2 : score composite Python + IA */}
+                    <div className="grid gap-1.5">
+                      <div className="flex items-baseline justify-between">
+                        <label className="text-sm font-medium text-zinc-300">
+                          2. Score composite Python + IA
+                        </label>
+                        <span className="text-xs font-mono text-zinc-400 tabular-nums">
+                          {editAutoGrabThresholdOverride === ''
+                            ? 'Auto (défaut global)'
+                            : `${editAutoGrabThresholdOverride} %`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={editAutoGrabThresholdOverride === '' ? 78 : Number(editAutoGrabThresholdOverride)}
+                        onChange={(e) => setEditAutoGrabThresholdOverride(e.target.value)}
+                        className="w-full accent-purple-500 h-2 rounded-lg bg-zinc-800 cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-zinc-600 tabular-nums">
+                        <span>Permissif (0)</span>
+                        <span>Strict (100)</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-zinc-500 flex-1">
+                          Score <strong>composite</strong> agrégé par le
+                          pipeline : parser Python (date, numéro, format,
+                          quality, seeders) fusionné avec le verdict IA
+                          ranker. Détermine la <strong>confiance globale</strong>
+                          dans le winner. Baisse (65) pour un mag facile
+                          à retrouver, monte (85+) pour un mag qui doit
+                          rester prudent.
+                        </p>
+                        {editAutoGrabThresholdOverride !== '' && (
+                          <button
+                            type="button"
+                            onClick={() => setEditAutoGrabThresholdOverride('')}
+                            className="text-xs text-purple-400 hover:text-purple-300 shrink-0"
+                          >
+                            Reset auto
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
