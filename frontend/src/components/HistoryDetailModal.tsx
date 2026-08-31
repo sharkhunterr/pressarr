@@ -748,39 +748,95 @@ export function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) 
         )}
       </div>
 
-      {/* Zones OCR — grouping par (page, zone_label) pour voir Python
-          OCR et Vision AI côte à côte avec l'image réellement envoyée. */}
+      {/* Zones OCR — grouping par (page, zone_label). Si le run est
+          ancien (avant le refactor) et n'a AUCUN step avec `zone`, on
+          tombe sur un pairing python↔vision par index pour quand même
+          proposer le rendu ZoneCard. Sinon, flat par défaut. */}
       {(() => {
-        const zoneKey = (s: AIStep) =>
-          s.page != null && s.zone ? `${s.page}__${s.zone}` : null
+        const hasAnyZone = steps.some(
+          (s) => (s.step === 'vision' || s.step === 'python_ocr') && s.zone,
+        )
         const zoneOrder: string[] = []
         const zoneGroups = new Map<string, AIStep[]>()
         const otherSteps: AIStep[] = []
-        for (const s of steps) {
-          const k = zoneKey(s)
-          if (k && (s.step === 'vision' || s.step === 'python_ocr')) {
-            if (!zoneGroups.has(k)) {
-              zoneGroups.set(k, [])
-              zoneOrder.push(k)
+
+        if (hasAnyZone) {
+          // Nouveau format : groupage propre par (page, zone).
+          for (const s of steps) {
+            const k =
+              s.page != null && s.zone
+                ? `${s.page}__${s.zone}`
+                : null
+            if (k && (s.step === 'vision' || s.step === 'python_ocr')) {
+              if (!zoneGroups.has(k)) {
+                zoneGroups.set(k, [])
+                zoneOrder.push(k)
+              }
+              zoneGroups.get(k)!.push(s)
+            } else {
+              otherSteps.push(s)
             }
-            zoneGroups.get(k)!.push(s)
-          } else {
-            otherSteps.push(s)
+          }
+        } else {
+          // Legacy : pas de `zone` sur les steps. Pair python_ocr /
+          // vision consécutifs sur la même page (ordre pipeline garanti).
+          let pending: AIStep | null = null
+          let zoneIdx = 0
+          for (const s of steps) {
+            if (s.step === 'python_ocr' || s.step === 'vision') {
+              if (
+                pending &&
+                pending.page === s.page &&
+                pending.step !== s.step
+              ) {
+                zoneIdx += 1
+                const k = `${s.page ?? '?'}__legacy${zoneIdx}`
+                zoneOrder.push(k)
+                zoneGroups.set(k, [pending, s])
+                pending = null
+              } else {
+                if (pending) {
+                  // pending esseulé → carte solo
+                  zoneIdx += 1
+                  const k = `${pending.page ?? '?'}__legacy${zoneIdx}`
+                  zoneOrder.push(k)
+                  zoneGroups.set(k, [pending])
+                }
+                pending = s
+              }
+            } else {
+              otherSteps.push(s)
+            }
+          }
+          if (pending) {
+            zoneIdx += 1
+            const k = `${pending.page ?? '?'}__legacy${zoneIdx}`
+            zoneOrder.push(k)
+            zoneGroups.set(k, [pending])
           }
         }
+
         return (
           <>
             {zoneOrder.length > 0 && (
               <div>
                 <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
                   Zones OCR ({zoneOrder.length})
+                  {!hasAnyZone && (
+                    <span className="ml-2 normal-case tracking-normal text-amber-500">
+                      · run pré-refactor, groupage best-effort
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-3">
-                  {zoneOrder.map((k) => (
+                  {zoneOrder.map((k, idx) => (
                     <ZoneCard
                       key={k}
                       runId={runId}
                       steps={zoneGroups.get(k)!}
+                      fallbackLabel={
+                        hasAnyZone ? undefined : `Zone ${idx + 1}`
+                      }
                     />
                   ))}
                 </div>
@@ -810,13 +866,15 @@ export function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) 
 function ZoneCard({
   runId,
   steps,
+  fallbackLabel,
 }: {
   runId: number | undefined
   steps: AIStep[]
+  fallbackLabel?: string
 }) {
   const first = steps[0]
   const tag = first.tag ?? 'all'
-  const label = first.zone ?? '?'
+  const label = first.zone ?? fallbackLabel ?? '?'
   const page = first.page ?? '?'
   const cropFile = steps.find((s) => s.crop_file)?.crop_file
   const customTag = steps.find((s) => s.custom_tag)?.custom_tag
@@ -872,8 +930,13 @@ function ZoneCard({
           />
         </a>
       ) : (
-        <div className="mb-3 text-xs text-zinc-600 italic border border-zinc-800 rounded p-3 text-center">
-          Image du crop indisponible (run trop ancien ou pipeline pré-fix)
+        <div className="mb-3 text-xs text-zinc-500 italic border border-zinc-800 rounded p-3 text-center">
+          Image indisponible pour ce run.<br />
+          <span className="text-zinc-600">
+            Active « Sauvegarder les images crop » dans Settings › IA,
+            puis refais un Refresh IA pour voir l'image sur les
+            prochains runs.
+          </span>
         </div>
       )}
 

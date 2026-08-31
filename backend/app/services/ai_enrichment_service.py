@@ -1816,10 +1816,15 @@ class AIEnrichmentService:
         #   pendant l'encodage de l'image, sans même sortir 400).
         # 16384 est le safe upper bound qui tient dans 8 Go pour les
         # deux modèles. Au-dessus, minicpm-v peut OOM.
-        if images_b64:
-            num_ctx = 16384 if "qwen" in (model or "").lower() else 8192
-        else:
-            num_ctx = None
+        # num_ctx : 16384 par défaut pour TOUS les modèles vision.
+        # Une image PDF crop zoomée + prompt consomme facilement
+        # 5k-10k tokens vision ; 8192 est trop juste et provoque des
+        # HTTP 400 « exceed_context_size » sur granite3.2-vision:2b,
+        # llama3.2-vision, etc. minicpm-v:8b et qwen2.5vl:7b tiennent
+        # dans 8 Go VRAM à 16384. Si un modèle plus gros y déborde
+        # (rare — llama3.2-vision:11b + full page), le retry auto
+        # ci-dessous re-tente à num_ctx*2.
+        num_ctx = 16384 if images_b64 else None
         # num_predict : plafond de génération vision. 800 était trop
         # court → minicpm-v tronquait à mi-chemin (« POLITAINE » =
         # fin de « MÉTROPOLITAINE »). 1500 laisse respirer titre +
@@ -1874,17 +1879,26 @@ class AIEnrichmentService:
             step["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
             return out, step
         except OllamaError as exc:
-            # Retry défensif : Ollama HTTP 500 « unexpected EOF » sur
-            # vision = ctx trop petit pour digérer l'image. On retente
-            # UNE fois avec un ctx doublé (jusqu'à 32k, plafond raisonnable
-            # pour tenir dans 8 Go VRAM avec qwen2.5vl:7b).
+            # Retry défensif : 2 signaux ctx-related d'Ollama :
+            #   - HTTP 500 « unexpected EOF » (qwen2.5vl crash silencieux)
+            #   - HTTP 400 « exceed_context_size_error » (granite,
+            #     llama3.2-vision qui rapportent proprement)
+            # Dans les 2 cas on retente UNE fois avec ctx doublé
+            # (jusqu'à 32k, safe upper bound 8 Go VRAM).
             msg = str(exc)
-            if images_b64 and "unexpected EOF" in msg and num_ctx and num_ctx < 32768:
+            ctx_signal = (
+                "unexpected EOF" in msg
+                or "exceed_context_size" in msg
+                or "exceeds the available context" in msg
+            )
+            if images_b64 and ctx_signal and num_ctx and num_ctx < 32768:
                 bumped_ctx = min(32768, (num_ctx or 8192) * 2)
                 logger.warning(
-                    "AI step %s crashed (unexpected EOF) — retry avec "
+                    "AI step %s failed on ctx (%s) — retry avec "
                     "num_ctx=%d (était %d)",
-                    step_name, bumped_ctx, num_ctx,
+                    step_name,
+                    "EOF" if "EOF" in msg else "exceed_context",
+                    bumped_ctx, num_ctx,
                 )
                 try:
                     out = await self._ollama.generate_json(
