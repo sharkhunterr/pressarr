@@ -183,6 +183,73 @@ def _build_zone_vision_prompt(
     return base_prompt + suffix
 
 
+# ─── AI RUN CROP CACHE ────────────────────────────────────────────────
+#
+# Chaque zone envoyée aux OCR est sauvée en PNG dans
+# `<config_dir>/ai_run_crops/<run_id>/`. L'endpoint
+# `/api/v1/ai/runs/{run_id}/crop/{page}_{label}.png` la sert au front
+# pour que l'User voie EXACTEMENT ce qui a été envoyé (résolution,
+# recadrage, rotation appliquée).
+
+_RUN_CROPS_KEEP = 30  # nb de runs récents à garder sur disque
+
+
+def _run_crops_root(config: Any) -> Path:
+    """Racine du cache disque des crops par run.
+    Créée à la demande (idempotent)."""
+    root = Path(config.config_path).parent / "ai_run_crops"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _safe_slug(s: str) -> str:
+    """Filesystem-safe slug — garde alphanum, tiret, underscore, dot."""
+    out = []
+    for ch in s or "":
+        if ch.isalnum() or ch in "-_.":
+            out.append(ch)
+        else:
+            out.append("_")
+    return "".join(out)[:80] or "zone"
+
+
+def _save_run_crop(
+    config: Any, run_id: int, page: int, zone_label: str, png_bytes: bytes,
+) -> str | None:
+    """Sauve le crop pour un run donné, renvoie le nom de fichier
+    (relatif à `run_id/`). Best-effort — un fail disque ne casse
+    jamais le pipeline (juste pas d'image dans l'History)."""
+    try:
+        run_dir = _run_crops_root(config) / str(run_id)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{page}_{_safe_slug(zone_label)}.png"
+        (run_dir / fname).write_bytes(png_bytes)
+        return fname
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Save run crop %s/%s failed: %s", run_id, zone_label, exc)
+        return None
+
+
+def _cleanup_old_run_crops(config: Any) -> None:
+    """Garde les `_RUN_CROPS_KEEP` runs les plus récents sur disque.
+    Best-effort, jamais fatal."""
+    try:
+        root = _run_crops_root(config)
+        dirs = [
+            d for d in root.iterdir()
+            if d.is_dir() and d.name.isdigit()
+        ]
+        if len(dirs) <= _RUN_CROPS_KEEP:
+            return
+        # sort by run_id desc (int-cast), drop oldest
+        dirs.sort(key=lambda d: int(d.name), reverse=True)
+        for d in dirs[_RUN_CROPS_KEEP:]:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Cleanup ai_run_crops failed: %s", exc)
+
+
 # Placeholders que minicpm-v recopie parfois depuis un ancien prompt
 # example (même si le prompt actuel n'en contient plus). Signature nette.
 _VISION_PLACEHOLDER_TOKENS = (
@@ -1375,6 +1442,13 @@ class AIEnrichmentService:
                 for zone_label, png_bytes, zone_meta in rendered:
                     zone_tag = (zone_meta or {}).get("tag") or "all"
                     zone_custom_tag = (zone_meta or {}).get("custom_tag")
+                    # Sauvegarde le crop réellement envoyé aux OCR :
+                    # sert au rendu History (l'user voit l'image exacte
+                    # utilisée pour chaque zone). Chemin relatif porté
+                    # sur toutes les steps de la zone pour groupage UI.
+                    crop_rel = _save_run_crop(
+                        cfg, run_id, page_num, zone_label, png_bytes,
+                    )
                     # --- 2bis. Python OCR (source déterministe) ------
                     # Sur la MÊME image que celle envoyée à la vision.
                     # Best-effort : jamais fatal — un échec (engine
@@ -1389,6 +1463,10 @@ class AIEnrichmentService:
                             zone=zone_label,
                         )
                         py_step["tag"] = zone_tag
+                        if zone_custom_tag:
+                            py_step["custom_tag"] = zone_custom_tag
+                        if crop_rel:
+                            py_step["crop_file"] = crop_rel
                         if py_step.get("output"):
                             # Scrub + garbage check aussi côté Python OCR :
                             # Tesseract sort parfois du bruit style « 课影
@@ -1466,16 +1544,21 @@ class AIEnrichmentService:
                         f"[{zone_tag}] ({idx}/{len(pages)})",
                     )
                     img_b64 = base64.b64encode(png_bytes).decode("ascii")
+                    vision_extras: dict[str, Any] = {
+                        "page": page_num,
+                        "zone": zone_label,
+                        "tag": zone_tag,
+                    }
+                    if zone_custom_tag:
+                        vision_extras["custom_tag"] = zone_custom_tag
+                    if crop_rel:
+                        vision_extras["crop_file"] = crop_rel
                     v_output, v_step = await self._call_json(
                         model=vision_model,
                         prompt=per_zone_prompt,
                         step_name="vision",
                         images_b64=[img_b64],
-                        extra_step_fields={
-                            "page": page_num,
-                            "zone": zone_label,
-                            "tag": zone_tag,
-                        },
+                        extra_step_fields=vision_extras,
                     )
                     steps.append(v_step)
                     if v_output is not None:
@@ -1627,6 +1710,8 @@ class AIEnrichmentService:
             elapsed_ms=elapsed,
             status="success",
         )
+        # Cleanup best-effort après finalize (jamais fatal).
+        _cleanup_old_run_crops(cfg)
         return EnrichmentResult(
             final=final,
             applied_mode=applied,

@@ -477,6 +477,8 @@ interface AIStep {
   page?: number | string | null
   zone?: string | null
   tag?: string | null
+  custom_tag?: string | null
+  crop_file?: string | null
   engine?: string | null
   input?: Record<string, unknown> | null
   params?: Record<string, unknown> | null
@@ -485,6 +487,18 @@ interface AIStep {
   elapsed_ms?: number
   leak_dropped?: boolean
   garbage_dropped?: string
+}
+
+const TAG_COLORS: Record<string, string> = {
+  title:     'bg-purple-900/40 text-purple-200 border-purple-700',
+  subtitle:  'bg-pink-900/40 text-pink-200 border-pink-700',
+  date:      'bg-blue-900/40 text-blue-200 border-blue-700',
+  number:    'bg-amber-900/40 text-amber-200 border-amber-700',
+  price:     'bg-emerald-900/40 text-emerald-200 border-emerald-700',
+  publisher: 'bg-cyan-900/40 text-cyan-200 border-cyan-700',
+  issn:      'bg-slate-800 text-slate-200 border-slate-600',
+  all:       'bg-zinc-800 text-zinc-300 border-zinc-600',
+  custom:    'bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-700',
 }
 
 function fmtMs(ms?: number | null): string {
@@ -734,16 +748,225 @@ function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) {
         )}
       </div>
 
-      {/* Étapes détaillées */}
-      <div>
-        <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
-          Étapes du pipeline ({steps.length})
+      {/* Zones OCR — grouping par (page, zone_label) pour voir Python
+          OCR et Vision AI côte à côte avec l'image réellement envoyée. */}
+      {(() => {
+        const zoneKey = (s: AIStep) =>
+          s.page != null && s.zone ? `${s.page}__${s.zone}` : null
+        const zoneOrder: string[] = []
+        const zoneGroups = new Map<string, AIStep[]>()
+        const otherSteps: AIStep[] = []
+        for (const s of steps) {
+          const k = zoneKey(s)
+          if (k && (s.step === 'vision' || s.step === 'python_ocr')) {
+            if (!zoneGroups.has(k)) {
+              zoneGroups.set(k, [])
+              zoneOrder.push(k)
+            }
+            zoneGroups.get(k)!.push(s)
+          } else {
+            otherSteps.push(s)
+          }
+        }
+        return (
+          <>
+            {zoneOrder.length > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+                  Zones OCR ({zoneOrder.length})
+                </div>
+                <div className="space-y-3">
+                  {zoneOrder.map((k) => (
+                    <ZoneCard
+                      key={k}
+                      runId={runId}
+                      steps={zoneGroups.get(k)!}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {otherSteps.length > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+                  Autres étapes ({otherSteps.length})
+                </div>
+                <div className="space-y-2">
+                  {otherSteps.map((s, i) => (
+                    <AIStepCard key={i} step={s} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )
+      })()}
+    </div>
+  )
+}
+
+/** Rendu par zone : image du crop + tabs Python OCR / Vision AI.
+ *  Regroupe les 1-2 sources qui ont vu la MÊME image pour cette zone. */
+function ZoneCard({
+  runId,
+  steps,
+}: {
+  runId: number | undefined
+  steps: AIStep[]
+}) {
+  const first = steps[0]
+  const tag = first.tag ?? 'all'
+  const label = first.zone ?? '?'
+  const page = first.page ?? '?'
+  const cropFile = steps.find((s) => s.crop_file)?.crop_file
+  const customTag = steps.find((s) => s.custom_tag)?.custom_tag
+
+  const pyStep = steps.find((s) => s.step === 'python_ocr')
+  const visionStep = steps.find((s) => s.step === 'vision')
+
+  type Tab = 'python' | 'vision'
+  const defaultTab: Tab =
+    pyStep && !pyStep.garbage_dropped ? 'python' : 'vision'
+  const [tab, setTab] = useState<Tab>(defaultTab)
+
+  const tagColor = TAG_COLORS[tag] ?? TAG_COLORS.all
+
+  const cropUrl =
+    runId != null && cropFile
+      ? `/api/v1/ai/runs/${runId}/crop/${encodeURIComponent(cropFile)}`
+      : null
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3">
+      {/* Header : label + tag + page */}
+      <div className="flex items-center flex-wrap gap-2 mb-3">
+        <span
+          className={
+            'text-xs px-2 py-0.5 rounded border font-mono ' + tagColor
+          }
+          title={customTag ? `Consigne libre : ${customTag}` : undefined}
+        >
+          {tag}
+          {customTag ? ' · ' + customTag.slice(0, 24) : ''}
+        </span>
+        <span className="text-sm text-zinc-100 font-medium">
+          {label}
+        </span>
+        <span className="text-xs text-zinc-500 ml-auto">page {page}</span>
+      </div>
+
+      {/* Image crop */}
+      {cropUrl ? (
+        <a
+          href={cropUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Ouvrir l'image en pleine taille"
+          className="block mb-3 rounded border border-zinc-800 bg-black/40 overflow-hidden"
+        >
+          <img
+            src={cropUrl}
+            alt={`Crop zone ${label}`}
+            className="w-full max-h-64 object-contain"
+            loading="lazy"
+          />
+        </a>
+      ) : (
+        <div className="mb-3 text-xs text-zinc-600 italic border border-zinc-800 rounded p-3 text-center">
+          Image du crop indisponible (run trop ancien ou pipeline pré-fix)
         </div>
-        <div className="space-y-2">
-          {steps.map((s, i) => (
-            <AIStepCard key={i} step={s} />
-          ))}
+      )}
+
+      {/* Tabs Python / Vision */}
+      <div className="flex gap-1 mb-2">
+        {pyStep && (
+          <button
+            type="button"
+            onClick={() => setTab('python')}
+            className={
+              'px-2.5 py-1 text-xs rounded-t border-b-2 transition ' +
+              (tab === 'python'
+                ? 'border-emerald-500 text-emerald-300'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300')
+            }
+          >
+            Python OCR
+            {pyStep.engine ? ` (${pyStep.engine})` : ''}
+            {pyStep.garbage_dropped ? ' ✕' : ''}
+          </button>
+        )}
+        {visionStep && (
+          <button
+            type="button"
+            onClick={() => setTab('vision')}
+            className={
+              'px-2.5 py-1 text-xs rounded-t border-b-2 transition ' +
+              (tab === 'vision'
+                ? 'border-purple-500 text-purple-300'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300')
+            }
+          >
+            Vision AI
+            {visionStep.model ? ` (${visionStep.model})` : ''}
+            {visionStep.garbage_dropped || visionStep.leak_dropped ? ' ✕' : ''}
+          </button>
+        )}
+      </div>
+
+      {/* Output du tab actif */}
+      <div className="border border-zinc-800 rounded p-2 bg-black/30 min-h-[3.5rem]">
+        {tab === 'python' && pyStep && <ZoneStepOutput step={pyStep} />}
+        {tab === 'vision' && visionStep && <ZoneStepOutput step={visionStep} />}
+      </div>
+    </div>
+  )
+}
+
+function ZoneStepOutput({ step: s }: { step: AIStep }) {
+  const droppedReason = s.garbage_dropped
+    ? `Rejetée : ${s.garbage_dropped}`
+    : s.leak_dropped
+      ? 'Rejetée : ressemble à un titre différent (hallucination probable)'
+      : null
+  const skipped =
+    s.step === 'vision' &&
+    (s.params as Record<string, unknown> | null | undefined)?.skipped_reason
+  return (
+    <div className="space-y-1">
+      {skipped && (
+        <div className="text-[11px] text-zinc-400 italic">
+          Vision skippée : Python OCR déjà suffisant (
+          {String((s.params as Record<string, unknown>).pyocr_len)} chars ≥{' '}
+          {String((s.params as Record<string, unknown>).threshold)})
         </div>
+      )}
+      {droppedReason && (
+        <div className="text-[11px] text-red-300">
+          {droppedReason} — non utilisée par l'arbiter.
+        </div>
+      )}
+      {s.error && (
+        <div className="text-[11px] text-rose-300 break-words">
+          Erreur : {s.error}
+        </div>
+      )}
+      {s.output != null &&
+        (() => {
+          const out = s.output
+          const text =
+            typeof out === 'string'
+              ? out
+              : typeof out === 'object' && out !== null && 'raw_text' in out
+                ? String((out as Record<string, unknown>).raw_text ?? '')
+                : JSON.stringify(out, null, 2)
+          return (
+            <pre className="whitespace-pre-wrap break-words text-xs text-zinc-100 font-mono">
+              {text || <span className="text-zinc-600 italic">(vide)</span>}
+            </pre>
+          )
+        })()}
+      <div className="text-[10px] text-zinc-600 pt-1">
+        {fmtMs(s.elapsed_ms)}
       </div>
     </div>
   )

@@ -1307,6 +1307,34 @@ class EnrichmentRunResource(CamelModel):
     total_elapsed_ms: int
 
 
+@router.get("/runs/{run_id}/crop/{filename}")
+async def get_run_crop_image(
+    run_id: int,
+    filename: str,
+    config=Depends(get_config),
+):
+    """Sert le PNG crop d'une zone donnée d'un run enrichment.
+
+    Chemin cache-disque : `<config_dir>/ai_run_crops/<run_id>/<filename>`.
+    Le nom vient de `step["crop_file"]` posé côté pipeline. Filet de
+    sécurité path-traversal : `filename` doit être un basename simple.
+    """
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    # Bloque path traversal — filename doit rester dans le dossier du run.
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        raise HTTPException(400, "invalid filename")
+    root = Path(config.config_path).parent / "ai_run_crops" / str(run_id)
+    fpath = (root / filename).resolve()
+    try:
+        fpath.relative_to(root.resolve())
+    except ValueError:
+        raise HTTPException(400, "invalid filename")
+    if not fpath.exists() or not fpath.is_file():
+        raise HTTPException(404, "crop not found (expired or never saved)")
+    return FileResponse(fpath, media_type="image/png")
+
+
 @router.get("/runs/enrichment", response_model=list[EnrichmentRunResource])
 async def list_enrichment_runs(
     magazine_id: int | None = None,
