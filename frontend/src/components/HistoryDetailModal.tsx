@@ -873,7 +873,10 @@ function ZoneCard({
   fallbackLabel?: string
 }) {
   const first = steps[0]
-  const tag = first.tag ?? 'all'
+  // Un `tag` absent sur toutes les steps = vieux run (pré-refactor).
+  // Ne pas afficher un badge « all » trompeur — l'user pensait avoir
+  // choisi date/prix/titre et voit « all » partout.
+  const explicitTag = steps.find((s) => s.tag)?.tag
   const label = first.zone ?? fallbackLabel ?? '?'
   const page = first.page ?? '?'
   const cropFile = steps.find((s) => s.crop_file)?.crop_file
@@ -887,7 +890,9 @@ function ZoneCard({
     pyStep && !pyStep.garbage_dropped ? 'python' : 'vision'
   const [tab, setTab] = useState<Tab>(defaultTab)
 
-  const tagColor = TAG_COLORS[tag] ?? TAG_COLORS.all
+  const tagColor = explicitTag
+    ? (TAG_COLORS[explicitTag] ?? TAG_COLORS.all)
+    : 'bg-zinc-900 text-zinc-500 border-zinc-800'
 
   const cropUrl =
     runId != null && cropFile
@@ -902,9 +907,15 @@ function ZoneCard({
           className={
             'text-xs px-2 py-0.5 rounded border font-mono ' + tagColor
           }
-          title={customTag ? `Consigne libre : ${customTag}` : undefined}
+          title={
+            customTag
+              ? `Consigne libre : ${customTag}`
+              : !explicitTag
+                ? 'Tag inconnu (run pré-refactor). Refais un Refresh IA pour voir price/date/title/…'
+                : undefined
+          }
         >
-          {tag}
+          {explicitTag ?? '?'}
           {customTag ? ' · ' + customTag.slice(0, 24) : ''}
         </span>
         <span className="text-sm text-zinc-100 font-medium">
