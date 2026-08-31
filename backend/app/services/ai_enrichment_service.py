@@ -1388,15 +1388,32 @@ class AIEnrichmentService:
                             zone=zone_label,
                         )
                         py_step["tag"] = zone_tag
-                        steps.append(py_step)
                         if py_step.get("output"):
-                            pyocr_outputs.append({
-                                "page": page_num,
-                                "zone": zone_label,
-                                "tag": zone_tag,
-                                "engine": py_step.get("engine"),
-                                "raw_text": py_step["output"],
-                            })
+                            # Scrub + garbage check aussi côté Python OCR :
+                            # Tesseract sort parfois du bruit style « 课影
+                            # OUT » sur une image trop bruitée, qui
+                            # polluerait l'arbiter Python (regex de date
+                            # matcherait sur bruit).
+                            raw_txt = _scrub_vision_text(py_step["output"])
+                            garbage, reason = _is_vision_garbage({"raw_text": raw_txt})
+                            if garbage:
+                                py_step["garbage_dropped"] = reason
+                                py_step["output"] = raw_txt  # affichée pour debug
+                                logger.warning(
+                                    "Python OCR garbage (page %s zone %s, %s) "
+                                    "— output ignoré : %r",
+                                    page_num, zone_label, reason, raw_txt[:120],
+                                )
+                            else:
+                                py_step["output"] = raw_txt
+                                pyocr_outputs.append({
+                                    "page": page_num,
+                                    "zone": zone_label,
+                                    "tag": zone_tag,
+                                    "engine": py_step.get("engine"),
+                                    "raw_text": raw_txt,
+                                })
+                        steps.append(py_step)
 
                     # --- 3. Vision LLM (toujours appelée) ------------
                     # User veut que TOUTES les étapes tournent pour
@@ -1441,6 +1458,12 @@ class AIEnrichmentService:
                                 page_num, zone_label, reason, v_output,
                             )
                             v_step["garbage_dropped"] = reason
+                            # Scrub aussi la sortie affichée en History
+                            # pour ne pas exposer les kanji/PUA à l'user
+                            # (rassure : « ma pipeline ne mange PAS ce
+                            # bruit »). L'output reste dans le step pour
+                            # debug mais nettoyé.
+                            v_step["output"] = scrub_vision_output(v_output)
                             continue
                         # Anti-pollution soft : scrub les résidus (PUA
                         # isolé, tag html orphelin) qui ont passé le

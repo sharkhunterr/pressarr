@@ -82,12 +82,42 @@ class _TesseractOCR(_BaseOCR):
         import io
 
         import pytesseract
-        from PIL import Image
+        from PIL import Image, ImageOps
         try:
             img = Image.open(io.BytesIO(png_bytes))
+
+            # --- Preprocessing pour améliorer la reconnaissance ---
+            # Tesseract lit beaucoup mieux avec un contraste net et un
+            # texte assez grand. Sur les crops fins (Prix/Date/Numéro)
+            # renderés en couleur avec fond légèrement teinté, la reco
+            # rate 1 char sur 3 (`Q9E` au lieu de `82E`, `JQL ITAINE`
+            # au lieu de `2E ANNÉE`).
+
+            # 1. Grayscale (le fond teinté noircit les chars fins)
+            if img.mode != "L":
+                img = img.convert("L")
+            # 2. Auto-contrast strict — noircit le texte, éclaircit le fond
+            img = ImageOps.autocontrast(img, cutoff=2)
+            # 3. Upscale ×2 si le côté court < 200 px (auto-fit ~400 px)
+            #    Tesseract est optimisé pour du texte à ~30-40 px de haut.
+            w, h = img.size
+            short = min(w, h)
+            if short < 200:
+                factor = min(3, max(2, 400 // max(1, short)))
+                img = img.resize((w * factor, h * factor), Image.LANCZOS)
+
             # `fra+eng` : force les 2 langues au cas où le magazine
             # contient un titre anglais (« Vogue Business »).
-            txt = pytesseract.image_to_string(img, lang="fra+eng")
+            # `--psm 6` : traite l'image comme un bloc de texte uniforme
+            #            (défaut = 3 = auto page segment, source de bruit
+            #            sur crops petits où Tesseract cherche des colonnes
+            #            inexistantes → hallucine des chars).
+            # `--oem 1` : moteur LSTM only (meilleure reco que legacy).
+            txt = pytesseract.image_to_string(
+                img,
+                lang="fra+eng",
+                config="--psm 6 --oem 1",
+            )
             return (txt or "").strip()
         except pytesseract.TesseractNotFoundError as e:
             raise OCREngineError(str(e)) from e

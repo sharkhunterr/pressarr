@@ -484,6 +484,7 @@ interface AIStep {
   error?: string | null
   elapsed_ms?: number
   leak_dropped?: boolean
+  garbage_dropped?: string
 }
 
 function fmtMs(ms?: number | null): string {
@@ -515,8 +516,16 @@ function AIStepCard({ step: s }: { step: AIStep }) {
   const canExpand = hasInput || hasParams
   const outputPreview = renderOutputPreview(s.output)
 
+  const dropped = s.garbage_dropped || s.leak_dropped
   return (
-    <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3">
+    <div
+      className={
+        'rounded border p-3 transition ' +
+        (dropped
+          ? 'border-red-950/60 bg-red-950/10 opacity-70'
+          : 'border-zinc-800 bg-zinc-900/40')
+      }
+    >
       <div className="flex items-center flex-wrap gap-2 mb-2">
         <span className={'text-xs px-2 py-0.5 rounded border font-mono ' + color}>
           {s.step}
@@ -541,8 +550,19 @@ function AIStepCard({ step: s }: { step: AIStep }) {
           </span>
         )}
         {s.leak_dropped && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-300">
-            leak dropped
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-300"
+            title="Sortie rejetée : ressemblait à un titre de magazine différent (hallucination probable)"
+          >
+            rejetée · leak
+          </span>
+        )}
+        {s.garbage_dropped && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-300"
+            title={`Sortie rejetée : ${s.garbage_dropped}. Non utilisée par l'arbiter.`}
+          >
+            rejetée · {s.garbage_dropped}
           </span>
         )}
         <span className="ml-auto text-xs text-zinc-500">
