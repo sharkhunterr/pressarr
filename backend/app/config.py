@@ -151,6 +151,13 @@ class Config:
         # sa robustesse sur textes stylisés/inclinés au prix d'un
         # temps de warm-up (~5 s premier appel, cache ensuite).
         self.ai_python_ocr_engine: str = "easyocr"
+        # Si Python OCR renvoie ≥ N caractères propres pour une zone,
+        # skip la vision LLM sur cette même zone (30-120 s économisés
+        # par zone, souvent). Utile quand minicpm-v produit surtout
+        # du bruit sur les crops petits que Tesseract sait déjà lire.
+        # 0 = jamais skip (comportement historique, les 3 sources
+        # alimentent l'arbiter).
+        self.ai_vision_skip_if_pyocr_ge: int = 0
         # ---- Modèles Ollama par étape (chaque étape est éditable
         #      individuellement dans Settings → IA) --------------
         # ``ai_text_model`` : legacy — était utilisé pour l'analyse
@@ -423,6 +430,9 @@ class Config:
         self.ai_python_ocr_engine = enr.get(
             "python_ocr_engine", self.ai_python_ocr_engine
         )
+        self.ai_vision_skip_if_pyocr_ge = enr.get(
+            "vision_skip_if_pyocr_ge", self.ai_vision_skip_if_pyocr_ge
+        )
         self.ai_text_model = enr.get("text_model", self.ai_text_model)
         self.ai_vision_model = enr.get("vision_model", self.ai_vision_model)
         self.ai_torrent_model = enr.get("torrent_model", self.ai_torrent_model)
@@ -590,6 +600,7 @@ class Config:
                     "vision_crop": self.ai_enrichment_vision_crop,
                     "python_ocr_enabled": self.ai_python_ocr_enabled,
                     "python_ocr_engine": self.ai_python_ocr_engine,
+                    "vision_skip_if_pyocr_ge": self.ai_vision_skip_if_pyocr_ge,
                     "text_model": self.ai_text_model,
                     "vision_model": self.ai_vision_model,
                     "torrent_model": self.ai_torrent_model,

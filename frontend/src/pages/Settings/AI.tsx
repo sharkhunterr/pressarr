@@ -47,6 +47,7 @@ const DEFAULT: LocalState = {
   enrichmentVisionCrop: 'full',
   pythonOcrEnabled: true,
   pythonOcrEngine: 'easyocr',
+  visionSkipIfPyocrGe: 0,
   textModel: 'mistral:7b',
   visionModel: 'minicpm-v:8b',
   torrentModel: null,
@@ -460,6 +461,43 @@ export default function AISettingsPage() {
               onToggle={(v) => setLocal({ ...local, pythonOcrEnabled: v })}
               onEngineChange={(e) => setLocal({ ...local, pythonOcrEngine: e })}
             />
+
+            {/* Skip vision quand Python OCR est suffisant — économie
+                de 30-120 s par zone. Slider 0 (jamais)…80 (agressif). */}
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-zinc-300">
+                  Skip vision si Python OCR ≥ N caractères
+                </label>
+                <span className="text-xs font-mono text-purple-300">
+                  {local.visionSkipIfPyocrGe === 0
+                    ? 'jamais'
+                    : `${local.visionSkipIfPyocrGe} chars`}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={80}
+                step={5}
+                value={local.visionSkipIfPyocrGe}
+                onChange={(e) =>
+                  setLocal({
+                    ...local,
+                    visionSkipIfPyocrGe: Number(e.target.value),
+                  })
+                }
+                className="w-full h-1.5 accent-purple-500 bg-zinc-800 rounded-full"
+              />
+              <p className="text-xs text-zinc-500">
+                Quand Python OCR renvoie un texte de qualité (≥ N chars
+                nettoyés) pour une zone, on skip la vision LLM sur cette
+                même zone. Économise 30-120 s/zone quand minicpm-v bruite
+                sur des crops que Tesseract sait déjà lire (Prix, Date,
+                Numéro). Recommandé : 15-25 pour un titre court, 40+ pour
+                un sous-titre. 0 = jamais skip.
+              </p>
+            </div>
 
             <PromptField
               label="Prompt LLM texte (analyse du nom torrent)"

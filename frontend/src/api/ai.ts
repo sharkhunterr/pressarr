@@ -19,6 +19,9 @@ export interface AISettings {
    *  rapidocr | easyocr. Availability is probed via
    *  /ai/python-ocr/engines (missing deps grey out). */
   pythonOcrEngine: 'tesseract' | 'rapidocr' | 'easyocr'
+  /** Si Python OCR renvoie ≥ N caractères propres pour une zone,
+   *  skip la vision LLM sur cette zone. 0 = jamais skip. */
+  visionSkipIfPyocrGe: number
   textModel: string
   visionModel: string
   /** Per-step overrides — null falls back to ``textModel``. Chaque

@@ -46,6 +46,7 @@ class AISettingsResource(CamelModel):
     enrichment_vision_crop: str  # full | top | bottom | top_bottom
     python_ocr_enabled: bool
     python_ocr_engine: str  # tesseract | rapidocr | easyocr
+    vision_skip_if_pyocr_ge: int
     text_model: str
     vision_model: str
     # Optional per-step overrides. Null = fall back to text_model.
@@ -81,6 +82,7 @@ class AISettingsUpdateResource(CamelModel):
     enrichment_vision_crop: str | None = None
     python_ocr_enabled: bool | None = None
     python_ocr_engine: str | None = None
+    vision_skip_if_pyocr_ge: int | None = None
     text_model: str | None = None
     vision_model: str | None = None
     torrent_model: str | None = None
@@ -115,6 +117,7 @@ def _to_resource(config) -> AISettingsResource:
         enrichment_vision_crop=config.ai_enrichment_vision_crop,
         python_ocr_enabled=config.ai_python_ocr_enabled,
         python_ocr_engine=config.ai_python_ocr_engine,
+        vision_skip_if_pyocr_ge=config.ai_vision_skip_if_pyocr_ge,
         text_model=config.ai_text_model,
         vision_model=config.ai_vision_model,
         torrent_model=config.ai_torrent_model,
@@ -171,6 +174,7 @@ async def save_ai_settings(
         "enrichment_vision_crop": "ai_enrichment_vision_crop",
         "python_ocr_enabled": "ai_python_ocr_enabled",
         "python_ocr_engine": "ai_python_ocr_engine",
+        "vision_skip_if_pyocr_ge": "ai_vision_skip_if_pyocr_ge",
         "text_model": "ai_text_model",
         "vision_model": "ai_vision_model",
         "torrent_model": "ai_torrent_model",

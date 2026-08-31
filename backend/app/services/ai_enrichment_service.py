@@ -1380,6 +1380,7 @@ class AIEnrichmentService:
                     # Best-effort : jamais fatal — un échec (engine
                     # manquant, texte illisible) laisse simplement la
                     # source 3 vide et le pipeline continue.
+                    pyocr_ok_len = 0  # utilisé + bas pour éventuel skip vision
                     if pyocr_enabled:
                         py_step = await self._run_python_ocr(
                             png_bytes,
@@ -1406,6 +1407,7 @@ class AIEnrichmentService:
                                 )
                             else:
                                 py_step["output"] = raw_txt
+                                pyocr_ok_len = len(raw_txt.strip())
                                 pyocr_outputs.append({
                                     "page": page_num,
                                     "zone": zone_label,
@@ -1414,6 +1416,37 @@ class AIEnrichmentService:
                                     "raw_text": raw_txt,
                                 })
                         steps.append(py_step)
+
+                    # Skip vision si Python OCR a produit assez de texte
+                    # propre pour cette zone (paramétrable via
+                    # ai_vision_skip_if_pyocr_ge, 0 = never). Le VLM est
+                    # souvent l'étape la plus lente (30-120 s/zone) et
+                    # produit du bruit sur les crops petits que Tesseract
+                    # sait déjà lire (Prix, Date, Numéro).
+                    skip_threshold = getattr(cfg, "ai_vision_skip_if_pyocr_ge", 0) or 0
+                    if skip_threshold > 0 and pyocr_ok_len >= skip_threshold:
+                        steps.append({
+                            "step": "vision",
+                            "model": vision_model,
+                            "page": page_num,
+                            "zone": zone_label,
+                            "tag": zone_tag,
+                            "input": {"skipped": True},
+                            "params": {
+                                "skipped_reason": "python_ocr_sufficient",
+                                "pyocr_len": pyocr_ok_len,
+                                "threshold": skip_threshold,
+                            },
+                            "output": None,
+                            "error": None,
+                            "elapsed_ms": 0,
+                        })
+                        cb(
+                            "vision",
+                            f"Skip vision zone {zone_label} — python_ocr OK "
+                            f"({pyocr_ok_len} chars ≥ {skip_threshold})",
+                        )
+                        continue
 
                     # --- 3. Vision LLM (toujours appelée) ------------
                     # User veut que TOUTES les étapes tournent pour
@@ -1696,8 +1729,18 @@ class AIEnrichmentService:
             num_ctx = 16384 if "qwen" in (model or "").lower() else 8192
         else:
             num_ctx = None
-        num_predict = 800 if images_b64 else None
-        repeat_penalty = 1.3 if images_b64 else None
+        # num_predict : plafond de génération vision. 800 était trop
+        # court → minicpm-v tronquait à mi-chemin (« POLITAINE » =
+        # fin de « MÉTROPOLITAINE »). 1500 laisse respirer titre +
+        # sous-titre + petites lignes légales.
+        num_predict = 1500 if images_b64 else None
+        # repeat_penalty : 1.3 était trop agressif et créait des
+        # boucles paradoxales (« N°\nN°\nPOLITAINE ») quand le modèle
+        # évite tellement le token courant qu'il retombe dessus après
+        # 2-3 tokens de filler. 1.1 casse les vraies loops sans
+        # étouffer la répétition légitime d'un OCR (« BEL 4,40 € ·
+        # LUX 4,40 € · SUI 5,90 CHF »).
+        repeat_penalty = 1.1 if images_b64 else None
         # Structured input / params for the History drill-down. Un
         # step complet ressemble maintenant à :
         #   {step, input, params, output, error, elapsed_ms, ...extra}
