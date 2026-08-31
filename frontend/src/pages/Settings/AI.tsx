@@ -162,17 +162,41 @@ export default function AISettingsPage() {
     )
   }
 
+  // Comparaison stable local vs serveur pour détecter les modifications
+  // non sauvegardées. Sert à surligner le bouton Enregistrer + afficher
+  // un badge quand l'user a modifié un champ sans cliquer Save (source
+  // du bug « j'ai changé la valeur mais rien n'a pris » — l'user
+  // oubliait le clic Enregistrer).
+  const isDirty = serverSettings != null
+    ? JSON.stringify({ ...serverSettings }) !== JSON.stringify({
+        ...local,
+        enrichmentVisionPages: pagesStr
+          .split(',').map((x) => x.trim()).filter(Boolean).map(Number)
+          .filter((n) => Number.isInteger(n) && n !== 0),
+      })
+    : false
+
   return (
     <div className="p-4 lg:p-8">
       {/* --- Page header --------------------------------------- */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="sticky top-0 z-10 -mx-4 lg:-mx-8 px-4 lg:px-8 py-3 mb-4 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Sparkles className="size-6 text-purple-400" />
           <h1 className="text-2xl font-bold text-zinc-100">
             Intelligence Artificielle
           </h1>
+          {isDirty && (
+            <span className="text-xs px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 animate-pulse">
+              modifications non sauvegardées
+            </span>
+          )}
         </div>
-        <Button onClick={commit} disabled={saveMutation.isPending}>
+        <Button
+          onClick={commit}
+          disabled={saveMutation.isPending || !isDirty}
+          variant={isDirty ? 'default' : 'outline'}
+          className={isDirty ? 'ring-2 ring-amber-500/50' : ''}
+        >
           {saveMutation.isPending ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (

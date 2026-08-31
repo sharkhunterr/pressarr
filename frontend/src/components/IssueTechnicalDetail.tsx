@@ -82,7 +82,42 @@ function eventToStep(e: HistoryEntry): TimelineStep {
     case 'searched': {
       const w = d.winner as { title?: string; confidence?: number } | null | undefined
       const totals = d.totals as { raw?: number; after_date_match?: number } | undefined
-      const ag = d.auto_grab as { attempted?: boolean; success?: boolean | null; message?: string | null } | undefined
+      const ag = d.auto_grab as {
+        threshold?: number
+        eligible?: boolean
+        attempted?: boolean
+        success?: boolean | null
+        message?: string | null
+      } | undefined
+
+      // Explique clairement pourquoi le grab a eu lieu / n'a pas eu lieu.
+      // 4 cas : envoyé OK / envoyé KO / bloqué par gate custom / bloqué
+      // par threshold. Le user doit toujours savoir POURQUOI.
+      let grabLine: { color: string; text: string } | null = null
+      if (ag) {
+        if (ag.attempted && ag.success) {
+          grabLine = { color: 'text-emerald-400', text: '✓ Auto-grab envoyé' }
+        } else if (ag.attempted && !ag.success) {
+          grabLine = { color: 'text-red-400', text: `✕ Auto-grab échec : ${ag.message ?? '?'}` }
+        } else if (ag.message) {
+          // Bloqué par un hard-gate (title/word/python_score/disabled).
+          grabLine = { color: 'text-amber-400', text: `⊘ Auto-grab bloqué : ${ag.message}` }
+        } else if (w && ag.threshold != null && w.confidence != null) {
+          // Bloqué par le seuil composite — pas de message, on infère.
+          if (w.confidence >= ag.threshold) {
+            grabLine = {
+              color: 'text-amber-400',
+              text: '⊘ Auto-grab non tenté (auto-grab probablement désactivé dans Settings › IA)',
+            }
+          } else {
+            grabLine = {
+              color: 'text-amber-400',
+              text: `⊘ Auto-grab bloqué : score ${w.confidence.toFixed(1)}% < seuil ${ag.threshold.toFixed(0)}%`,
+            }
+          }
+        }
+      }
+
       return {
         at, icon: Search, iconColor: 'text-blue-400',
         title: 'Recherche wanted',
@@ -94,16 +129,21 @@ function eventToStep(e: HistoryEntry): TimelineStep {
             </div>
             {w ? (
               <div className="rounded border border-purple-500/30 bg-purple-500/5 p-2">
-                <div className="text-purple-300 font-medium">Winner ({w.confidence?.toFixed(1)}%)</div>
+                <div className="text-purple-300 font-medium">
+                  Winner ({w.confidence?.toFixed(1)}%)
+                  {ag?.threshold != null && (
+                    <span className="ml-2 text-zinc-500 font-normal">
+                      seuil {ag.threshold.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
                 <div className="text-zinc-200 break-all">{w.title}</div>
               </div>
             ) : (
               <div className="text-zinc-500 italic">Aucun winner</div>
             )}
-            {ag?.attempted && (
-              <div className={ag.success ? 'text-emerald-400' : 'text-red-400'}>
-                Auto-grab : {ag.success ? '✓ envoyé' : `✕ ${ag.message ?? 'échec'}`}
-              </div>
+            {grabLine && (
+              <div className={grabLine.color}>{grabLine.text}</div>
             )}
           </div>
         ),
