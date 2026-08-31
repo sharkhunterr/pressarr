@@ -1171,14 +1171,25 @@ async def _try_import_item_locked(
     # « Not a quality upgrade » = fichier déjà importé, même qualité.
     # Retrys inutiles + polluent la queue de tracker items. On marque
     # le download comme processed immédiatement (traitement terminé).
-    if (
-        not imported_any
-        and item.download_id
-        and last_result.get("message") == "Not a quality upgrade"
+    #
+    # « Rejected: content title » = contamination détectée par le gate
+    # anti-contamination (torrent mal étiqueté, contenu ≠ magazine).
+    # Retenter n'aidera JAMAIS — le contenu ne va pas changer. Chaque
+    # retry re-tourne l'IA vision (~7 min) pour rien. Marquer processed
+    # immédiatement pour arrêter le loop de retries toutes les 30 s.
+    _last_msg = str(last_result.get("message") or "")
+    if not imported_any and item.download_id and (
+        _last_msg == "Not a quality upgrade"
+        or _last_msg.startswith("Rejected: content title")
     ):
+        reason_label = (
+            "already imported at same quality"
+            if _last_msg == "Not a quality upgrade"
+            else "content contamination detected"
+        )
         logger.info(
-            "Monitor: %s already imported at same quality — marking processed",
-            item.download_id,
+            "Monitor: %s — %s, marking processed (no retry)",
+            item.download_id, reason_label,
         )
         _processed_downloads.add(item.download_id)
         _import_fail_count.pop(item.download_id, None)

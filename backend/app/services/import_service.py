@@ -457,7 +457,11 @@ async def process_downloaded_file(
                         content_score, min_content, file_path,
                     )
                     try:
-                        from app.services.history_service import create_event
+                        from app.services.history_service import (
+                            add_to_blocklist,
+                            create_event,
+                            is_blocklisted,
+                        )
                         await create_event(
                             db,
                             event_type="import_rejected",
@@ -476,8 +480,33 @@ async def process_downloaded_file(
                                 "content_score": content_score,
                                 "min_score": min_content,
                                 "reason": "content_mismatch",
+                                "release_title": source_release_title,
                             },
                         )
+                        # Blocklist du release_title pour éviter que le
+                        # prochain wanted_search re-picke le MÊME torrent
+                        # → re-download → re-rejet indéfini. Skip si
+                        # déjà blocklisté (idempotent).
+                        if source_release_title:
+                            already = await is_blocklisted(
+                                db, source_release_title,
+                            )
+                            if not already:
+                                await add_to_blocklist(
+                                    db,
+                                    release_title=source_release_title,
+                                    magazine_id=magazine_id,
+                                    issue_id=issue_id,
+                                    reason=(
+                                        f"content_mismatch: contient "
+                                        f"« {ai_title} » ≠ « {_mag_row.title} » "
+                                        f"({content_score:.0f}%)"
+                                    ),
+                                )
+                                logger.warning(
+                                    "Release blocklisté : %s (contamination)",
+                                    source_release_title,
+                                )
                         await db.commit()
                     except Exception as _ev_exc:  # noqa: BLE001
                         logger.debug("history event failed: %s", _ev_exc)
