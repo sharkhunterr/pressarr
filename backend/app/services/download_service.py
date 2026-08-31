@@ -26,10 +26,17 @@ class _GrabInfo:
     ``issue_id`` peut être None : mode « manual grab différé » — l'issue
     n'existe pas encore et sera créée par le pipeline metadata pendant
     l'import à partir des valeurs finales du parser + IA + OCR + arbiter.
+
+    ``release_title`` : titre du release tel que retourné par l'indexer
+    au moment du grab. Propagé au IssueFile à l'import pour que la Fiche
+    technique montre d'où vient le fichier — le nom du fichier physique
+    est renommé selon le naming template, le release_title garde la
+    provenance originale (« Le.Monde.Du.25.08.2026.FR.[PDF]-NoTag »).
     """
     issue_id: int | None
     magazine_id: int
     pack_id: int | None = None
+    release_title: str | None = None
 
 
 # download_id → GrabInfo — populated at grab time, consumed at import time
@@ -282,6 +289,7 @@ async def grab_release(
                 # décidera après enrichissement metadata.
                 issue_id=issue.id if issue else None,
                 magazine_id=resolved_magazine_id,
+                release_title=title,
             )
             _save_registry()
             if issue:
@@ -420,6 +428,7 @@ async def grab_pack_release(
                 issue_id=0,
                 magazine_id=0,
                 pack_id=pack_id,
+                release_title=title,
             )
             _save_registry()
             logger.info(
@@ -1114,12 +1123,22 @@ async def _try_import_item_locked(
     # 3. Fallback: filename parsing in process_downloaded_file
     issue_id = override_issue_id
     magazine_id = override_magazine_id
+    grab_release_title: str | None = None
+    grab_pack_id: int | None = None
 
     if not issue_id:
         grab = _grab_registry.get(item.download_id) if item.download_id else None
         if grab:
             issue_id = grab.issue_id
             magazine_id = grab.magazine_id
+            grab_release_title = grab.release_title
+            grab_pack_id = grab.pack_id
+    else:
+        # override → on récupère quand même le release_title si dispo
+        grab = _grab_registry.get(item.download_id) if item.download_id else None
+        if grab:
+            grab_release_title = grab.release_title
+            grab_pack_id = grab.pack_id
 
     if issue_id:
         logger.info(
@@ -1137,6 +1156,9 @@ async def _try_import_item_locked(
             db, f, config,
             magazine_id=magazine_id,
             issue_id=issue_id,
+            source_type=("pack" if grab_pack_id else "torrent"),
+            source_pack_id=grab_pack_id,
+            source_release_title=grab_release_title,
         )
         logger.info(
             "Monitor: import result for %s: %s",

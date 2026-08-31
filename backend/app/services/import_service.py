@@ -1016,6 +1016,14 @@ async def import_file_for_issue(
         format=file_format,
         quality="unknown",
         original_filename=file_path.name,
+        # Provenance : nom du release (torrent) ou pack + type. Sans
+        # ça, la Fiche technique affichait juste le nom original du
+        # fichier sans indication de d'où il vient (torrent titre,
+        # nom du pack). Ces 3 kwargs sont propagés depuis les callers
+        # (download_service, scene_importer, manual research).
+        source_type=source_type,
+        source_pack_id=source_pack_id,
+        source_release_title=source_release_title,
     )
     db.add(issue_file)
 
