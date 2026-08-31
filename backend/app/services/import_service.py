@@ -527,6 +527,119 @@ async def process_downloaded_file(
                         ),
                     }
 
+                # ── GATE ANTI-CONTAMINATION DATE ─────────────────────
+                # Le title match peut passer (bon magazine) mais le
+                # tracker peut avoir mis un fichier avec une DATE
+                # différente sous le nom du release demandé. Cas réel :
+                # torrent nommé « Le.Monde.Du.27.08 » contenant en
+                # réalité un PDF « Le Monde des 30 et 31 Août » (weekend).
+                # Le title Jaccard dit 100 % (c'est bien Le Monde), mais
+                # la date lue par l'IA (30-31/08) ≠ date issue cible
+                # (27/08) → CONTAMINATION.
+                #
+                # Compare ai_year/month/day de enrich_result.final avec
+                # la date de l'issue cible. Tolérance =
+                # magazine.date_tolerance_days (défaut 0 = strict).
+                # Skip si on n'a pas d'issue cible (deferred/manual add).
+                if issue_id is not None:
+                    from datetime import date as _date
+                    final_data = enrich_result.final or {}
+                    ai_year = final_data.get("year")
+                    ai_month = final_data.get("month")
+                    ai_day = final_data.get("day")
+                    if ai_year and ai_month and ai_day:
+                        _issue_row = (
+                            await db.execute(
+                                _sel(Issue).where(Issue.id == issue_id)
+                            )
+                        ).scalars().first()
+                        if (
+                            _issue_row is not None
+                            and _issue_row.publication_date is not None
+                        ):
+                            try:
+                                ai_date = _date(int(ai_year), int(ai_month), int(ai_day))
+                                issue_date = _issue_row.publication_date
+                                if isinstance(issue_date, str):
+                                    issue_date = _date.fromisoformat(issue_date)
+                                delta_days = abs((ai_date - issue_date).days)
+                                tolerance = int(
+                                    getattr(_mag_row, "date_tolerance_days", 0) or 0
+                                )
+                                if delta_days > tolerance:
+                                    logger.error(
+                                        "IMPORT REJETÉ · date mismatch : "
+                                        "PDF daté %s (IA) mais issue cible %s "
+                                        "(écart %s jours > tolérance %s). "
+                                        "Fichier laissé à %s.",
+                                        ai_date, issue_date, delta_days,
+                                        tolerance, file_path,
+                                    )
+                                    try:
+                                        from app.services.history_service import (
+                                            add_to_blocklist,
+                                            create_event,
+                                            is_blocklisted,
+                                        )
+                                        await create_event(
+                                            db,
+                                            event_type="import_rejected",
+                                            magazine_id=magazine_id,
+                                            issue_id=issue_id,
+                                            details=(
+                                                f"Import refusé — date détectée "
+                                                f"{ai_date} ≠ date issue {issue_date} "
+                                                f"(écart {delta_days} jours > tolérance {tolerance})"
+                                            ),
+                                            data={
+                                                "source_path": str(file_path),
+                                                "ai_detected_date": ai_date.isoformat(),
+                                                "issue_date": issue_date.isoformat(),
+                                                "delta_days": delta_days,
+                                                "tolerance": tolerance,
+                                                "reason": "date_mismatch",
+                                                "release_title": source_release_title,
+                                            },
+                                        )
+                                        # Blocklist du release aussi pour ne pas
+                                        # re-picker au prochain search
+                                        if source_release_title:
+                                            already = await is_blocklisted(
+                                                db, source_release_title,
+                                            )
+                                            if not already:
+                                                await add_to_blocklist(
+                                                    db,
+                                                    release_title=source_release_title,
+                                                    magazine_id=magazine_id,
+                                                    issue_id=issue_id,
+                                                    reason=(
+                                                        f"date_mismatch: contient "
+                                                        f"{ai_date} ≠ demandé {issue_date}"
+                                                    ),
+                                                )
+                                        await db.commit()
+                                    except Exception as _ev_exc:  # noqa: BLE001
+                                        logger.debug("history event failed: %s", _ev_exc)
+                                    _act.mark_error(
+                                        activity_id,
+                                        f"Date mismatch : PDF {ai_date} ≠ issue {issue_date}",
+                                    )
+                                    return {
+                                        "success": False,
+                                        "issue_id": issue_id,
+                                        "message": (
+                                            f"Rejected: content date {ai_date} does not "
+                                            f"match issue date {issue_date} "
+                                            f"(delta {delta_days} days > tolerance {tolerance})"
+                                        ),
+                                    }
+                            except (ValueError, TypeError) as _dt_exc:
+                                logger.debug(
+                                    "date gate check skipped (bad date values): %s",
+                                    _dt_exc,
+                                )
+
     # Fast path: when issue_id is known (from grab registry), load directly
     # and skip fuzzy title matching + issue number/date matching entirely
     if issue_id:
