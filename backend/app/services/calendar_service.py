@@ -206,31 +206,67 @@ async def generate_forecasts(
     # Generate new forecasts
     created = []
 
-    while next_date <= end_date:
-        if next_date >= start_date and next_date.weekday() not in excluded:
-            # Skip numbers already taken by real issues
-            if number is not None:
-                while number in existing_numbers:
-                    number += 1
+    # Parse weekend_days pour coalescing en fréquence daily. Sans ça,
+    # dim 30 et lun 31 (weekend_days=[6,0]) devenaient 2 forecasts
+    # séparés au lieu d'être combinés en 1 issue weekend émise sur
+    # le dernier jour du groupe (comme le fait generate_backlog_wanted).
+    weekend: set[int] = set()
+    if getattr(magazine, "weekend_days", None):
+        weekend = {
+            int(d) for d in magazine.weekend_days.split(",") if d.strip()
+        }
 
-            forecast = Issue(
-                magazine_id=magazine.id,
-                number=number,
-                publication_date=next_date,
-                year=next_date.year,
-                month=next_date.month,
-                day=next_date.day,
-                status="upcoming",
-                monitored=magazine.monitored,
-                is_forecast=True,
-            )
-            db.add(forecast)
-            created.append(forecast)
+    def _emit_forecast(pub_date: date, next_number: int | None) -> int | None:
+        """Crée un forecast pour pub_date, retourne le prochain numéro."""
+        num = next_number
+        if num is not None:
+            while num in existing_numbers:
+                num += 1
+        forecast = Issue(
+            magazine_id=magazine.id,
+            number=num,
+            publication_date=pub_date,
+            year=pub_date.year,
+            month=pub_date.month,
+            day=pub_date.day,
+            status="upcoming",
+            monitored=magazine.monitored,
+            is_forecast=True,
+        )
+        db.add(forecast)
+        created.append(forecast)
+        return (num + 1) if num is not None else None
 
-            if number is not None:
-                number += 1
-
-        next_date = _advance_date(next_date, magazine.frequency)
+    if magazine.frequency == "daily" and weekend:
+        # Iteration day-by-day avec coalescing weekend — même règle
+        # que generate_backlog_wanted (les 2 doivent produire la même
+        # cadence d'issues pour cohérence UX).
+        buf: list[date] = []
+        cur = next_date
+        while cur <= end_date:
+            if cur >= start_date:
+                wd = cur.weekday()
+                if wd in excluded:
+                    if buf:
+                        number = _emit_forecast(buf[-1], number)
+                        buf = []
+                elif wd in weekend:
+                    buf.append(cur)
+                else:
+                    if buf:
+                        number = _emit_forecast(buf[-1], number)
+                        buf = []
+                    number = _emit_forecast(cur, number)
+            cur = cur + timedelta(days=1)
+        if buf:
+            number = _emit_forecast(buf[-1], number)
+    else:
+        # Autres fréquences (weekly/monthly/…) : pas de coalescing,
+        # comportement historique inchangé.
+        while next_date <= end_date:
+            if next_date >= start_date and next_date.weekday() not in excluded:
+                number = _emit_forecast(next_date, number)
+            next_date = _advance_date(next_date, magazine.frequency)
 
     await db.flush()
     return created
