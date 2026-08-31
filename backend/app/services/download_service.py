@@ -271,6 +271,84 @@ async def grab_release(
         else:
             download_id = await client.add_nzb(download_url, category="pressarr")
 
+        # ── Gate anti-doublon torrent hash ────────────────────────────
+        # qBittorrent DÉDUPLIQUE par info-hash : si 5 releases distincts
+        # côté indexer partagent le même torrent physique (uploader qui
+        # renomme sans re-uploader), qBit retourne le MÊME download_id
+        # pour les 5 grabs. Sans ce gate, `_grab_registry[dl_id]` est
+        # écrasé à chaque grab → le monitor importe le même fichier
+        # source sous N noms différents pour N issues cibles.
+        #
+        # Comportement défensif : si un grab arrive avec download_id
+        # déjà présent dans le registry pour un AUTRE issue/pack, on
+        # REFUSE le nouveau grab et on log. L'user voit un event
+        # `grab_duplicate` explicite dans l'History.
+        if download_id and download_id in _grab_registry:
+            existing = _grab_registry[download_id]
+            new_issue = issue.id if issue else None
+            same_target = (
+                existing.issue_id == new_issue
+                and existing.magazine_id == resolved_magazine_id
+                and existing.pack_id is None
+            )
+            if not same_target:
+                logger.warning(
+                    "Grab REFUSÉ (doublon hash torrent) : download_id=%s "
+                    "déjà réservé pour issue=%s/mag=%s (release « %s »). "
+                    "Nouveau grab tentait issue=%s/mag=%s (release « %s »). "
+                    "qBit dédupe → 1 seul fichier physique — importer 2 "
+                    "fois créerait des doublons.",
+                    download_id,
+                    existing.issue_id, existing.magazine_id,
+                    existing.release_title,
+                    new_issue, resolved_magazine_id, title,
+                )
+                # Best-effort : marquer l'activity en erreur + créer
+                # un event history pour visibilité.
+                try:
+                    await create_event(
+                        db,
+                        event_type="grab_duplicate",
+                        magazine_id=resolved_magazine_id,
+                        issue_id=new_issue,
+                        details=(
+                            f"Grab refusé — release « {title} » partage le "
+                            f"même torrent hash que « {existing.release_title} » "
+                            f"déjà en cours pour issue {existing.issue_id}. "
+                            f"qBit dédupe par hash — pas de double import possible."
+                        ),
+                        data={
+                            "download_id": download_id,
+                            "attempted_release": title,
+                            "attempted_issue_id": new_issue,
+                            "attempted_magazine_id": resolved_magazine_id,
+                            "existing_release": existing.release_title,
+                            "existing_issue_id": existing.issue_id,
+                            "existing_magazine_id": existing.magazine_id,
+                            "reason": "duplicate_torrent_hash",
+                        },
+                    )
+                except Exception:
+                    logger.debug("history event grab_duplicate failed", exc_info=True)
+                if activity_id is not None:
+                    try:
+                        await _asvc.mark_error(
+                            activity_id,
+                            f"Doublon torrent hash — déjà réservé pour issue "
+                            f"{existing.issue_id}",
+                        )
+                    except Exception:
+                        pass
+                return GrabResponse(
+                    issue_id=new_issue or 0,
+                    message=(
+                        f"Duplicate torrent hash — already grabbed for "
+                        f"issue {existing.issue_id} (release "
+                        f"« {existing.release_title} »). qBit dédupe → "
+                        f"1 seul fichier physique."
+                    ),
+                )
+
         # Register grab for later import tracking
         if download_id:
             # Clear processed/fail state so monitor_downloads() will pick it up
