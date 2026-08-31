@@ -1,6 +1,7 @@
 """History event endpoints."""
 
 import json
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -14,6 +15,20 @@ from app.schemas import PaginatedResource
 from app.schemas.history import HistoryResource
 
 router = APIRouter(prefix="/api/v1/history", tags=["History"])
+
+
+def _scrub_surrogates(v: Any) -> Any:
+    """Remplace récursivement les surrogates non-pairés (U+D800-U+DFFF)
+    par U+FFFD. Pydantic refuse de sérialiser ces caractères — un event
+    ai_enrichment écrit AVANT le durcissement du garbage detector peut
+    contenir un résidu vision qwen2.5vl qui casse l'endpoint entier."""
+    if isinstance(v, str):
+        return v.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(v, dict):
+        return {k: _scrub_surrogates(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_scrub_surrogates(x) for x in v]
+    return v
 
 
 @router.get("", response_model=PaginatedResource[HistoryResource])
@@ -76,8 +91,8 @@ async def list_history(
             issue_id=event.issue_id,
             issue_number=row.issue_number,
             issue_date=row.issue_date,
-            details=event.details,
-            data=parsed_data,
+            details=_scrub_surrogates(event.details),
+            data=_scrub_surrogates(parsed_data),
         ))
 
     return PaginatedResource(

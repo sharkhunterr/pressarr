@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,20 @@ from app.models.blocklist import Blocklist
 from app.models.history import History
 
 logger = logging.getLogger(__name__)
+
+
+def _scrub_surrogates(v: Any) -> Any:
+    """Remplace récursivement les surrogates non-pairés par U+FFFD.
+    Un event ai_enrichment ou vision peut contenir un résidu OCR
+    poubelle qui, sans scrub, casse la sérialisation Pydantic quand
+    l'API history tente de le renvoyer (500 UnicodeEncodeError)."""
+    if isinstance(v, str):
+        return v.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(v, dict):
+        return {k: _scrub_surrogates(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_scrub_surrogates(x) for x in v]
+    return v
 
 
 async def create_event(
@@ -22,13 +37,15 @@ async def create_event(
     details: str | None = None,
     data: dict | None = None,
 ) -> History:
+    scrubbed_details = _scrub_surrogates(details)
+    scrubbed_data = _scrub_surrogates(data) if data else None
     event = History(
         event_type=event_type,
         magazine_id=magazine_id,
         issue_id=issue_id,
         pack_id=pack_id,
-        details=details,
-        data=json.dumps(data) if data else None,
+        details=scrubbed_details,
+        data=json.dumps(scrubbed_data, ensure_ascii=False) if scrubbed_data else None,
     )
     db.add(event)
     await db.flush()
