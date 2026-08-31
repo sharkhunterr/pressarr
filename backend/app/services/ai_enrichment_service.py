@@ -118,17 +118,24 @@ TAG_TO_FIELD: dict[str, str | None] = {
 _ZONE_TAG_FOCUS: dict[str, str] = {
     # Le suffixe est concaténé au prompt vision de base pour orienter
     # le modèle sans réécrire tout le contrat JSON.
+    # RÈGLE : ne JAMAIS mettre de chiffres/valeurs concrètes dans les
+    # exemples — les VLM (minicpm-v, granite) les recopient littéralement
+    # dans leur sortie. Cas réel : « No 26 290 » du prompt était
+    # ré-émis par granite en même temps qu'un vrai numéro lu, donnant
+    # « N° 25399 - N° 26 290 » (hallucination).
     "number": (
         "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT le "
-        "numéro d'édition du magazine (ex. « N° 4033 », « No 26 290 »). "
-        "Ignore tout le reste. Renvoie ce numéro dans raw_text — "
-        "un seul entier suffit si tu ne vois que ça."
+        "numéro d'édition du magazine. Format attendu : « N° » ou "
+        "« No » suivi d'un entier (avec éventuel espace de milliers). "
+        "Ignore tout le reste. Renvoie CE numéro seul dans raw_text — "
+        "n'invente rien, n'ajoute pas un autre numéro."
     ),
     "date": (
         "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT la "
-        "date de publication (ex. « lundi 10 août 2026 », « Mars 2024 », "
-        "« DU 13 AU 19 AOÛT 2026 »). Ignore tout le reste. Renvoie la "
-        "date lisiblement dans raw_text."
+        "date de publication. Format attendu : jour de la semaine + "
+        "quantième + mois + année, ou juste mois + année, ou intervalle "
+        "« du X au Y ». Ignore tout le reste. Renvoie la date lisible "
+        "telle qu'elle apparaît dans raw_text, sans invention."
     ),
     "title": (
         "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT le "
@@ -141,20 +148,21 @@ _ZONE_TAG_FOCUS: dict[str, str] = {
         "une accroche éditoriale. Renvoie le texte tel quel dans raw_text."
     ),
     "price": (
-        "\n\n---\n### FOCUS ZONE\nCette zone contient le prix + éventuelles "
-        "mentions tarifaires étrangères (« 4,00 € », « BEL: 4,40 € »). "
-        "Renvoie tout ça dans raw_text."
+        "\n\n---\n### FOCUS ZONE\nCette zone contient le prix + "
+        "éventuelles mentions tarifaires étrangères. Format attendu : "
+        "nombre + virgule + décimales + symbole monétaire (€, $, £, CHF). "
+        "Renvoie tel quel dans raw_text, sans invention."
     ),
     "publisher": (
-        "\n\n---\n### FOCUS ZONE\nCette zone contient l'éditeur / les "
-        "mentions légales / le domaine (« www.lefigaro.fr », « Editions "
-        "Prisma »). Renvoie tout ça dans raw_text."
+        "\n\n---\n### FOCUS ZONE\nCette zone contient l'éditeur ou les "
+        "mentions légales, ou le domaine web. Renvoie tel quel dans "
+        "raw_text sans invention."
     ),
     "issn": (
         "\n\n---\n### FOCUS ZONE\nCette zone contient UNIQUEMENT le "
-        "numéro ISSN du magazine (format « ISSN 1234-5678 » ou juste "
-        "« 1234-5678 » — 8 chiffres/lettres séparés par un tiret). "
-        "Ignore le reste. Renvoie l'ISSN dans raw_text."
+        "numéro ISSN du magazine. Format : 8 chiffres/lettres séparés "
+        "par un tiret, éventuellement précédés de « ISSN ». Ignore le "
+        "reste. Renvoie l'ISSN dans raw_text — n'invente aucun chiffre."
     ),
     "all": "",  # comportement historique (prompt entier tel quel)
 }
@@ -1151,8 +1159,8 @@ def _normalise_crop_zones(data: Any) -> list[dict[str, Any]] | None:
             zone = {
                 "x": max(0.0, min(1.0, float(z["x"]))),
                 "y": max(0.0, min(1.0, float(z["y"]))),
-                "w": max(0.01, min(1.0, float(z["w"]))),
-                "h": max(0.01, min(1.0, float(z["h"]))),
+                "w": max(0.003, min(1.0, float(z["w"]))),
+                "h": max(0.003, min(1.0, float(z["h"]))),
                 "rotation": int(z.get("rotation") or 0) % 360,
                 "label": (z.get("label") or "").strip() or None,
                 "tag": (z.get("tag") or "all"),

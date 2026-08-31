@@ -394,23 +394,23 @@ export function AICropSelectorModal({
       let nx = o.x, ny = o.y, nw = o.w, nh = o.h
       // Bord ouest (contient nw, w, sw) → x + w bougent
       if (h === 'nw' || h === 'w' || h === 'sw') {
-        const newX = Math.max(0, Math.min(o.x + o.w - 0.01, o.x + dx))
+        const newX = Math.max(0, Math.min(o.x + o.w - 0.003, o.x + dx))
         nw = o.w + (o.x - newX)
         nx = newX
       }
       // Bord est (contient ne, e, se) → w seul bouge
       if (h === 'ne' || h === 'e' || h === 'se') {
-        nw = Math.max(0.01, Math.min(1 - o.x, o.w + dx))
+        nw = Math.max(0.003, Math.min(1 - o.x, o.w + dx))
       }
       // Bord nord (contient nw, n, ne) → y + h bougent
       if (h === 'nw' || h === 'n' || h === 'ne') {
-        const newY = Math.max(0, Math.min(o.y + o.h - 0.01, o.y + dy))
+        const newY = Math.max(0, Math.min(o.y + o.h - 0.003, o.y + dy))
         nh = o.h + (o.y - newY)
         ny = newY
       }
       // Bord sud (contient sw, s, se) → h seul bouge
       if (h === 'sw' || h === 's' || h === 'se') {
-        nh = Math.max(0.01, Math.min(1 - o.y, o.h + dy))
+        nh = Math.max(0.003, Math.min(1 - o.y, o.h + dy))
       }
       setZones((zs) => zs.map((z, i) =>
         i === selectedIdx ? { ...z, x: nx, y: ny, w: nw, h: nh } : z,
@@ -441,7 +441,7 @@ export function AICropSelectorModal({
   function handlePointerUp() {
     if (drag?.kind === 'draw' && selectedIdx != null) {
       const z = zones[selectedIdx]
-      if (z && (z.w < 0.01 || z.h < 0.01)) {
+      if (z && (z.w < 0.003 || z.h < 0.003)) {
         // Micro-drag / clic = drop la zone brouillon.
         setZones((zs) => zs.filter((_, i) => i !== selectedIdx))
         setSelectedIdx(null)
@@ -1087,8 +1087,37 @@ function ZoneRow({
           <Trash2 className="size-3 text-red-400" />
         </Button>
       </div>
-      <div className="mt-1 text-[10px] font-mono text-zinc-500">
-        x:{zone.x.toFixed(3)} y:{zone.y.toFixed(3)} w:{zone.w.toFixed(3)} h:{zone.h.toFixed(3)}
+      {/* Coords éditables : sliders pas assez précis pour un crop
+          fin type « N° 25399 » ligne unique. L'user peut peaufiner
+          au 0.1 % près. Min 0.003 (= 0.3 %) partagé avec le drag et
+          le backend, cohérent. */}
+      <div
+        className="mt-1 grid grid-cols-4 gap-1 text-[10px] font-mono"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {(['x', 'y', 'w', 'h'] as const).map((k) => (
+          <label
+            key={k}
+            className="flex items-center gap-0.5 rounded border border-zinc-800 bg-zinc-900 px-1"
+          >
+            <span className="text-zinc-500">{k}</span>
+            <input
+              type="number"
+              step={0.001}
+              min={0}
+              max={1}
+              value={zone[k].toFixed(3)}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!Number.isFinite(v)) return
+                const clamped = Math.max(0, Math.min(1, v))
+                const patch: Partial<CropZone> = { [k]: clamped }
+                onUpdate(patch)
+              }}
+              className="w-full bg-transparent text-zinc-200 text-right tabular-nums outline-none"
+            />
+          </label>
+        ))}
       </div>
       <Input
         value={zone.label ?? ''}

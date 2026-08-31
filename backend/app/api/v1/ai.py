@@ -703,8 +703,8 @@ def _clamp_zones(zones: list[CropZone]) -> list[dict]:
     for z in zones:
         x = max(0.0, min(1.0, z.x))
         y = max(0.0, min(1.0, z.y))
-        w = max(0.01, min(1.0 - x, z.w))
-        h = max(0.01, min(1.0 - y, z.h))
+        w = max(0.003, min(1.0 - x, z.w))
+        h = max(0.003, min(1.0 - y, z.h))
         rot = int(z.rotation or 0) % 360
         if rot not in (0, 90, 180, 270):
             rot = 0
