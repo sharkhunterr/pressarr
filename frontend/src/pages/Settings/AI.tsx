@@ -48,6 +48,7 @@ const DEFAULT: LocalState = {
   pythonOcrEnabled: true,
   pythonOcrEngine: 'easyocr',
   visionSkipIfPyocrGe: 0,
+  saveRunCrops: false,
   textModel: 'mistral:7b',
   visionModel: 'minicpm-v:8b',
   torrentModel: null,
@@ -497,6 +498,31 @@ export default function AISettingsPage() {
                 Numéro). Recommandé : 15-25 pour un titre court, 40+ pour
                 un sous-titre. 0 = jamais skip.
               </p>
+            </div>
+
+            {/* Sauver les crops PNG pour visualisation dans History. */}
+            <div className="flex items-start justify-between gap-4 rounded border border-zinc-800 p-3">
+              <div className="grid gap-1 flex-1">
+                <label className="text-sm font-medium text-zinc-300">
+                  Sauvegarder les images crop dans l'historique
+                </label>
+                <p className="text-xs text-zinc-500">
+                  Affiche l'image exacte envoyée à chaque OCR dans
+                  l'onglet History (utile pour vérifier le recadrage,
+                  la rotation, l'upscale). Consomme du disque :
+                  {' '}
+                  <code className="text-zinc-400">
+                    &lt;config&gt;/ai_run_crops/
+                  </code>
+                  , garde les 30 runs les plus récents. Défaut OFF.
+                </p>
+              </div>
+              <Switch
+                checked={local.saveRunCrops}
+                onCheckedChange={(v) =>
+                  setLocal({ ...local, saveRunCrops: v === true })
+                }
+              />
             </div>
 
             <PromptField

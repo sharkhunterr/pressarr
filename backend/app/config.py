@@ -158,6 +158,13 @@ class Config:
         # 0 = jamais skip (comportement historique, les 3 sources
         # alimentent l'arbiter).
         self.ai_vision_skip_if_pyocr_ge: int = 0
+        # Sauvegarde le PNG de chaque zone envoyée aux OCR sur disque
+        # (`<config_dir>/ai_run_crops/<run_id>/`) pour l'afficher dans
+        # l'History. Utile pour debug visuel du recadrage / de la
+        # rotation, mais consomme du disque (garde 30 runs récents).
+        # Défaut OFF — l'onglet History affiche « Image indisponible »
+        # tant que non activé.
+        self.ai_save_run_crops: bool = False
         # ---- Modèles Ollama par étape (chaque étape est éditable
         #      individuellement dans Settings → IA) --------------
         # ``ai_text_model`` : legacy — était utilisé pour l'analyse
@@ -433,6 +440,9 @@ class Config:
         self.ai_vision_skip_if_pyocr_ge = enr.get(
             "vision_skip_if_pyocr_ge", self.ai_vision_skip_if_pyocr_ge
         )
+        self.ai_save_run_crops = enr.get(
+            "save_run_crops", self.ai_save_run_crops
+        )
         self.ai_text_model = enr.get("text_model", self.ai_text_model)
         self.ai_vision_model = enr.get("vision_model", self.ai_vision_model)
         self.ai_torrent_model = enr.get("torrent_model", self.ai_torrent_model)
@@ -601,6 +611,7 @@ class Config:
                     "python_ocr_enabled": self.ai_python_ocr_enabled,
                     "python_ocr_engine": self.ai_python_ocr_engine,
                     "vision_skip_if_pyocr_ge": self.ai_vision_skip_if_pyocr_ge,
+                    "save_run_crops": self.ai_save_run_crops,
                     "text_model": self.ai_text_model,
                     "vision_model": self.ai_vision_model,
                     "torrent_model": self.ai_torrent_model,

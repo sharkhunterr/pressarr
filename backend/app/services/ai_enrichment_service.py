@@ -1446,9 +1446,13 @@ class AIEnrichmentService:
                     # sert au rendu History (l'user voit l'image exacte
                     # utilisée pour chaque zone). Chemin relatif porté
                     # sur toutes les steps de la zone pour groupage UI.
-                    crop_rel = _save_run_crop(
-                        cfg, run_id, page_num, zone_label, png_bytes,
-                    )
+                    # Gate par config — désactivé par défaut (consomme
+                    # du disque même avec cleanup 30 runs).
+                    crop_rel = None
+                    if getattr(cfg, "ai_save_run_crops", False):
+                        crop_rel = _save_run_crop(
+                            cfg, run_id, page_num, zone_label, png_bytes,
+                        )
                     # --- 2bis. Python OCR (source déterministe) ------
                     # Sur la MÊME image que celle envoyée à la vision.
                     # Best-effort : jamais fatal — un échec (engine
@@ -1710,8 +1714,10 @@ class AIEnrichmentService:
             elapsed_ms=elapsed,
             status="success",
         )
-        # Cleanup best-effort après finalize (jamais fatal).
-        _cleanup_old_run_crops(cfg)
+        # Cleanup best-effort après finalize (jamais fatal). Ne
+        # fait rien si le dossier n'existe pas (save_run_crops OFF).
+        if getattr(cfg, "ai_save_run_crops", False):
+            _cleanup_old_run_crops(cfg)
         return EnrichmentResult(
             final=final,
             applied_mode=applied,

@@ -22,6 +22,10 @@ export interface AISettings {
   /** Si Python OCR renvoie ≥ N caractères propres pour une zone,
    *  skip la vision LLM sur cette zone. 0 = jamais skip. */
   visionSkipIfPyocrGe: number
+  /** Sauver les crops PNG de chaque zone envoyée aux OCR sur disque
+   *  (`<config_dir>/ai_run_crops/`) pour les afficher dans l'onglet
+   *  History. Consomme du disque (garde 30 runs). Défaut OFF. */
+  saveRunCrops: boolean
   textModel: string
   visionModel: string
   /** Per-step overrides — null falls back to ``textModel``. Chaque
