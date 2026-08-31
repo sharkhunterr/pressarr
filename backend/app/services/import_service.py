@@ -340,6 +340,7 @@ async def process_downloaded_file(
     # naming template + issue matching use the enriched values.
     # Never blocks : any failure logs a warning and keeps `parsed`
     # untouched, so the regex parser stays as ultimate fallback.
+    enrich_result = None  # initialisé ici pour être visible du gate anti-contamination ci-dessous, même si AI OFF ou échec
     if getattr(config, "ai_enrichment_enabled", False):
         try:
             from app.database import async_session_factory
@@ -417,6 +418,82 @@ async def process_downloaded_file(
                 exc,
                 exc_info=True,
             )
+
+    # ── GATE ANTI-CONTAMINATION MAGAZINE ────────────────────────────
+    # Vérifie que le CONTENU du fichier correspond bien au magazine
+    # ciblé. Sans ça, un torrent mal étiqueté côté indexer
+    # (ex: torrent "Le Monde du 25.08" contenant en réalité
+    # "L'Équipe du 24 Août") est importé sans vérif → contamination
+    # du magazine cible (déjà arrivé une fois).
+    #
+    # L'IA vision a lu la couverture juste au-dessus et rempli
+    # `enrich_result.final.title`. On compare fuzzy à `magazine.title`.
+    # Sous le seuil → REFUS d'import + fichier laissé intact + event.
+    if magazine_id is not None and enrich_result is not None:
+        ai_title = ((enrich_result.final or {}).get("title") or "").strip()
+        if ai_title:
+            from sqlalchemy import select as _sel
+            from app.models.magazine import Magazine as _Mag
+            _mag_row = (
+                await db.execute(_sel(_Mag).where(_Mag.id == magazine_id))
+            ).scalars().first()
+            if _mag_row is not None:
+                from rapidfuzz import fuzz as _fz
+                content_score = float(_fz.ratio(
+                    ai_title.lower(),
+                    _mag_row.title.lower(),
+                ))
+                mag_override = getattr(_mag_row, "min_title_match_override", None)
+                min_content = float(
+                    mag_override if mag_override is not None
+                    else getattr(config, "wanted_search_min_title_match", 60.0)
+                )
+                if content_score < min_content:
+                    logger.error(
+                        "IMPORT REJETÉ · contamination détectée : "
+                        "PDF contient « %s » (IA) mais magazine cible « %s » "
+                        "(fuzzy %.0f%% < %.0f%%). Fichier laissé à %s.",
+                        ai_title, _mag_row.title,
+                        content_score, min_content, file_path,
+                    )
+                    try:
+                        from app.services.history_service import create_event
+                        await create_event(
+                            db,
+                            event_type="import_rejected",
+                            magazine_id=magazine_id,
+                            issue_id=issue_id,
+                            details=(
+                                f"Import refusé — contenu détecté "
+                                f"« {ai_title} » ≠ magazine cible "
+                                f"« {_mag_row.title} » "
+                                f"(fuzzy {content_score:.0f}% < {min_content:.0f}%)"
+                            ),
+                            data={
+                                "source_path": str(file_path),
+                                "ai_detected_title": ai_title,
+                                "magazine_title": _mag_row.title,
+                                "content_score": content_score,
+                                "min_score": min_content,
+                                "reason": "content_mismatch",
+                            },
+                        )
+                        await db.commit()
+                    except Exception as _ev_exc:  # noqa: BLE001
+                        logger.debug("history event failed: %s", _ev_exc)
+                    _act.mark_error(
+                        activity_id,
+                        f"Contamination détectée : {ai_title} ≠ {_mag_row.title}",
+                    )
+                    return {
+                        "success": False,
+                        "issue_id": issue_id,
+                        "message": (
+                            f"Rejected: content title '{ai_title}' does not "
+                            f"match magazine '{_mag_row.title}' "
+                            f"({content_score:.0f}% < {min_content:.0f}%)"
+                        ),
+                    }
 
     # Fast path: when issue_id is known (from grab registry), load directly
     # and skip fuzzy title matching + issue number/date matching entirely
