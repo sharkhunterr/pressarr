@@ -689,7 +689,7 @@ function KV({
   )
 }
 
-function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) {
+export function AIEnrichmentDetail({ data }: { data: Record<string, unknown> }) {
   const steps = (data.steps as AIStep[] | undefined) ?? []
   const final = (data.final as Record<string, unknown> | undefined) ?? {}
   const runId = data.run_id as number | undefined

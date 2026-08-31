@@ -8,7 +8,7 @@
  *
  * Utilisé dans le tab "Fiche technique" du modal Edit Issue.
  */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Calendar,
@@ -24,11 +24,14 @@ import {
   ExternalLink,
   FileText,
   Clock,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 
 import { getHistory, type HistoryEntry } from '@/api/history'
 import { getIssue, type Issue } from '@/api/issues'
 import { Badge } from '@/components/ui/badge'
+import { AIEnrichmentDetail } from '@/components/HistoryDetailModal'
 
 interface Props {
   issueId: number | null
@@ -43,6 +46,9 @@ interface TimelineStep {
   title: string
   subtitle?: string
   details?: React.ReactNode
+  /** Payload data d'un event ai_enrichment — rendu par AIEnrichmentDetail
+   *  (zones + crops + tabs Python/Vision) via un collapsible. */
+  aiData?: Record<string, unknown>
   raw?: HistoryEntry
 }
 
@@ -173,6 +179,7 @@ function eventToStep(e: HistoryEntry): TimelineStep {
         at, icon: Sparkles, iconColor: 'text-purple-400',
         title: 'Enrichissement IA',
         subtitle: `${status ?? '?'} · ${steps} étapes · ${elapsed ? (elapsed / 1000).toFixed(1) + 's' : '?'}`,
+        aiData: d,
         raw: e,
       }
     }
@@ -313,24 +320,9 @@ export function IssueTechnicalDetail({ issueId }: Props) {
         ) : (
           <div className="relative pl-6 space-y-3">
             <div className="absolute left-2 top-2 bottom-2 w-px bg-zinc-800" />
-            {timeline.map((s, i) => {
-              const Icon = s.icon
-              return (
-                <div key={i} className="relative">
-                  <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-zinc-950 border border-zinc-700 flex items-center justify-center">
-                    <Icon className={`size-2.5 ${s.iconColor}`} />
-                  </div>
-                  <div className="text-[10px] text-zinc-500 tabular-nums">
-                    {formatDate(s.at)}
-                  </div>
-                  <div className="text-sm text-zinc-200 font-medium">{s.title}</div>
-                  {s.subtitle && (
-                    <div className="text-xs text-zinc-400 break-all">{s.subtitle}</div>
-                  )}
-                  {s.details && <div className="mt-1">{s.details}</div>}
-                </div>
-              )
-            })}
+            {timeline.map((s, i) => (
+              <TimelineStepRow key={i} step={s} />
+            ))}
           </div>
         )}
       </div>
@@ -358,6 +350,53 @@ function KV({ label, value }: { label: string; value: string | number | null | u
       <span className="text-zinc-200 truncate">
         {value == null || value === '' ? '—' : String(value)}
       </span>
+    </div>
+  )
+}
+
+/** Une ligne de timeline — pour un event ai_enrichment, expose un
+ *  chevron qui déplie le rendu complet (zones + crops + tabs Python/
+ *  Vision) via `AIEnrichmentDetail`. Pour les autres types, rendu
+ *  compact classique. */
+function TimelineStepRow({ step: s }: { step: TimelineStep }) {
+  const [open, setOpen] = useState(false)
+  const Icon = s.icon
+  const hasAI = !!s.aiData
+
+  return (
+    <div className="relative">
+      <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-zinc-950 border border-zinc-700 flex items-center justify-center">
+        <Icon className={`size-2.5 ${s.iconColor}`} />
+      </div>
+      <div className="text-[10px] text-zinc-500 tabular-nums">
+        {formatDate(s.at)}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {hasAI && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="text-zinc-500 hover:text-zinc-300 -ml-0.5"
+            title={open ? 'Fermer le détail' : 'Voir le détail des zones OCR'}
+          >
+            {open ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+          </button>
+        )}
+        <div className="text-sm text-zinc-200 font-medium">{s.title}</div>
+      </div>
+      {s.subtitle && (
+        <div className="text-xs text-zinc-400 break-all">{s.subtitle}</div>
+      )}
+      {s.details && <div className="mt-1">{s.details}</div>}
+      {hasAI && open && (
+        <div className="mt-2 rounded border border-purple-950/40 bg-purple-950/10 p-3">
+          <AIEnrichmentDetail data={s.aiData!} />
+        </div>
+      )}
     </div>
   )
 }
