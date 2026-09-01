@@ -277,6 +277,7 @@ async def process_downloaded_file(
     source_type: str = "torrent",
     source_pack_id: int | None = None,
     source_release_title: str | None = None,
+    grab_candidates: list[dict] | None = None,
 ) -> dict:
     """Full import pipeline: parse → match → rename → move → update DB → cover → notify.
 
@@ -527,6 +528,63 @@ async def process_downloaded_file(
                         ),
                     }
 
+                # ── MULTI-TARGET ROUTING ─────────────────────────────
+                # Si le grab avait plusieurs candidates (même download_id
+                # → N issues visées, cas tracker qui mappe N releases
+                # vers 1 magnet), on RE-ROUTE l'issue_id vers la
+                # candidate dont la publication_date match le mieux la
+                # date lue par l'IA dans le PDF. Les candidates non
+                # matchées restent wanted → re-search plus tard avec
+                # espoir d'un hash différent.
+                final_data = enrich_result.final or {}
+                ai_year = final_data.get("year")
+                ai_month = final_data.get("month")
+                ai_day = final_data.get("day")
+                if (
+                    grab_candidates
+                    and len(grab_candidates) > 1
+                    and ai_year and ai_month and ai_day
+                ):
+                    from datetime import date as _date
+                    try:
+                        ai_date_target = _date(int(ai_year), int(ai_month), int(ai_day))
+                        cand_issue_ids = [
+                            c["issue_id"] for c in grab_candidates
+                            if c.get("issue_id") is not None
+                        ]
+                        cand_rows = (
+                            await db.execute(
+                                _sel(Issue).where(Issue.id.in_(cand_issue_ids))
+                            )
+                        ).scalars().all()
+                        # Choisit celle avec le plus petit écart en jours
+                        best = None
+                        best_delta = None
+                        for row in cand_rows:
+                            pd = row.publication_date
+                            if pd is None:
+                                continue
+                            if isinstance(pd, str):
+                                pd = _date.fromisoformat(pd)
+                            delta = abs((ai_date_target - pd).days)
+                            if best_delta is None or delta < best_delta:
+                                best = row
+                                best_delta = delta
+                        tol = int(getattr(_mag_row, "date_tolerance_days", 0) or 0)
+                        if best is not None and best_delta is not None and best_delta <= tol:
+                            if best.id != issue_id:
+                                old_id = issue_id
+                                issue_id = best.id
+                                logger.info(
+                                    "Multi-target routing: re-router "
+                                    "download vers issue_id=%d (date "
+                                    "%s == PDF %s) au lieu de issue_id=%d",
+                                    best.id, best.publication_date,
+                                    ai_date_target, old_id,
+                                )
+                    except (ValueError, TypeError):
+                        logger.debug("multi-target routing skipped", exc_info=True)
+
                 # ── GATE ANTI-CONTAMINATION DATE ─────────────────────
                 # Le title match peut passer (bon magazine) mais le
                 # tracker peut avoir mis un fichier avec une DATE
@@ -537,16 +595,12 @@ async def process_downloaded_file(
                 # la date lue par l'IA (30-31/08) ≠ date issue cible
                 # (27/08) → CONTAMINATION.
                 #
-                # Compare ai_year/month/day de enrich_result.final avec
-                # la date de l'issue cible. Tolérance =
-                # magazine.date_tolerance_days (défaut 0 = strict).
-                # Skip si on n'a pas d'issue cible (deferred/manual add).
+                # Après le routing multi-target ci-dessus, si l'issue_id
+                # cible a été aligné sur la date IA, ce gate passe. Sinon
+                # (pas de candidate matchante ou 1 seul target initial),
+                # il continue à refuser proprement.
                 if issue_id is not None:
                     from datetime import date as _date
-                    final_data = enrich_result.final or {}
-                    ai_year = final_data.get("year")
-                    ai_month = final_data.get("month")
-                    ai_day = final_data.get("day")
                     if ai_year and ai_month and ai_day:
                         _issue_row = (
                             await db.execute(

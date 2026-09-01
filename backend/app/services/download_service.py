@@ -39,8 +39,14 @@ class _GrabInfo:
     release_title: str | None = None
 
 
-# download_id → GrabInfo — populated at grab time, consumed at import time
-_grab_registry: dict[str, _GrabInfo] = {}
+# download_id → list[GrabInfo] — populated at grab time, consumed at import time.
+#
+# Multi-target routing : un même torrent hash peut être demandé pour
+# PLUSIEURS issues (arrive quand un tracker mappe N releases distincts
+# → 1 seul magnet). L'import route intelligemment vers l'issue dont la
+# publication_date match la date détectée par l'IA dans le PDF.
+# Les autres candidates restent wanted → re-search ultérieur.
+_grab_registry: dict[str, list[_GrabInfo]] = {}
 
 # download_ids that have already been imported (prevents re-processing)
 _processed_downloads: set[str] = set()
@@ -92,11 +98,19 @@ def _get_fail_count_path() -> Path:
 
 
 def _save_registry() -> None:
-    """Persist grab registry and processed set to disk."""
+    """Persist grab registry and processed set to disk.
+
+    Format persistant : `{download_id: [GrabInfo, ...]}` (multi-target).
+    Le loader tolère aussi l'ancien format `{download_id: GrabInfo}` pour
+    rétrocompat (auto-promotion en liste 1-élément).
+    """
     try:
         path = _get_registry_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = {k: asdict(v) for k, v in _grab_registry.items()}
+        data = {
+            k: [asdict(g) for g in lst]
+            for k, lst in _grab_registry.items()
+        }
         path.write_text(json.dumps(data, indent=2))
     except Exception:
         logger.warning("Could not save grab registry", exc_info=True)
@@ -115,15 +129,24 @@ def _save_registry() -> None:
 
 
 def _load_registry() -> None:
-    """Load grab registry and processed set from disk on startup."""
+    """Load grab registry and processed set from disk on startup.
+
+    Tolère 2 formats :
+      - Legacy `{dl_id: {GrabInfo_dict}}` → promoted en liste 1-élément
+      - New    `{dl_id: [{GrabInfo}, {GrabInfo}, …]}` → chargé tel quel
+    """
     global _registry_loaded
     try:
         path = _get_registry_path()
         if path.exists():
             data = json.loads(path.read_text())
             for k, v in data.items():
-                if k not in _grab_registry:
-                    _grab_registry[k] = _GrabInfo(**v)
+                if k in _grab_registry:
+                    continue
+                if isinstance(v, list):
+                    _grab_registry[k] = [_GrabInfo(**item) for item in v]
+                elif isinstance(v, dict):
+                    _grab_registry[k] = [_GrabInfo(**v)]  # legacy
             logger.info("Loaded %d entries from grab registry", len(data))
     except Exception:
         logger.warning("Could not load grab registry", exc_info=True)
@@ -156,8 +179,40 @@ def ensure_registry_loaded() -> None:
 
 
 def get_grab_info(download_id: str) -> _GrabInfo | None:
-    """Look up grab metadata for a download. Used by the queue API."""
-    return _grab_registry.get(download_id)
+    """Look up grab metadata for a download. Renvoie la PREMIÈRE
+    candidate (comportement legacy pré-multi-target)."""
+    lst = _grab_registry.get(download_id) or []
+    return lst[0] if lst else None
+
+
+def get_all_grab_infos(download_id: str) -> list[_GrabInfo]:
+    """Retourne toutes les candidates pour un download_id (multi-target)."""
+    return list(_grab_registry.get(download_id) or [])
+
+
+def _route_grab_by_date(
+    download_id: str,
+    ai_date,
+    tolerance_days: int = 0,
+) -> tuple["_GrabInfo | None", list["_GrabInfo"]]:
+    """Multi-target routing — choisit la candidate dont l'issue
+    publication_date match `ai_date` (± tolerance).
+
+    Retourne `(best_grab, others)` où :
+      - best_grab : la meilleure candidate ou None si aucune match
+      - others : les autres candidates (à laisser wanted pour re-search)
+
+    Nécessite d'aller lire les issues en DB → à faire côté caller.
+    Cette fonction fait juste le filtre sur la LISTE, le caller passe
+    déjà les dates comme un dict {issue_id: publication_date}.
+    """
+    # Implémentation dans _try_import_item_locked (a besoin de la DB).
+    raise NotImplementedError("route via caller with DB access")
+
+
+def _pop_all_grabs(download_id: str) -> list[_GrabInfo]:
+    """Retire et retourne toutes les candidates d'un download_id."""
+    return _grab_registry.pop(download_id, [])
 
 
 def dismiss_download(download_id: str) -> None:
@@ -177,11 +232,13 @@ def is_dismissed(download_id: str) -> bool:
 
 
 def find_download_ids_for_issue(issue_id: int) -> list[str]:
-    """Reverse lookup: find all download_ids registered for a given issue."""
+    """Reverse lookup: find all download_ids registered for a given issue.
+    Recherche l'issue dans TOUTES les candidates de chaque download
+    (multi-target)."""
     ensure_registry_loaded()
     return [
-        did for did, info in _grab_registry.items()
-        if info.issue_id == issue_id
+        did for did, lst in _grab_registry.items()
+        if any(g.issue_id == issue_id for g in lst)
     ]
 
 
@@ -271,85 +328,13 @@ async def grab_release(
         else:
             download_id = await client.add_nzb(download_url, category="pressarr")
 
-        # ── Gate anti-doublon torrent hash ────────────────────────────
-        # qBittorrent DÉDUPLIQUE par info-hash : si 5 releases distincts
-        # côté indexer partagent le même torrent physique (uploader qui
-        # renomme sans re-uploader), qBit retourne le MÊME download_id
-        # pour les 5 grabs. Sans ce gate, `_grab_registry[dl_id]` est
-        # écrasé à chaque grab → le monitor importe le même fichier
-        # source sous N noms différents pour N issues cibles.
-        #
-        # Comportement défensif : si un grab arrive avec download_id
-        # déjà présent dans le registry pour un AUTRE issue/pack, on
-        # REFUSE le nouveau grab et on log. L'user voit un event
-        # `grab_duplicate` explicite dans l'History.
-        if download_id and download_id in _grab_registry:
-            existing = _grab_registry[download_id]
-            new_issue = issue.id if issue else None
-            same_target = (
-                existing.issue_id == new_issue
-                and existing.magazine_id == resolved_magazine_id
-                and existing.pack_id is None
-            )
-            if not same_target:
-                logger.warning(
-                    "Grab REFUSÉ (doublon hash torrent) : download_id=%s "
-                    "déjà réservé pour issue=%s/mag=%s (release « %s »). "
-                    "Nouveau grab tentait issue=%s/mag=%s (release « %s »). "
-                    "qBit dédupe → 1 seul fichier physique — importer 2 "
-                    "fois créerait des doublons.",
-                    download_id,
-                    existing.issue_id, existing.magazine_id,
-                    existing.release_title,
-                    new_issue, resolved_magazine_id, title,
-                )
-                # Best-effort : marquer l'activity en erreur + créer
-                # un event history pour visibilité.
-                try:
-                    await create_event(
-                        db,
-                        event_type="grab_duplicate",
-                        magazine_id=resolved_magazine_id,
-                        issue_id=new_issue,
-                        details=(
-                            f"Grab refusé — release « {title} » partage le "
-                            f"même torrent hash que « {existing.release_title} » "
-                            f"déjà en cours pour issue {existing.issue_id}. "
-                            f"qBit dédupe par hash — pas de double import possible."
-                        ),
-                        data={
-                            "download_id": download_id,
-                            "attempted_release": title,
-                            "attempted_issue_id": new_issue,
-                            "attempted_magazine_id": resolved_magazine_id,
-                            "existing_release": existing.release_title,
-                            "existing_issue_id": existing.issue_id,
-                            "existing_magazine_id": existing.magazine_id,
-                            "reason": "duplicate_torrent_hash",
-                        },
-                    )
-                except Exception:
-                    logger.debug("history event grab_duplicate failed", exc_info=True)
-                if activity_id is not None:
-                    try:
-                        await _asvc.mark_error(
-                            activity_id,
-                            f"Doublon torrent hash — déjà réservé pour issue "
-                            f"{existing.issue_id}",
-                        )
-                    except Exception:
-                        pass
-                return GrabResponse(
-                    issue_id=new_issue or 0,
-                    message=(
-                        f"Duplicate torrent hash — already grabbed for "
-                        f"issue {existing.issue_id} (release "
-                        f"« {existing.release_title} »). qBit dédupe → "
-                        f"1 seul fichier physique."
-                    ),
-                )
-
-        # Register grab for later import tracking
+        # Register grab for later import tracking (multi-target routing).
+        # Si N grabs distincts convergent vers le MÊME download_id (cas
+        # tracker qui mappe N releases → 1 magnet), on ACCUMULE toutes
+        # les candidates dans la liste. Au moment de l'import, on route
+        # vers la candidate dont l'issue.publication_date match la date
+        # détectée par l'IA dans le PDF téléchargé. Les non-matchées
+        # restent wanted → re-search ultérieur avec un hash différent.
         if download_id:
             # Clear processed/fail state so monitor_downloads() will pick it up
             # again (handles re-grabbing the same torrent that was already imported
@@ -362,15 +347,33 @@ async def grab_release(
                 )
             _import_fail_count.pop(download_id, None)
 
-            _grab_registry[download_id] = _GrabInfo(
-                # issue_id peut être None : mode deferred, l'import
-                # décidera après enrichissement metadata.
+            new_grab = _GrabInfo(
                 issue_id=issue.id if issue else None,
                 magazine_id=resolved_magazine_id,
                 release_title=title,
             )
-            _save_registry()
-            if issue:
+            existing_list = _grab_registry.get(download_id) or []
+            # Dedup : si un grab identique (même issue/mag/pack) est déjà
+            # présent, on ne l'ajoute pas 2 fois. Utile pour les re-grabs
+            # manuels que l'user relance après échec (activity boutons).
+            already = any(
+                g.issue_id == new_grab.issue_id
+                and g.magazine_id == new_grab.magazine_id
+                and g.pack_id == new_grab.pack_id
+                for g in existing_list
+            )
+            if not already:
+                existing_list.append(new_grab)
+                _grab_registry[download_id] = existing_list
+                _save_registry()
+
+            if len(existing_list) > 1:
+                logger.info(
+                    "Multi-target grab: download_id=%s a maintenant %d "
+                    "candidates (routing à l'import selon date IA du PDF)",
+                    download_id, len(existing_list),
+                )
+            elif issue:
                 logger.info(
                     "Registered grab: download_id=%s → issue_id=%d, magazine_id=%d",
                     download_id, issue.id, resolved_magazine_id,
@@ -502,16 +505,22 @@ async def grab_pack_release(
                 _processed_downloads.discard(download_id)
             _import_fail_count.pop(download_id, None)
 
-            _grab_registry[download_id] = _GrabInfo(
+            new_grab = _GrabInfo(
                 issue_id=0,
                 magazine_id=0,
                 pack_id=pack_id,
                 release_title=title,
             )
-            _save_registry()
+            existing_list = _grab_registry.get(download_id) or []
+            already = any(g.pack_id == pack_id for g in existing_list)
+            if not already:
+                existing_list.append(new_grab)
+                _grab_registry[download_id] = existing_list
+                _save_registry()
             logger.info(
-                "Registered pack grab: download_id=%s → pack_id=%d",
-                download_id, pack_id,
+                "Registered pack grab: download_id=%s → pack_id=%d "
+                "(candidates=%d)",
+                download_id, pack_id, len(existing_list),
             )
 
         await create_event(
@@ -761,7 +770,8 @@ async def _mirror_download_to_activity(item, cfg: dict) -> None:
     if not download_id:
         return
 
-    grab = _grab_registry.get(download_id)
+    grab_list = _grab_registry.get(download_id) or []
+    grab = grab_list[0] if grab_list else None  # activity attachée à 1ère candidate
     aid = await _asvc.create(
         kind="download",
         title=item.name or "Torrent",
@@ -875,7 +885,7 @@ async def monitor_downloads(db: AsyncSession) -> None:
             # Fallback: check grab_registry entries not returned by get_all.
             # This handles cases where the Label plugin is not available or
             # the label was not applied to the torrent.
-            for download_id, grab_info in list(_grab_registry.items()):
+            for download_id, _grab_list in list(_grab_registry.items()):
                 if download_id in seen_download_ids:
                     continue
                 if download_id in _processed_downloads:
@@ -1204,21 +1214,36 @@ async def _try_import_item_locked(
     grab_release_title: str | None = None
     grab_pack_id: int | None = None
 
-    if not issue_id:
-        grab = _grab_registry.get(item.download_id) if item.download_id else None
-        if grab:
-            issue_id = grab.issue_id
-            magazine_id = grab.magazine_id
-            grab_release_title = grab.release_title
-            grab_pack_id = grab.pack_id
-    else:
-        # override → on récupère quand même le release_title si dispo
-        grab = _grab_registry.get(item.download_id) if item.download_id else None
-        if grab:
-            grab_release_title = grab.release_title
-            grab_pack_id = grab.pack_id
+    # Multi-target routing : le registry peut contenir PLUSIEURS
+    # candidates pour ce download_id (cas tracker qui mappe N releases
+    # → 1 magnet). On passe TOUTES les candidates à process_downloaded_file
+    # qui décidera de la routing selon la date détectée par l'IA vision.
+    grab_candidates: list[_GrabInfo] = []
+    if item.download_id:
+        grab_candidates = list(_grab_registry.get(item.download_id) or [])
 
-    if issue_id:
+    if not issue_id and grab_candidates:
+        # Défaut : la 1ère candidate (comportement legacy quand 1 seule).
+        # L'import re-décide dynamiquement si multi-target.
+        first = grab_candidates[0]
+        issue_id = first.issue_id
+        magazine_id = first.magazine_id
+        grab_release_title = first.release_title
+        grab_pack_id = first.pack_id
+    elif grab_candidates:
+        # Override queue_item : on garde son issue_id, récupère juste
+        # release_title/pack_id depuis la 1ère candidate.
+        first = grab_candidates[0]
+        grab_release_title = first.release_title
+        grab_pack_id = first.pack_id
+
+    if len(grab_candidates) > 1:
+        logger.info(
+            "Monitor: multi-target grab (%d candidates) pour download %s — "
+            "routing selon date IA au moment de l'import",
+            len(grab_candidates), item.download_id,
+        )
+    elif issue_id:
         logger.info(
             "Monitor: issue association — issue_id=%d, magazine_id=%s (source=%s)",
             issue_id, magazine_id,
@@ -1226,6 +1251,21 @@ async def _try_import_item_locked(
         )
     else:
         logger.info("Monitor: no issue association, will use filename parsing")
+
+    # Multi-target : sérialise les candidates pour que process_downloaded_file
+    # puisse re-router selon la date IA. Format transmis :
+    # `[{issue_id, magazine_id, release_title}, …]`.
+    grab_candidates_serialized: list[dict] | None = None
+    if len(grab_candidates) > 1:
+        grab_candidates_serialized = [
+            {
+                "issue_id": g.issue_id,
+                "magazine_id": g.magazine_id,
+                "release_title": g.release_title,
+                "pack_id": g.pack_id,
+            }
+            for g in grab_candidates
+        ]
 
     imported_any = False
     last_result = {}
@@ -1237,6 +1277,7 @@ async def _try_import_item_locked(
             source_type=("pack" if grab_pack_id else "torrent"),
             source_pack_id=grab_pack_id,
             source_release_title=grab_release_title,
+            grab_candidates=grab_candidates_serialized,
         )
         logger.info(
             "Monitor: import result for %s: %s",
