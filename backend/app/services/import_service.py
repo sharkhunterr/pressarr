@@ -528,37 +528,52 @@ async def process_downloaded_file(
                         ),
                     }
 
-                # ── MULTI-TARGET ROUTING ─────────────────────────────
-                # Si le grab avait plusieurs candidates (même download_id
-                # → N issues visées, cas tracker qui mappe N releases
-                # vers 1 magnet), on RE-ROUTE l'issue_id vers la
-                # candidate dont la publication_date match le mieux la
-                # date lue par l'IA dans le PDF. Les candidates non
-                # matchées restent wanted → re-search plus tard avec
-                # espoir d'un hash différent.
-                final_data = enrich_result.final or {}
-                ai_year = final_data.get("year")
-                ai_month = final_data.get("month")
-                ai_day = final_data.get("day")
+                # ── DATE DE RÉFÉRENCE : parser filename EN PRIORITÉ ──
+                # Le parser Python du NOM du fichier téléchargé est
+                # FIABLE (`Investir - 22 Août 2026.pdf` → day=22 sans
+                # ambigüité). L'IA vision peut mal lire les hebdos
+                # dont la couverture affiche une PLAGE de dates
+                # (« Semaine du 6 au 12 août » → IA lit day=6 alors
+                # que la parution est le 22).
+                #
+                # Priorité :
+                #   1. Parser filename : parsed.year/month/day
+                #   2. IA arbiter : enrich_result.final.year/month/day
+                #      (fallback si parser n'a pas de date)
+                _MONTH_MAP = {
+                    "janvier": 1, "février": 2, "fevrier": 2, "mars": 3,
+                    "avril": 4, "mai": 5, "juin": 6, "juillet": 7,
+                    "août": 8, "aout": 8, "septembre": 9,
+                    "octobre": 10, "novembre": 11, "décembre": 12,
+                    "decembre": 12,
+                    "january": 1, "february": 2, "march": 3, "april": 4,
+                    "june": 6, "july": 7, "august": 8, "september": 9,
+                    "october": 10, "november": 11, "december": 12,
+                    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6,
+                    "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10,
+                    "nov": 11, "dec": 12,
+                }
 
-                # L'IA arbiter peut renvoyer month comme string
-                # française ("Août", "septembre") au lieu d'un int.
-                # Convertit avant utilisation par les gates.
-                if isinstance(ai_month, str):
-                    _MONTH_MAP = {
-                        "janvier": 1, "février": 2, "fevrier": 2, "mars": 3,
-                        "avril": 4, "mai": 5, "juin": 6, "juillet": 7,
-                        "août": 8, "aout": 8, "septembre": 9,
-                        "octobre": 10, "novembre": 11, "décembre": 12,
-                        "decembre": 12,
-                        "january": 1, "february": 2, "march": 3, "april": 4,
-                        "june": 6, "july": 7, "august": 8, "september": 9,
-                        "october": 10, "november": 11, "december": 12,
-                        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6,
-                        "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10,
-                        "nov": 11, "dec": 12,
-                    }
-                    ai_month = _MONTH_MAP.get(ai_month.strip().lower())
+                # 1. Parser filename (source primaire, fiable)
+                ref_year = parsed.year
+                ref_month = parsed.month
+                ref_day = parsed.day
+                ref_source = "filename_parser"
+
+                # 2. Fallback IA arbiter si parser n'a pas trouvé
+                final_data = enrich_result.final or {}
+                if not (ref_year and ref_month and ref_day):
+                    ai_year = final_data.get("year")
+                    ai_month = final_data.get("month")
+                    ai_day = final_data.get("day")
+                    if isinstance(ai_month, str):
+                        ai_month = _MONTH_MAP.get(ai_month.strip().lower())
+                    if ai_year and ai_month and ai_day:
+                        ref_year, ref_month, ref_day = ai_year, ai_month, ai_day
+                        ref_source = "ai_arbiter"
+
+                # Alias legacy pour le code du gate date en dessous
+                ai_year, ai_month, ai_day = ref_year, ref_month, ref_day
                 if (
                     grab_candidates
                     and len(grab_candidates) > 1
