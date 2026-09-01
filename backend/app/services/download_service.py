@@ -913,10 +913,14 @@ async def monitor_downloads(db: AsyncSession) -> None:
 
 async def _process_completed_item(db: AsyncSession, item, cfg: dict) -> None:
     """Process a single completed download item (import + commit)."""
-    # Check if this download belongs to a pack
-    grab = _grab_registry.get(item.download_id) if item.download_id else None
-    if grab and grab.pack_id:
-        await _process_pack_download(db, item, grab, cfg)
+    # Check if this download belongs to a pack.
+    # `_grab_registry.get()` renvoie maintenant `list[_GrabInfo]`
+    # (multi-target). Un pack a toujours 1 seule GrabInfo par download_id
+    # (les packs sont uniques par nature), donc on prend la 1ère de la liste.
+    grab_list = _grab_registry.get(item.download_id) if item.download_id else None
+    first_grab = grab_list[0] if grab_list else None
+    if first_grab and first_grab.pack_id:
+        await _process_pack_download(db, item, first_grab, cfg)
         return
 
     try:
@@ -1126,8 +1130,10 @@ async def _try_import_item_locked(
         item.save_path, remote_path, local_path,
     )
 
-    # Resolve grab info for history events
-    grab = _grab_registry.get(item.download_id) if item.download_id else None
+    # Resolve grab info for history events — 1ère candidate suffit
+    # (le routing intelligent multi-target se fait dans process_downloaded_file).
+    _grab_hist_list = _grab_registry.get(item.download_id) if item.download_id else None
+    grab = _grab_hist_list[0] if _grab_hist_list else None
     hist_magazine_id = override_magazine_id or (grab.magazine_id if grab else None)
     hist_issue_id = override_issue_id or (grab.issue_id if grab else None)
 
