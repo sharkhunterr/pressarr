@@ -224,19 +224,42 @@ def _build_queries(
     (issue sans numéro NI date), retourne juste le titre magazine —
     évite un empty search silencieux qui laisserait l'issue jamais
     scannée.
+
+    Pour chaque query contenant des accents, une variante ASCII-strippée
+    est ajoutée après. Certains indexers Prowlarr renvoient HTTP 400
+    sur des queries avec accents UTF-8 (`Investir août 2026`), la
+    version dépéciée (`Investir aout 2026`) passe. On garde les deux
+    pour maximiser le hit rate — la dédup gère le cas où la version
+    dépéciée == originale (query sans accent).
     """
+    import unicodedata as _ud
+
+    def _strip_accents(s: str) -> str:
+        return "".join(
+            c for c in _ud.normalize("NFD", s)
+            if _ud.category(c) != "Mn"
+        )
+
     ctx = _build_query_context(magazine, issue)
     seen: set[str] = set()
     out: list[str] = []
+
+    def _add(rendered: str) -> None:
+        key = rendered.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(rendered)
+
     for tpl in templates:
         rendered = _render_template(tpl, ctx)
         if rendered is None:
             continue
-        key = rendered.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(rendered)
+        _add(rendered)
+        # Variante ASCII pour les indexers récalcitrants
+        stripped = _strip_accents(rendered)
+        if stripped != rendered:
+            _add(stripped)
     if not out:
         # Fallback = titre magazine seul (dernier recours)
         out.append(ctx["title"])

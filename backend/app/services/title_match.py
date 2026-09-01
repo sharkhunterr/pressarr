@@ -81,10 +81,14 @@ def _strip_accents(s: str) -> str:
 
 def content_tokens(txt: str) -> set[str]:
     """Tokens content-words significatifs : >=3 chars, non stop, non mois,
-    pas 100 % chiffres, pas issue-number pattern.
+    pas 100 % chiffres, pas issue-number pattern, pas release group.
     Accents strippés + lower + apostrophes/points normalisés."""
     out: set[str] = set()
     s = _strip_accents((txt or "").lower())
+    # Strip release group name en fin : « -kop1 », « -NoTag », « -Pro »,
+    # « -RACHE ». Convention scene : dernier tiret suivi d'un mot →
+    # nom d'équipe/uploader, JAMAIS lié au titre du magazine.
+    s = re.sub(r"-[a-zA-Z0-9]+$", "", s)
     # Apostrophes typographiques + curly + points → séparateur
     s = re.sub(r"[''`.]", " ", s)
     # Strip patterns issue-number : N1234, N°1234, #1234, No1234, num1234,
@@ -101,8 +105,12 @@ def content_tokens(txt: str) -> set[str]:
         if w.isdigit():
             continue
         # Rejette tokens alphanumériques dominés par digits (n1234, hd1080p)
+        # ET tokens 3-4 chars avec au moins 1 digit (kop1, w3d5) — release
+        # group codes courts contenant chiffres qui passent sinon
         _digits = sum(1 for c in w if c.isdigit())
         if _digits > len(w) // 2:
+            continue
+        if _digits >= 1 and len(w) <= 4:
             continue
         out.add(w)
     return out

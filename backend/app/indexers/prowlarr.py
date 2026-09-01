@@ -76,7 +76,13 @@ class ProwlarrClient(IndexerBase):
             try:
                 return await self._search_one(query, cats, [iid])
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
+                # HTTP 400 = query rejetée par cet indexer (souvent des
+                # caractères UTF-8 accentués). Bruit inutile en WARNING —
+                # le fallback ASCII est ajouté automatiquement par
+                # `_build_queries` et va essayer sans accents.
+                # Autres erreurs (500, timeout) restent en WARNING.
+                is_400 = "400" in str(exc)[:200]
+                (logger.debug if is_400 else logger.warning)(
                     "Prowlarr indexer #%s failed on query %r: %s",
                     iid, query, exc,
                 )
