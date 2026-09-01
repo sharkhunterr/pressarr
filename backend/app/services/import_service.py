@@ -584,50 +584,96 @@ async def process_downloaded_file(
 
                 # Alias legacy pour le code du gate date en dessous
                 ai_year, ai_month, ai_day = ref_year, ref_month, ref_day
-                if (
-                    grab_candidates
-                    and len(grab_candidates) > 1
-                    and ai_year and ai_month and ai_day
-                ):
+
+                # ── AUTO-ROUTING PAR DATE DE CONTENU ─────────────────
+                # Cherche l'issue du MÊME magazine dont la publication_date
+                # match le mieux le contenu détecté. En 2 passes :
+                #   1. Restrict aux `grab_candidates` du registry (multi-
+                #      target) — comportement historique
+                #   2. Fallback : si pas de match dans les candidates,
+                #      cherche dans TOUTES les issues wanted/snatched
+                #      du magazine (utile quand le grab a mal ciblé —
+                #      ex: fichier Le Monde 26/08 grabbé pour issue 27/08
+                #      alors qu'il existe une issue Le Monde 26/08 wanted).
+                #
+                # Le fichier va TOUJOURS à la bonne issue selon son
+                # contenu, jamais refusé s'il existe une issue matchante.
+                if ai_year and ai_month and ai_day:
                     from datetime import date as _date
                     try:
                         ai_date_target = _date(int(ai_year), int(ai_month), int(ai_day))
-                        cand_issue_ids = [
-                            c["issue_id"] for c in grab_candidates
-                            if c.get("issue_id") is not None
-                        ]
-                        cand_rows = (
-                            await db.execute(
-                                _sel(Issue).where(Issue.id.in_(cand_issue_ids))
-                            )
-                        ).scalars().all()
-                        # Choisit celle avec le plus petit écart en jours
-                        best = None
-                        best_delta = None
-                        for row in cand_rows:
-                            pd = row.publication_date
-                            if pd is None:
-                                continue
-                            if isinstance(pd, str):
-                                pd = _date.fromisoformat(pd)
-                            delta = abs((ai_date_target - pd).days)
-                            if best_delta is None or delta < best_delta:
-                                best = row
-                                best_delta = delta
                         tol = int(getattr(_mag_row, "date_tolerance_days", 0) or 0)
-                        if best is not None and best_delta is not None and best_delta <= tol:
-                            if best.id != issue_id:
-                                old_id = issue_id
-                                issue_id = best.id
-                                logger.info(
-                                    "Multi-target routing: re-router "
-                                    "download vers issue_id=%d (date "
-                                    "%s == PDF %s) au lieu de issue_id=%d",
-                                    best.id, best.publication_date,
-                                    ai_date_target, old_id,
+
+                        # Passe 1 : candidates du registry (si multi-target)
+                        candidate_issue_ids: list[int] = []
+                        if grab_candidates and len(grab_candidates) > 1:
+                            candidate_issue_ids = [
+                                c["issue_id"] for c in grab_candidates
+                                if c.get("issue_id") is not None
+                            ]
+
+                        best_row = None
+                        best_delta = None
+
+                        if candidate_issue_ids:
+                            cand_rows = (
+                                await db.execute(
+                                    _sel(Issue).where(Issue.id.in_(candidate_issue_ids))
                                 )
+                            ).scalars().all()
+                            for row in cand_rows:
+                                pd = row.publication_date
+                                if pd is None:
+                                    continue
+                                if isinstance(pd, str):
+                                    pd = _date.fromisoformat(pd)
+                                delta = abs((ai_date_target - pd).days)
+                                if best_delta is None or delta < best_delta:
+                                    best_row = row
+                                    best_delta = delta
+
+                        # Passe 2 : fallback sur TOUTES les issues du
+                        # magazine wanted/snatched si aucun bon match
+                        # trouvé dans les candidates.
+                        if (best_row is None or best_delta is None or best_delta > tol):
+                            all_mag_rows = (
+                                await db.execute(
+                                    _sel(Issue).where(
+                                        Issue.magazine_id == magazine_id,
+                                        Issue.status.in_(["wanted", "snatched"]),
+                                    )
+                                )
+                            ).scalars().all()
+                            for row in all_mag_rows:
+                                pd = row.publication_date
+                                if pd is None:
+                                    continue
+                                if isinstance(pd, str):
+                                    pd = _date.fromisoformat(pd)
+                                delta = abs((ai_date_target - pd).days)
+                                if best_delta is None or delta < best_delta:
+                                    best_row = row
+                                    best_delta = delta
+
+                        # Re-route si on a trouvé mieux
+                        if (
+                            best_row is not None
+                            and best_delta is not None
+                            and best_delta <= tol
+                            and best_row.id != issue_id
+                        ):
+                            old_id = issue_id
+                            issue_id = best_row.id
+                            logger.info(
+                                "Auto-routing par date : download %s → "
+                                "issue_id=%d (pub_date %s == PDF %s) au "
+                                "lieu de issue_id=%s (écart %s j)",
+                                file_path.name,
+                                best_row.id, best_row.publication_date,
+                                ai_date_target, old_id, best_delta,
+                            )
                     except (ValueError, TypeError):
-                        logger.debug("multi-target routing skipped", exc_info=True)
+                        logger.debug("auto-routing par date skipped", exc_info=True)
 
                 # ── GATE ANTI-CONTAMINATION DATE ─────────────────────
                 # Le title match peut passer (bon magazine) mais le
