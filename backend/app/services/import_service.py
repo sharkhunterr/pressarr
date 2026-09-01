@@ -335,6 +335,14 @@ async def process_downloaded_file(
 
     # 1. Parse filename
     parsed = parse_magazine_filename(file_path.name)
+    # Conserve la date du parser filename AVANT merge AI (le merge
+    # peut l'écraser en mode "remplace"). Utilisée comme source de
+    # référence FIABLE pour les gates date + multi-target routing —
+    # cf. bug hebdo Investir où l'IA lit day=6 (semaine du 6 au 12)
+    # alors que le filename dit day=22 (date de parution réelle).
+    filename_year = parsed.year
+    filename_month = parsed.month
+    filename_day = parsed.day
 
     # 1b. AI enrichment (if enabled) — refines `parsed` fields based
     # on torrent name + PDF cover. Runs BEFORE rename/import so the
@@ -554,10 +562,12 @@ async def process_downloaded_file(
                     "nov": 11, "dec": 12,
                 }
 
-                # 1. Parser filename (source primaire, fiable)
-                ref_year = parsed.year
-                ref_month = parsed.month
-                ref_day = parsed.day
+                # 1. Parser filename (source primaire, fiable) — capture
+                # AVANT `merge_ai_into_parsed` pour ne pas être écrasé
+                # par les valeurs IA en mode "remplace".
+                ref_year = filename_year
+                ref_month = filename_month
+                ref_day = filename_day
                 ref_source = "filename_parser"
 
                 # 2. Fallback IA arbiter si parser n'a pas trouvé
