@@ -540,6 +540,25 @@ async def process_downloaded_file(
                 ai_year = final_data.get("year")
                 ai_month = final_data.get("month")
                 ai_day = final_data.get("day")
+
+                # L'IA arbiter peut renvoyer month comme string
+                # française ("Août", "septembre") au lieu d'un int.
+                # Convertit avant utilisation par les gates.
+                if isinstance(ai_month, str):
+                    _MONTH_MAP = {
+                        "janvier": 1, "février": 2, "fevrier": 2, "mars": 3,
+                        "avril": 4, "mai": 5, "juin": 6, "juillet": 7,
+                        "août": 8, "aout": 8, "septembre": 9,
+                        "octobre": 10, "novembre": 11, "décembre": 12,
+                        "decembre": 12,
+                        "january": 1, "february": 2, "march": 3, "april": 4,
+                        "june": 6, "july": 7, "august": 8, "september": 9,
+                        "october": 10, "november": 11, "december": 12,
+                        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6,
+                        "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10,
+                        "nov": 11, "dec": 12,
+                    }
+                    ai_month = _MONTH_MAP.get(ai_month.strip().lower())
                 if (
                     grab_candidates
                     and len(grab_candidates) > 1

@@ -1354,6 +1354,41 @@ async def _try_import_item_locked(
     # Mark as processed and clean up registry
     # (download stays in client for seeding / user management)
     if imported_any and item.download_id:
+        # Multi-target : le fichier physique unique de ce hash a été
+        # importé sur UNE issue. Les AUTRES candidates du registry
+        # (issues de la même liste, non satisfaites) doivent être
+        # remises en `wanted` — un futur search cherchera un release
+        # avec un hash DIFFÉRENT pour elles.
+        satisfied_issue_id = last_result.get("issue_id")
+        candidates = list(_grab_registry.get(item.download_id) or [])
+        unsatisfied_issue_ids = [
+            g.issue_id for g in candidates
+            if g.issue_id is not None and g.issue_id != satisfied_issue_id
+        ]
+        if unsatisfied_issue_ids:
+            from sqlalchemy import update as _update
+            from app.models.issue import Issue as _Issue
+            try:
+                await db.execute(
+                    _update(_Issue)
+                    .where(
+                        _Issue.id.in_(unsatisfied_issue_ids),
+                        _Issue.status == "snatched",
+                    )
+                    .values(status="wanted")
+                )
+                await db.commit()
+                logger.info(
+                    "Multi-target : %d candidate(s) non satisfaite(s) "
+                    "(issue_ids %s) remises en wanted pour re-search",
+                    len(unsatisfied_issue_ids), unsatisfied_issue_ids,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "reset des candidates non satisfaites échoué",
+                    exc_info=True,
+                )
+
         _processed_downloads.add(item.download_id)
         _grab_registry.pop(item.download_id, None)
         _import_fail_count.pop(item.download_id, None)
