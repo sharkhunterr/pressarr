@@ -20,18 +20,17 @@ import {
 interface BlocklistEntry {
   id: number
   releaseTitle: string
-  magazineTitle: string
-  indexer: string
+  magazineTitle: string | null
+  indexer: string | null
   date: string
-  reason: string
+  reason: string | null
 }
 
 interface BlocklistPage {
-  items: BlocklistEntry[]
+  records: BlocklistEntry[]
   page: number
   pageSize: number
-  totalItems: number
-  totalPages: number
+  totalRecords: number
 }
 
 const getBlocklist = (page: number, pageSize: number) =>
@@ -59,8 +58,9 @@ export default function Blocklist() {
     queryFn: () => getBlocklist(page, pageSize),
   })
 
-  const items = data?.items ?? []
-  const totalPages = data?.totalPages ?? 1
+  const items = data?.records ?? []
+  const totalRecords = data?.totalRecords ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize))
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ['blocklist'] })

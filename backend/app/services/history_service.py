@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.blocklist import Blocklist
 from app.models.history import History
+from app.models.magazine import Magazine
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,18 @@ async def list_blocklist(
     page: int = 1,
     page_size: int = 20,
     magazine_id: int | None = None,
-) -> tuple[list[Blocklist], int]:
-    query = select(Blocklist)
+) -> tuple[list[dict], int]:
+    """Retourne des dicts enrichis avec ``magazine_title`` (LEFT JOIN).
+
+    On renvoie des dicts plutôt que des ORM Blocklist parce que le
+    ``magazine_title`` vient d'une table jointe, pas de la ligne
+    Blocklist elle-même. Le schéma Pydantic ``BlocklistResource``
+    valide indifféremment les deux via ``model_validate``.
+    """
+    query = (
+        select(Blocklist, Magazine.title)
+        .outerjoin(Magazine, Magazine.id == Blocklist.magazine_id)
+    )
     count_query = select(func.count(Blocklist.id))
 
     if magazine_id:
@@ -105,7 +116,21 @@ async def list_blocklist(
     query = query.order_by(Blocklist.date.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
-    return list(result.scalars().all()), total
+    rows = result.all()
+    out: list[dict] = []
+    for entry, mag_title in rows:
+        out.append({
+            "id": entry.id,
+            "date": entry.date,
+            "magazine_id": entry.magazine_id,
+            "magazine_title": mag_title,
+            "issue_id": entry.issue_id,
+            "release_title": entry.release_title,
+            "indexer": entry.indexer,
+            "protocol": entry.protocol,
+            "reason": entry.reason,
+        })
+    return out, total
 
 
 async def add_to_blocklist(

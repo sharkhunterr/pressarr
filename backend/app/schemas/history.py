@@ -22,6 +22,7 @@ class BlocklistResource(CamelModel):
     id: int
     date: datetime
     magazine_id: int | None = None
+    magazine_title: str | None = None
     issue_id: int | None = None
     release_title: str
     indexer: str | None = None
