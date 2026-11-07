@@ -639,6 +639,10 @@
   },
   "general": {
     "title": "General Settings",
+    "language": "Language",
+    "language_en": "English",
+    "language_fr": "Français",
+    "languageHint": "Applies at once and is kept in this browser.",
     "hostSettings": "Host Settings",
     "port": "Port",
     "portWarning": "Changing the port requires a restart.",

@@ -639,6 +639,10 @@
   },
   "general": {
     "title": "Paramètres généraux",
+    "language": "Langue",
+    "language_en": "English",
+    "language_fr": "Français",
+    "languageHint": "S’applique aussitôt et reste mémorisée dans ce navigateur.",
     "hostSettings": "Paramètres de l'hôte",
     "port": "Port",
     "portWarning": "La modification du port nécessite un redémarrage.",

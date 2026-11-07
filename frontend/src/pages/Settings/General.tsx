@@ -5,6 +5,7 @@ import { Save, Loader2, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getGeneralSettings, saveGeneralSettings } from '@/api/system'
+import { LANGUAGES, setLanguage, type Language } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -21,7 +22,7 @@ const LOG_LEVELS = ['debug', 'info', 'warning', 'error']
 const IMPORT_MODES = ['copy', 'move', 'copy_delete'] as const
 
 export default function General() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
 
   const [port, setPort] = useState(8787)
@@ -88,6 +89,33 @@ export default function General() {
       </div>
 
       <div className="grid gap-6">
+        {/* Language — this browser's, applied at once (not part of the server settings) */}
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">{t('general.language')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-1.5">
+              <Select
+                value={i18n.resolvedLanguage ?? 'en'}
+                onValueChange={(value) => setLanguage(value as Language)}
+              >
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((language) => (
+                    <SelectItem key={language} value={language}>
+                      {t(`general.language_${language}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-zinc-500">{t('general.languageHint')}</p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Host Settings */}
         <Card className="bg-zinc-950 border-zinc-800">
           <CardHeader>

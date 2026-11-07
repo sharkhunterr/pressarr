@@ -368,7 +368,7 @@ Pressarr's UI is fully translated into **2 languages**:
 
 The filename parser additionally supports month names in **5 languages** (EN, FR, DE, ES, IT) for accurate release detection.
 
-Change language anytime from Settings → General.
+Change language anytime from Settings → General (kept in each browser; by default, the browser's own language when Pressarr speaks it).
 
 ---
 
