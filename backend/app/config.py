@@ -91,7 +91,7 @@ class Config:
         # use a mirror so it stays configurable. Trailing slash
         # is stripped at load time so the rest of the code can
         # concatenate paths freely.
-        self.bookys_url: str = "https://www6.bookys-ebooks.com"
+        self.bookys_url: str = "https://www7.bookys-ebooks.com"
         self.bookys_username: str = ""
         self.bookys_password: str = ""
         self.telecharger_magazines_enabled: bool = False

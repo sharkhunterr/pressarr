@@ -183,7 +183,7 @@ export default function MagazinePipelineSection() {
               <Input
                 value={bookysUrl}
                 onChange={(e) => setBookysUrl(e.target.value)}
-                placeholder="https://www6.bookys-ebooks.com"
+                placeholder="https://www7.bookys-ebooks.com"
                 className="bg-zinc-950 border-zinc-700 text-zinc-100"
               />
             </div>

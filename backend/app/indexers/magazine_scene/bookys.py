@@ -1,6 +1,7 @@
 """Bookys scene-magazine scraper.
 
-The current Bookys host (``www6.bookys-ebooks.com``, the
+The current Bookys host (``www7.bookys-ebooks.com`` since
+October 2026 — ``www6`` redirects there — the
 operator-configured default) is behind Cloudflare's
 "Just a moment…" JS challenge. A plain ``httpx`` GET gets a
 403 with the interstitial HTML — no real content.
@@ -15,10 +16,14 @@ Login flow inside a single FlareSolverr session:
 
 1. ``sessions.create`` → fresh Chromium tab.
 2. ``request.get`` on the login page (warms cookies +
-   discovers any one-shot CSRF token the form might require).
-3. ``request.post`` to the same login endpoint with the
-   credentials. Success = a ``dle_user_id`` cookie shows up
-   in the session jar.
+   reads the form: its action and its one-shot ``_token``).
+3. ``request.post`` of the credentials to that form. Since
+   October 2026 the site posts ``_token`` / ``username`` /
+   ``password`` / ``remember`` to ``/index.php/login``;
+   success = the answer no longer shows a password field.
+   The older DataLife Engine form (``login_name`` /
+   ``login_password``, success = a ``dle_user_id`` cookie) is
+   still understood, should a mirror keep it.
 4. ``request.post`` to ``/index.php?do=search`` for the
    actual query, parse the resulting HTML.
 5. ``request.get`` on each release page, parse hoster links
@@ -35,7 +40,7 @@ import logging
 import re
 from collections.abc import Iterable
 
-from lxml import html
+from lxml import etree, html
 
 from app.indexers.magazine_scene._html_utils import (
     detect_hoster,
@@ -130,31 +135,36 @@ class BookysIndexer(MagazineSceneIndexerBase):
             return True
 
         try:
-            # Warm the form so any CSRF cookie is set.
-            await self._flare.request_get(
+            # Warm the form so any CSRF cookie is set, and read it.
+            page = await self._flare.request_get(
                 f"{self.base_url}/index.php?do=login", session=sess
             )
-            sol = await self._flare.request_post(
-                f"{self.base_url}/index.php?do=login",
-                post_data=(
+            form = _login_form(page.get("response") or "", self.base_url)
+            if form.dle:
+                post_data = (
                     f"login_name={_url_encode(self.username)}"
                     f"&login_password={_url_encode(self.password)}"
                     "&login_not_save=0&login=submit"
-                ),
-                session=sess,
+                )
+            else:
+                post_data = (
+                    f"_token={_url_encode(form.token or '')}"
+                    f"&username={_url_encode(self.username)}"
+                    f"&password={_url_encode(self.password)}"
+                    "&remember=on"
+                )
+            sol = await self._flare.request_post(
+                form.action, post_data=post_data, session=sess
             )
         except FlareSolverrError as e:
             logger.warning("Bookys login round-trip failed: %s", e)
             return False
 
-        cookies = sol.get("cookies") or []
-        has_auth_cookie = any(
-            (c.get("name") or "").startswith("dle_user_id") for c in cookies
-        )
-        if not has_auth_cookie:
+        if not _logged_in(sol, dle=form.dle):
             logger.warning(
-                "Bookys login did not set dle_user_id cookie — credentials "
-                "wrong or site auth changed (response status=%s)",
+                "Bookys login failed — credentials wrong or site auth "
+                "changed (form=%s, response status=%s)",
+                "dle" if form.dle else "token",
                 sol.get("status"),
             )
             return False
@@ -346,6 +356,59 @@ class BookysIndexer(MagazineSceneIndexerBase):
                 if s:
                     return s
         return None
+
+
+class _LoginForm:
+    """The login form a Bookys page shows: where it posts, its
+    one-shot ``_token``, and whether it is the old DataLife
+    Engine one."""
+
+    def __init__(self, action: str, token: str | None, dle: bool):
+        self.action = action
+        self.token = token
+        self.dle = dle
+
+
+def _login_form(page_html: str, base_url: str) -> _LoginForm:
+    """Read the login form of ``page_html`` — the current one
+    (``_token`` + ``username``), else the DataLife Engine one
+    (``login_name``)."""
+    default = _LoginForm(f"{base_url}/index.php/login", None, dle=False)
+    if not page_html.strip():
+        return default
+    try:
+        tree = html.fromstring(page_html)
+    except (ValueError, etree.ParserError):
+        return default
+    for form in tree.xpath("//form"):
+        names = set(form.xpath(".//input/@name"))
+        if "username" in names and "password" in names:
+            token = form.xpath(".//input[@name='_token']/@value")
+            action = (form.get("action") or "").strip()
+            if action and not action.startswith("http"):
+                action = f"{base_url}/{action.lstrip('/')}"
+            return _LoginForm(
+                action or default.action, token[0] if token else None, dle=False
+            )
+        if "login_name" in names:
+            return _LoginForm(f"{base_url}/index.php?do=login", None, dle=True)
+    return default
+
+
+def _logged_in(solution: dict, *, dle: bool) -> bool:
+    """Whether the answer to the login POST shows a signed-in
+    page: a ``dle_user_id`` cookie for the old form; for the
+    current one, a page that no longer asks for a password."""
+    if dle:
+        return any(
+            (c.get("name") or "").startswith("dle_user_id")
+            for c in solution.get("cookies") or []
+        )
+    status = solution.get("status")
+    if isinstance(status, int) and status >= 400:
+        return False
+    page = solution.get("response") or ""
+    return bool(page.strip()) and 'type="password"' not in page and "type='password'" not in page
 
 
 def _url_encode(s: str) -> str:
