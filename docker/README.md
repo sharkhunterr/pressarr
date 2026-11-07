@@ -74,7 +74,7 @@ services:
       - PRESSARR__LOG_LEVEL=info
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/system/status"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8585/api/v1/system/status', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
