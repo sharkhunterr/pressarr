@@ -393,6 +393,23 @@ Change language anytime from Settings → General (kept in each browser; by defa
 | `/magazines` | Organized magazine library |
 | `/downloads` | Temporary download directory |
 
+### Running as a user (PUID/PGID)
+
+The image runs as root by default and does not read `PUID` / `PGID`. To run it as your own user — needed on most NAS and CIFS/NFS mounts — set Compose's `user:` (or `docker run --user`), and make sure that user can write to the three volumes:
+
+```yaml
+services:
+  pressarr:
+    image: sharkhunterr/pressarr:latest
+    user: "1000:1000"   # your UID:GID (`id -u` / `id -g`)
+```
+
+```bash
+sudo chown -R 1000:1000 ./config ./magazines ./downloads
+```
+
+Your download client must write to `/downloads` with a UID/GID Pressarr can read, so that imports can move the files.
+
 ### Configuration File
 
 Pressarr uses a YAML config file at `/config/pressarr.yml` for persistent settings. All values can be overridden by environment variables with the `PRESSARR__` prefix.

@@ -86,6 +86,10 @@ docker compose up -d
 | `/magazines` | Organized magazine library |
 | `/downloads` | Temporary download directory |
 
+### Running as a user (PUID/PGID)
+
+The image runs as root and does not read `PUID` / `PGID`: set Compose's `user: "1000:1000"` (or `docker run --user 1000:1000`) with your own UID:GID, and give that user write access to the three volumes (`chown -R 1000:1000 config magazines downloads`).
+
 ---
 
 ## 🏷️ Available Tags
