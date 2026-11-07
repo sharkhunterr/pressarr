@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_config, get_db
+from app.indexers.base import release_link
 from app.schemas.pack import (
     PackCreateResource,
     PackDispatchFileResource,
@@ -211,10 +212,11 @@ async def grab_pack(
     if pack is None:
         raise HTTPException(404, "Pack not found")
 
-    download_url = body.get("downloadUrl")
     title = body.get("title", "")
     protocol = body.get("protocol", "torrent")
     guid = body.get("guid", "")
+    # a magnet-only result comes with an empty downloadUrl, its magnet in guid
+    download_url = release_link(body.get("downloadUrl"), guid)
     indexer = body.get("indexer", "")
 
     if not download_url:

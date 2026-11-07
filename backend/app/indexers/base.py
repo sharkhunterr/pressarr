@@ -4,6 +4,19 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
+def release_link(download_url: str | None, guid: str | None) -> str | None:
+    """Where a release is fetched from: its download URL, else its magnet.
+
+    Magnet-only indexers behind Prowlarr (The Pirate Bay…) return an
+    empty ``downloadUrl`` and put the magnet in ``guid`` — the magnet is
+    then the link a download client accepts."""
+    if download_url:
+        return download_url
+    if guid and guid.startswith("magnet:"):
+        return guid
+    return None
+
+
 @dataclass
 class RawSearchResult:
     """A single search result returned by an indexer."""

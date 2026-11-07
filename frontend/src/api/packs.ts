@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import { releaseLink } from './search'
 
 export interface PackPattern {
   id: number
@@ -194,7 +195,7 @@ export const grabPackRelease = (
 ) =>
   apiFetch<{ packId: number; downloadId: string; message: string }>(`/pack/${packId}/grab`, {
     method: 'POST',
-    body: JSON.stringify({ downloadUrl, title, protocol, guid, indexer }),
+    body: JSON.stringify({ downloadUrl: releaseLink(downloadUrl, guid), title, protocol, guid, indexer }),
   })
 
 // Dispatch (nouveau pipeline persistent)

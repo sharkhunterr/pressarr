@@ -4,7 +4,7 @@ import logging
 
 import httpx
 
-from app.indexers.base import IndexerBase, RawSearchResult
+from app.indexers.base import IndexerBase, RawSearchResult, release_link
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +246,12 @@ class ProwlarrClient(IndexerBase):
             age=data.get("age", 0),
             protocol=data.get("protocol", "torrent").lower(),
             seeders=data.get("seeders"),
-            download_url=data.get("downloadUrl"),
+            # magnet-only indexers: an empty ``downloadUrl``, the magnet
+            # in ``magnetUrl`` and/or ``guid``
+            download_url=release_link(
+                data.get("downloadUrl") or data.get("magnetUrl"),
+                data.get("guid"),
+            ),
             info_url=data.get("infoUrl"),
             publish_date=data.get("publishDate"),
             categories=[

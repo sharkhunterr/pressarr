@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_config, get_db
+from app.indexers.base import release_link
 from app.schemas import CamelModel
 from app.schemas.search import GrabResponse, SearchResultResource
 from app.services import search_service
@@ -122,10 +123,11 @@ async def grab_release(
     """
     issue_id = body.get("issueId")
     magazine_id = body.get("magazineId")
-    download_url = body.get("downloadUrl")
     title = body.get("title", "")
     protocol = body.get("protocol", "torrent")
     guid = body.get("guid", "")
+    # a magnet-only result comes with an empty downloadUrl, its magnet in guid
+    download_url = release_link(body.get("downloadUrl"), guid)
     target_issue_id = body.get("targetIssueId")
     target_date = body.get("targetDate")  # 'YYYY-MM-DD' or None
 

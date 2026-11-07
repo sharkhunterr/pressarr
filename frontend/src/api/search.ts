@@ -101,6 +101,11 @@ export const searchIndexers = (query: string, magazineId?: number) => {
   return apiFetch<SearchResult[]>(`/search?${params}`)
 }
 
+/** Where a release is fetched from: its download URL, else its magnet (magnet-only
+ * indexers return an empty downloadUrl and put the magnet in guid). */
+export const releaseLink = (downloadUrl: string, guid: string) =>
+  downloadUrl || (guid?.startsWith('magnet:') ? guid : '')
+
 export const grabRelease = (
   issueId: number,
   downloadUrl: string,
@@ -114,7 +119,7 @@ export const grabRelease = (
     method: 'POST',
     body: JSON.stringify({
       issueId: issueId || undefined,
-      downloadUrl,
+      downloadUrl: releaseLink(downloadUrl, guid),
       title,
       protocol,
       guid,
