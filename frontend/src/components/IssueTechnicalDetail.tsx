@@ -18,7 +18,6 @@ import {
   Import as ImportIcon,
   Sparkles,
   ShieldAlert,
-  Check,
   AlertCircle,
   Loader2,
   ExternalLink,

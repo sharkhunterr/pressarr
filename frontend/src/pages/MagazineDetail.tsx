@@ -79,7 +79,6 @@ import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
 import { HistoryModal } from '@/components/HistoryModal'
 import { WantedSearchNowModal } from '@/components/WantedSearchNowModal'
-import { WeekdaySelector } from '@/components/WeekdaySelector'
 import { IssueGroupsEditor } from '@/components/IssueGroupsEditor'
 import { IssueTechnicalDetail } from '@/components/IssueTechnicalDetail'
 import { shortenPath } from '@/lib/utils'
@@ -1444,7 +1443,7 @@ export default function MagazineDetail() {
       {/* Placeholder banner — magazine auto-créé par un pack.
           Invite l'utilisateur à finaliser frequency + root folder +
           quality. Clic sur "Compléter" ouvre le modal d'édition. */}
-      {magazine.isPlaceholder && (
+      {magazine?.isPlaceholder && (
         <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-amber-200">
@@ -2689,7 +2688,9 @@ export default function MagazineDetail() {
                         <IssueGroupsEditor
                           groups={editIssueGroups}
                           excluded={editExcludedDays}
-                          onChange={setEditIssueGroups}
+                          onChange={(next) =>
+                            setEditIssueGroups(next.map((g) => ({ ...g, label: g.label ?? null })))
+                          }
                         />
                       </div>
                     </div>

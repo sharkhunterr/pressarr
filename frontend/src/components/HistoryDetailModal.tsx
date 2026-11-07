@@ -1007,7 +1007,7 @@ function ZoneStepOutput({ step: s }: { step: AIStep }) {
     (s.params as Record<string, unknown> | null | undefined)?.skipped_reason
   return (
     <div className="space-y-1">
-      {skipped && (
+      {Boolean(skipped) && (
         <div className="text-[11px] text-zinc-400 italic">
           Vision skippée : Python OCR déjà suffisant (
           {String((s.params as Record<string, unknown>).pyocr_len)} chars ≥{' '}

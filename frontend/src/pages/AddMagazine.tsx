@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { WeekdaySelector } from '@/components/WeekdaySelector'
 import { IssueGroupsEditor, type IssueGroup } from '@/components/IssueGroupsEditor'
 import {
   Select,
@@ -50,7 +49,7 @@ export default function AddMagazine() {
   const [manualFrequency, setManualFrequency] = useState('monthly')
   const [excludedDays, setExcludedDays] = useState<number[]>([])
   const [releaseWeekday, setReleaseWeekday] = useState<number | null>(null)
-  const [weekendDays, setWeekendDays] = useState<number[]>([])
+  const [weekendDays] = useState<number[]>([])
   const [issueGroups, setIssueGroups] = useState<IssueGroup[]>([])
   const [sortByRecentDate, setSortByRecentDate] = useState(true)
   const [minTitleMatchOverride, setMinTitleMatchOverride] = useState<string>('')
@@ -138,7 +137,10 @@ export default function AddMagazine() {
         excludedDays: excludedDays.length > 0 ? excludedDays : undefined,
         releaseWeekday: releaseWeekday,
         weekendDays: weekendDays.length > 0 ? weekendDays : undefined,
-        issueGroups: issueGroups.length > 0 ? issueGroups : undefined,
+        issueGroups:
+          issueGroups.length > 0
+            ? issueGroups.map((g) => ({ ...g, label: g.label ?? null }))
+            : undefined,
         sortByRecentDate,
         minTitleMatchOverride: minTitleMatchOverride.trim()
           ? Number(minTitleMatchOverride)

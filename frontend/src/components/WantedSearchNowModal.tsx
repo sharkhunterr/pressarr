@@ -39,7 +39,7 @@ export function WantedSearchNowModal({ issueId, magazineId, onClose }: Props) {
     setLoading(true)
     setError(null)
     setResult(null)
-    const tid = toast.loading(
+    toast.loading(
       'Recherche en cours — Prowlarr + IA + rules · peut prendre 30-90s…',
       { id: `wanted-search-${id}` },
     )
