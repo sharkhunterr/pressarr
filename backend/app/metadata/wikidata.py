@@ -35,6 +35,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.metadata._session_lock import serialized
 from app.metadata.base import IssueMetadata, MetadataProviderBase, MetadataResult
 from app.models.metadata_cache import MetadataCache
 
@@ -433,6 +434,7 @@ class WikidataProvider(MetadataProviderBase):
             return []
         return [MetadataResult(**r) for r in rows]
 
+    @serialized
     async def _get_cache(self, cache_key: str) -> str | None:
         assert self.db is not None
         now = datetime.now(UTC)
@@ -444,6 +446,7 @@ class WikidataProvider(MetadataProviderBase):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    @serialized
     async def _set_cache(self, cache_key: str, payload: str) -> None:
         assert self.db is not None
         now = datetime.now(UTC)

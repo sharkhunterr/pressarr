@@ -111,6 +111,9 @@ async def _gather_with_timeout(
     done, pending = await asyncio.wait(tasks, timeout=timeout)
     for p in pending:
         p.cancel()
+    # Let the cancelled ones wind down before the caller uses the
+    # session they share again.
+    await asyncio.gather(*pending, return_exceptions=True)
     if pending:
         logger.warning(
             "cascade: %d provider(s) exceeded the %ss timeout and were skipped",
