@@ -70,8 +70,10 @@ _DL_RE = re.compile(r"/dl/\d+/?$")
 _URL_RE = re.compile(r"""https?://[^\s"'<>]+""")
 _SEARCH_LIMIT = 8
 # Release + /dl/ pages fetched at once — a search fans out to
-# about 8 releases × 3 hosters.
-_CONCURRENCY = 4
+# about 8 releases × 3 hosters, and the site answers 429 past
+# a couple of parallel requests.
+_CONCURRENCY = 2
+_RETRIES_ON_429 = 3
 _LANGUAGES = {"français": "fr", "francais": "fr", "anglais": "en"}
 
 
@@ -250,13 +252,21 @@ class BookysIndexer(MagazineSceneIndexerBase):
     # ------------------------------------------------------------------
     async def _get(self, url: str) -> str | None:
         assert self._client is not None
-        async with self._fetch_slots:
-            try:
-                resp = await self._client.get(url)
-            except httpx.HTTPError as e:
-                logger.debug("Bookys fetch failed: %s (%s)", url, e)
-                return None
-        return resp.text if resp.status_code == 200 else None
+        for attempt in range(_RETRIES_ON_429 + 1):
+            async with self._fetch_slots:
+                try:
+                    resp = await self._client.get(url)
+                except httpx.HTTPError as e:
+                    logger.debug("Bookys fetch failed: %s (%s)", url, e)
+                    return None
+                if resp.status_code != 429 or attempt == _RETRIES_ON_429:
+                    break
+                # Wait while holding the slot: the whole scrape slows down.
+                await asyncio.sleep(_retry_after(resp, attempt))
+        if resp.status_code != 200:
+            logger.debug("Bookys fetch %s answered %s", url, resp.status_code)
+            return None
+        return resp.text
 
     async def _fetch_release(
         self, url: str
@@ -273,13 +283,6 @@ class BookysIndexer(MagazineSceneIndexerBase):
             tree, ["//h1//text()", "//title/text()"]
         )
         title = title.strip() if title else url
-        cover_url = self._first_text(
-            tree,
-            [
-                "//meta[@name='og:image']/@content",
-                "//meta[@property='og:image']/@content",
-            ],
-        )
 
         # One row per hoster: Type | Format | Langue | Taille | Part.
         rows: list[tuple[str, list[str]]] = []
@@ -331,7 +334,9 @@ class BookysIndexer(MagazineSceneIndexerBase):
             file_format=file_format or parse_format(title) or "pdf",
             size_bytes=parse_size_bytes(size_text),
             published_at=None,
-            cover_url=self._absolute(cover_url) if cover_url else None,
+            # The site's covers (/storage/items/…) answer 403 without
+            # the Cloudflare clearance: a browser would show them broken.
+            cover_url=None,
         )
 
     async def _resolve_dl(self, dl_url: str) -> HosterLink | None:
@@ -428,6 +433,15 @@ def _signed_in(page_html: str) -> bool:
         tree.xpath("//a[contains(@href,'logout')] | //form[contains(@action,'logout')]")
     )
     return has_logout and not tree.xpath("//input[@type='password']")
+
+
+def _retry_after(resp: httpx.Response, attempt: int) -> float:
+    """Seconds to wait after a 429: the site's ``Retry-After``
+    when it gives one (capped), else 1 s, 2 s, 4 s."""
+    try:
+        return min(float(resp.headers.get("retry-after", "")), 10.0)
+    except ValueError:
+        return float(2**attempt)
 
 
 def _blocked(resp: httpx.Response) -> bool:

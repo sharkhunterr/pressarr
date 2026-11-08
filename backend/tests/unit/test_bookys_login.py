@@ -79,12 +79,17 @@ class StuckFlare(FakeFlare):
 class FakeSite:
     """The Bookys pages, served to httpx."""
 
-    def __init__(self, login_answer: str):
+    def __init__(self, login_answer: str, too_many: int = 0):
         self.login_answer = login_answer
         self.posts: list[tuple[str, dict, httpx.Headers]] = []
+        # The first ``too_many`` /dl/ requests answer 429.
+        self.too_many = too_many
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path in DL and self.too_many:
+            self.too_many -= 1
+            return httpx.Response(429, headers={"Retry-After": "0"})
         if request.method == "POST" and path == "/login":
             self.posts.append((path, parse_qs(request.content.decode()), request.headers))
             return httpx.Response(200, text=self.login_answer)
@@ -170,4 +175,14 @@ async def test_a_search_reads_the_results_table_and_resolves_each_hoster_link(in
         ("fileroy.com", "https://fileroy.com/0Pdzy/file"),
     ]
     assert (r.file_format, r.language, r.size_bytes) == ("pdf", "fr", 32 * 1024 * 1024)
-    assert r.cover_url == f"{BASE}/storage/items/le-monde.jpg"
+    # Bookys covers answer 403 to a browser without the clearance.
+    assert r.cover_url is None
+
+
+@pytest.mark.asyncio
+async def test_a_hoster_link_answered_429_is_fetched_again(indexer):
+    idx = indexer(FakeSite(SIGNED_IN, too_many=2))
+    releases = await idx.search("Le Monde")
+    await idx.close()
+
+    assert [h.hoster for h in releases[0].hoster_links] == ["nitroflare.com", "fileroy.com"]
