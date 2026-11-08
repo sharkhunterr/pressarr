@@ -382,5 +382,8 @@ async def test_the_cover_shown_by_the_add_search_is_kept(client: AsyncClient, se
 
     cover = resp.json()["coverPath"]
     assert cover.endswith("science-magazine-custom.jpg")
-    # The transparent background comes out white, not black.
-    assert Image.open(cover).getpixel((0, 0)) == (255, 255, 255)
+    saved = Image.open(cover)
+    # A logo is centred on a cover-shaped page; its transparent
+    # background comes out white, not black.
+    assert saved.size == (500, 700)
+    assert saved.getpixel((0, 0)) == (255, 255, 255)

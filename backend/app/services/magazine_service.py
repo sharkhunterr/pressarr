@@ -42,8 +42,12 @@ def generate_title_slug(title: str) -> str:
     return slug
 
 
-def save_cover_image(image_bytes: bytes, covers_dir: Path, title_slug: str) -> str:
+def save_cover_image(
+    image_bytes: bytes, covers_dir: Path, title_slug: str, *, portrait: bool = False
+) -> str:
     """Resize image to max 500px wide, convert to JPEG, save to covers dir.
+    ``portrait`` centres a wider-than-tall image (a logo) on a white
+    cover-shaped page, so the library's cover tiles do not crop it.
 
     Returns the absolute path of the saved file.
     """
@@ -61,6 +65,11 @@ def save_cover_image(image_bytes: bytes, covers_dir: Path, title_slug: str) -> s
         background.paste(img, mask=img.getchannel("A"))
         img = background
     img = img.convert("RGB")
+    if portrait and img.width >= img.height:
+        logo = img.copy()
+        logo.thumbnail((400, 400), Image.LANCZOS)
+        img = Image.new("RGB", (500, 700), "white")
+        img.paste(logo, ((500 - logo.width) // 2, (700 - logo.height) // 2))
     dest = covers_dir / f"{title_slug}-custom.jpg"
     img.save(dest, "JPEG", quality=85)
     return str(dest)

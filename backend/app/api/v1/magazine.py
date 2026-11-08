@@ -233,7 +233,8 @@ async def create_magazine(
             image = await magazine_service.download_cover(body.cover_url)
             if image:
                 magazine.cover_path = magazine_service.save_cover_image(
-                    image, Path(config.config_path).parent / "covers", magazine.title_slug
+                    image, Path(config.config_path).parent / "covers", magazine.title_slug,
+                    portrait=True,
                 )
                 await db.commit()
         except Exception:
