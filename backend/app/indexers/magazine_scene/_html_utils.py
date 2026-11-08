@@ -51,6 +51,8 @@ KNOWN_HOSTERS: tuple[str, ...] = (
     "jioupload.top",
     "filespayouts.com",
     "filespay.com",
+    # Seen on Bookys (www7), next to nitroflare / upfiles.
+    "fileroy.com",
 )
 
 
