@@ -8,6 +8,113 @@
 
 # v0.2.0
 
+## 🤖 AI-assisted import, wanted-issue search, live Activity
+
+Pressarr now searches your **wanted issues on its own**, checks that a
+downloaded file really is the issue it was meant for before importing it,
+and shows **every search, grab, download, import and AI run live** on a
+new Activity page. An optional local **AI (Ollama)** reads release names
+and covers when the filename is not enough.
+
+![Library](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/library.png)
+
+> [!IMPORTANT]
+> Two features are **experimental** and off by default:
+> - **AI (Ollama)** — working, but its settings and behaviour may still change.
+> - **Bookys + JDownloader** — **not validated**. Searching works, but the
+>   free hoster mirrors ask for a captcha or have no JDownloader plugin, so
+>   most downloads fail without a premium or debrid account in JDownloader.
+
+---
+
+### 🔍 Wanted-issue search
+
+- Wanted issues are searched on a schedule (every 4 h by default, configurable), and right away when you add a magazine.
+- Several queries per issue: number (`N°`, `#`) and date formats.
+- Results must match the title (threshold global or per magazine) and the issue's date before they are scored.
+- **Auto-grab** of the best result above a threshold — off by default.
+- *Search wanted now* button per magazine, and the full pipeline detail per issue.
+
+### 📂 Safer imports
+
+- A file whose title or date does not match the target issue is refused and blocklisted instead of filed in the wrong place.
+- A file is routed to the issue it really is (by date), even when another issue was searched.
+- Parser: `DD-MM-YYYY` dates, French and English ordinals (*1er*, *27th*).
+- **Issue groups** (weekend editions, specials) and a date tolerance per magazine.
+- **Technical sheet** per issue: where the file came from and every step from the search to the import.
+
+### 📊 Activity
+
+- New **Activity** page with a sidebar badge: searches, grabs, downloads (with progress), imports, AI runs, packs and scans, each with its steps.
+- Kept in its own database, so a busy queue never blocks the library.
+- A JDownloader download followed when Pressarr restarts carries on in the same entry.
+
+![Activity](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/activity.png)
+
+### 📦 Packs
+
+- Grab a multi-issue pack: each file is extracted, analysed and dispatched to its magazine and issue.
+- Review screen: edit the match, re-analyse, re-import or ignore a file.
+
+### 🤖 AI with Ollama *(experimental)*
+
+- **Metadata enrichment**: a text model reads the release name, a vision model and Python OCR read chosen zones of the cover; an arbiter merges both with the parser's result.
+- Cover zones are set per magazine and per issue type with a visual editor.
+- **Release ranker**: advises, vetoes the top result, or decides (`ai_advisory`, `ai_veto_only`, `ai_wins`).
+- Every run is kept in History with its steps (and optionally the cover crops it read).
+
+### 🏴 Scene indexers & JDownloader *(experimental, not validated)*
+
+- **Bookys** rewritten for its new site: no account needed anymore, everything goes through FlareSolverr.
+- The manual search **Bookys** tab looks like the indexer results: sortable, with date, size and mirrors, and a free query to add a date.
+- The add-magazine search also lists titles found on Bookys.
+- **Every JDownloader grab is followed like a torrent** (needs JDownloader's local API): progress in Activity, next mirror when one is offline, needs a captcha or is not supported, then import with the AI analysis.
+
+![Manual search](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/manual-search.png)
+
+### 🐳 Docker
+
+- **`PUID` / `PGID` / `UMASK`**: Pressarr takes `/config` over for that user and runs as that user. Without them, nothing changes (root).
+- The healthcheck runs in Python (the image has no `curl`).
+
+### 🎨 Interface
+
+- Interface language in **Settings → General**.
+- A magazine added from the search keeps the cover shown in the results (logos become readable covers).
+- Library header fits on mobile; sortable issue columns; Bookys and AI flagged **Experimental** in Settings.
+
+### 🐛 Fixes
+
+- **Manual grab fails for magnet-only results (The Pirate Bay via Prowlarr)** — the magnet is used when there is no download link.
+- **Healthcheck always unhealthy** — the check no longer needs `curl`.
+- **Scene indexer enabled without JDownloader made every grab fail** — releases stay grabbable, and the scene auto-grab waits until JDownloader is on.
+- **README mentioned a language setting that did not exist** — the setting is in Settings → General.
+- **No PUID/PGID support** — supported.
+- **Bookys login always fails** — Bookys no longer needs a login.
+- **"Delete files" did not delete the files** — the files and the magazine's folder are deleted.
+- **Add-magazine search lost sources or failed with a 500** — every source is kept and named.
+- **Blocklist page empty** — entries show again.
+- **History tab failed with a 500 on some titles** — fixed.
+- **Durations kept growing on finished activities** — a finished activity shows how long it took.
+
+---
+
+### ⚠️ Upgrading
+
+- Back up `/config` first. New tables and columns are created at start; activities go to a new `pressarr-activity.db` next to `pressarr.db`.
+- Bookys' username and password are no longer used.
+- AI needs an [Ollama](https://ollama.com) server; the scene indexers need FlareSolverr and JDownloader 2 — see the [README](https://github.com/sharkhunterr/pressarr#-service-setup).
+
+### 🔗 Links
+
+- [🐳 Docker Hub](https://hub.docker.com/r/sharkhunterr/pressarr)
+- [📖 Documentation](https://github.com/sharkhunterr/pressarr#readme)
+- [🐛 Report Issues](https://github.com/sharkhunterr/pressarr/issues)
+
+---
+
+# v0.1.51
+
 ## 📚 Magazine pipeline — ISSN cascade + scene grab + JDownloader 2
 
 Full end-to-end magazine acquisition path : **discover** via an

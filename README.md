@@ -15,6 +15,7 @@
 
 **[Quick Start](#-quick-start)** •
 **[Features](#-features)** •
+**[Experimental](#-experimental-features)** •
 **[Docker Hub](https://hub.docker.com/r/sharkhunterr/pressarr)** •
 **[Screenshots](#-screenshots)**
 
@@ -35,6 +36,10 @@ Pressarr is an automated magazine collection manager for the self-hosted *arr ec
 > [!WARNING]
 > **Vibe Coded Project** — This application was built **100% using AI-assisted development** with [Claude Code](https://claude.ai/code).
 
+<p align="center">
+  <img src="docs/images/screenshots/library.png" alt="Pressarr library" width="900"/>
+</p>
+
 ---
 
 ## ✨ Features
@@ -45,11 +50,11 @@ Pressarr is an automated magazine collection manager for the self-hosted *arr ec
 
 ### 📚 Magazine Library
 **Full collection management**
-- Search & add magazines
-- Cover art & metadata
+- Search & add magazines, with their cover
+- ISSN-first metadata cascade
 - Completion statistics
 - Quality profile per title
-- Batch monitoring
+- Issue groups (weekend, special editions)
 - File renaming templates
 
 </td>
@@ -61,34 +66,47 @@ Pressarr is an automated magazine collection manager for the self-hosted *arr ec
 - Visual calendar (grid & agenda)
 - Confirmed vs predicted issues
 - Delayed issue detection
-- 6-month lookahead
+- Wanted backlog on add
 
 </td>
 <td width="33%" valign="top">
 
 ### 🔍 Search & Download
-**Fully automated pipeline**
-- Prowlarr integration
-- Multi-indexer support
-- Quality-based scoring
-- Auto-grab best release
+**Automated pipeline**
+- Prowlarr integration (magnet-only indexers too)
+- Wanted-issue search on a schedule
+- Multi-format queries (number, date)
+- Scoring + optional auto-grab
 - RSS sync every 30 min
 
 </td>
 </tr>
 </table>
 
-### 🎨 Modern Web UI
-- 🌐 **2 languages** (English, French)
-- 🌙 Dark theme (native)
-- 📱 Fully responsive design
-- ⚡ Real-time download progress via WebSocket
-- 📊 History & activity tracking
+### 📂 Smart Import Pipeline
+- Filename parsing (multilingual: FR/EN/DE/ES/IT, ordinals, `DD-MM-YYYY` dates)
+- Title and date checks that refuse a file from another magazine or another day
+- Routing by date: a file lands on the issue it really is, not only the one that was searched
+- Quality detection (TruePDF, Retail, Scan…), renaming, cover extraction from the PDF
+- **Packs**: grab a multi-issue pack and dispatch each file to its magazine and issue
+
+### 📊 Activity & History
+- **Activity** page: every search, grab, download, import and AI run, live, with its steps
+- Download progress for torrents, Usenet and JDownloader
+- Per-issue **technical sheet**: where the file came from and the full workflow timeline
+- History, blocklist and logs
+
+### 🏗️ Metadata Sources
+- **Wikidata**, **BnF**, **ZDB**, **ISSN Portal** — authority data, logos, frequency, publisher
+- **Google Books** — fallback covers and descriptions
+- **Internet Archive** — Magazine Rack search & direct download
+- **Anna's Archive** — additional source (optional)
 
 ### 📥 Download Clients
 - **Torrent** — qBittorrent, Deluge, Transmission
 - **Usenet** — SABnzbd, NZBGet
 - **Direct** — Internet Archive (no client needed)
+- **Hosters** — JDownloader 2, for the scene indexers *(experimental)*
 
 ### 🔔 Notifications
 Receive alerts on grab, download, import, and errors:
@@ -97,17 +115,34 @@ Receive alerts on grab, download, import, and errors:
 - **Telegram** — Bot messages
 - **Webhook** — Generic HTTP endpoint
 
-### 📂 Smart Import Pipeline
-- Automatic filename parsing (multilingual: FR/EN/DE/ES/IT)
-- Fuzzy title matching against known magazines
-- Quality detection (TruePDF, Retail, Scan...)
-- Automatic renaming & organization
-- Cover extraction from PDF
+### 🎨 Modern Web UI
+- 🌐 English and French
+- 🌙 Dark theme (native)
+- 📱 Responsive design
+- ⚡ Real-time progress via WebSocket
 
-### 🏗️ Metadata Sources
-- **Google Books API** — Magazine metadata lookup
-- **Internet Archive** — Magazine Rack collection search & direct download
-- **Anna's Archive** — Additional source (optional)
+---
+
+## 🧪 Experimental Features
+
+These ship in the image but are off by default. Both are flagged **Experimental** in Settings.
+
+### 🤖 AI (Ollama) — experimental, working
+
+A local LLM, through [Ollama](https://ollama.com), helps where the filename is not enough:
+
+- **Metadata enrichment** — reads the release name (text model) and the cover (vision model, plus Python OCR) to find the issue number and date, then an arbiter merges both with the parser's result.
+- **Release ranking** — scores search results before a grab; it can only advise, veto the top result, or decide (`ai_advisory`, `ai_veto_only`, `ai_wins`).
+- Everything stays on your server. Each run is kept with its steps (and optionally the cover crops it read), so you can see why it decided what it did.
+
+It works, but its settings and behaviour may still change. Check what it decides on your first imports. A GPU with 8 GB of VRAM runs the default models (`mistral:7b`, `minicpm-v:8b`).
+
+### 🏴 Scene indexers & JDownloader — experimental, not validated
+
+**Bookys** and **telecharger-magazines.org** list French magazines and newspapers hosted on file hosters. Pressarr reads them through **FlareSolverr** (they sit behind Cloudflare), sends the chosen mirror to **JDownloader 2**, follows the download like a torrent and imports the file.
+
+> [!CAUTION]
+> **Not validated.** Searching works, but downloads mostly fail today: the free mirrors (nitroflare, upfiles, fileroy…) ask for a captcha or have no JDownloader plugin. Without a premium or debrid account set up in JDownloader, most grabs end without a file. Pressarr tries each mirror in turn and tells you why each one failed. The sites also change often.
 
 ---
 
@@ -218,6 +253,45 @@ Enriches magazine metadata with cover art, descriptions, and publisher info.
 1. Get an API key from [Google Cloud Console](https://console.cloud.google.com)
 2. Settings → Metadata → enter Google Books API Key
 
+### AI with Ollama (Optional, experimental)
+
+1. Run [Ollama](https://ollama.com) and pull the models: `ollama pull mistral:7b` and `ollama pull minicpm-v:8b`
+2. Settings → AI → enter the Ollama URL, then **Test the connection**: the model lists fill in
+3. Turn on metadata enrichment and/or the release ranker
+
+### Scene indexers + JDownloader (Optional, experimental)
+
+```yaml
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped
+
+  jdownloader:
+    image: jlesage/jdownloader-2:latest
+    ports:
+      - "5800:5800"          # JDownloader's web interface
+    volumes:
+      - ./jdownloader:/config
+      - ./jdownloader/folderwatch:/config/folderwatch
+      - ./downloads/jdownloader:/output
+    restart: unless-stopped
+
+  pressarr:
+    volumes:
+      - ./jdownloader/folderwatch:/folderwatch
+      - ./downloads/jdownloader:/downloads/jdownloader
+```
+
+1. **FlareSolverr** — Settings → Indexers → *Magazine pipeline* → Endpoint URL `http://flaresolverr:8191/v1`
+2. **Bookys / tm.org** — turn them on and **Test**. No account needed.
+3. **JDownloader** — install the *Folder Watch* extension (Settings → Extension Modules), then in Pressarr:
+   - *Folder watch path*: `/folderwatch` — Pressarr drops one `.crawljob` per grab there
+   - *Output path*: `/downloads/jdownloader` — where Pressarr picks the finished files up
+   - in `pressarr.yml`, `download_clients.jdownloader.output_path_in_jd2: /output` — the same folder as JDownloader sees it
+4. **Follow downloads** — in JDownloader, Settings → Advanced Settings → `RemoteAPI`: turn on `DeprecatedApiEnabled`, turn off `DeprecatedApiLocalhostOnly`, restart it. Then set *API URL* to `http://jdownloader:3128`. Pressarr then shows each download's progress in Activity, moves on to the next mirror when one fails, and imports the file once it is done.
+5. **Captchas** — set JDownloader's captcha mode to *skip* (Settings → Advanced → `CaptchaSettings`) so a mirror that needs one fails at once and the next is tried. A premium or debrid account in JDownloader is what makes these downloads work.
+
 ---
 
 ## 🗂️ Quality Profiles
@@ -248,7 +322,7 @@ flowchart TB
     subgraph Backend["⚙️ FastAPI Backend :8585"]
         API[REST API<br/>/api/v1/*]
         WS[WebSocket<br/>Real-time updates]
-        SCHED[APScheduler<br/>RSS Sync · Download Check]
+        SCHED[APScheduler<br/>RSS Sync · Wanted Search · Download Check]
         PARSER[Filename Parser<br/>Multilingual]
         IMPORT[Import Pipeline<br/>Rename · Move · Organize]
     end
@@ -271,8 +345,19 @@ flowchart TB
     end
 
     subgraph Meta["📖 Metadata"]
+        CASCADE[Wikidata · BnF · ZDB · ISSN Portal]
         GBOOKS[Google Books]
         IA[Internet Archive]
+    end
+
+    subgraph Scene["🏴 Scene (experimental)"]
+        FLARE[FlareSolverr]
+        BOOKYS[Bookys · tm.org]
+        JD2[JDownloader 2]
+    end
+
+    subgraph AI["🤖 AI (experimental)"]
+        OLLAMA[Ollama]
     end
 
     subgraph Notif["🔔 Notifications"]
@@ -293,7 +378,10 @@ flowchart TB
 
     API -->|Search| PROWLARR
     API -->|Grab| QBIT & DELUGE & TRANS & SAB & NZB
-    API -->|Fetch metadata| GBOOKS & IA
+    API -->|Fetch metadata| CASCADE & GBOOKS & IA
+    API -->|Scrape| FLARE --> BOOKYS
+    API -->|.crawljob + local API| JD2
+    API -->|Enrich · rank| OLLAMA
     API -->|Alerts| DISCORD & GOTIFY & TELEGRAM & WEBHOOK
 ```
 
@@ -324,7 +412,8 @@ sequenceDiagram
 
     Client-->>Import: Download complete
     Import->>Import: Parse filename
-    Import->>Import: Match to issue
+    Import->>Import: AI enrichment (optional)
+    Import->>Import: Match to issue (title + date checks)
     Import->>Import: Rename per template
     Import->>FS: Move to library folder
     Import->>Import: Extract cover (PDF page 1)
@@ -336,30 +425,57 @@ sequenceDiagram
 
 ## 📸 Screenshots
 
+> Screenshots use the French interface: Pressarr targets French press first, and some newer screens are not translated yet.
+
 <details open>
 <summary><b>📚 Library & Magazine Detail</b></summary>
 
 | Magazine Library | Magazine Detail |
 |------------------|-----------------|
-| *Coming soon* | *Coming soon* |
+| ![Library](docs/images/screenshots/library.png) | ![Magazine detail](docs/images/screenshots/magazine-detail.png) |
+
+</details>
+
+<details open>
+<summary><b>➕ Adding & Searching</b></summary>
+
+| Add a Magazine | Manual Search (Bookys tab) |
+|----------------|----------------------------|
+| ![Add magazine](docs/images/screenshots/add-magazine.png) | ![Manual search](docs/images/screenshots/manual-search.png) |
+
+</details>
+
+<details open>
+<summary><b>🔮 Calendar & Activity</b></summary>
+
+| Calendar Forecast | Activity |
+|-------------------|----------|
+| ![Calendar](docs/images/screenshots/calendar.png) | ![Activity](docs/images/screenshots/activity.png) |
 
 </details>
 
 <details>
-<summary><b>🔮 Calendar & Search</b></summary>
+<summary><b>🧾 Issue Technical Sheet</b></summary>
 
-| Calendar Forecast | Manual Search |
-|-------------------|---------------|
-| *Coming soon* | *Coming soon* |
+Where the file came from, and every step from the search to the import.
+
+![Issue technical sheet](docs/images/screenshots/issue-detail.png)
 
 </details>
 
 <details>
-<summary><b>⚙️ Settings</b></summary>
+<summary><b>🧪 Experimental Settings</b></summary>
 
-| Download Clients | Quality Profiles |
-|-----------------|------------------|
-| *Coming soon* | *Coming soon* |
+| AI (Ollama) | Bookys |
+|-------------|--------|
+| ![AI settings](docs/images/screenshots/settings-ai.png) | ![Bookys settings](docs/images/screenshots/settings-bookys.png) |
+
+</details>
+
+<details>
+<summary><b>📱 Mobile</b></summary>
+
+<img src="docs/images/screenshots/mobile-library.png" alt="Library on mobile" width="320"/>
 
 </details>
 
@@ -367,9 +483,11 @@ sequenceDiagram
 
 ## 🌐 Multi-Language Support
 
-Pressarr's UI is fully translated into **2 languages**:
+Pressarr's UI speaks **2 languages**:
 
 🇬🇧 English • 🇫🇷 Français
+
+Some newer screens (AI settings, parts of the magazine page) are still French only.
 
 The filename parser additionally supports month names in **5 languages** (EN, FR, DE, ES, IT) for accurate release detection.
 
@@ -384,7 +502,8 @@ Change language anytime from Settings → General (kept in each browser; by defa
 | **Backend** | Python 3.12 • FastAPI • SQLAlchemy 2.0 async • Alembic • APScheduler • PyMuPDF |
 | **Frontend** | React 18 • TypeScript 5 • Tailwind CSS • Vite • shadcn/ui • TanStack Query |
 | **Data** | SQLite (aiosqlite) • WebSocket real-time |
-| **DevOps** | Docker (multi-stage) • Health checks |
+| **AI** | Ollama (text + vision models) • EasyOCR / RapidOCR |
+| **DevOps** | Docker (multi-stage) • Health checks • PUID/PGID |
 
 ---
 

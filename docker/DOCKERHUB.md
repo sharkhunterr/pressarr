@@ -6,6 +6,8 @@
 
 **Automated magazine collection manager for the *arr ecosystem** — Monitor, search, download, rename, and organize your periodical collection automatically.
 
+![Pressarr library](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/library.png)
+
 ---
 
 ## 🚀 Quick Start
@@ -49,22 +51,50 @@ docker compose up -d
 - Delayed issue detection with 6-month lookahead
 
 **🔍 Search & Download**
-- Prowlarr integration with multi-indexer support
-- Quality-based scoring and auto-grab
+- Prowlarr integration with multi-indexer support (magnet-only indexers too)
+- Scheduled wanted-issue search, quality-based scoring, optional auto-grab
 - RSS sync every 30 minutes
+
+**📂 Import**
+- Filename parser, title and date checks, routing by date
+- Packs: one grab, each file dispatched to its issue
+
+**📊 Activity**
+- Every search, grab, download, import and AI run, live, with its steps
+- Per-issue technical sheet with the full workflow timeline
 
 **📥 Download Clients**
 - Torrent: qBittorrent, Deluge, Transmission
 - Usenet: SABnzbd, NZBGet
 - Direct: Internet Archive
+- Hosters: JDownloader 2 *(experimental)*
 
 **🔔 Notifications**
 - Discord, Gotify, Telegram, Webhook
 
 **🖥️ Modern Interface**
-- 2 languages (EN, FR)
-- Light/Dark themes
+- 2 languages (EN, FR — some newer screens French only)
+- Dark theme, responsive
 - Real-time download progress via WebSocket
+
+### 🧪 Experimental (off by default)
+
+- **AI (Ollama)** — working: reads release names and covers to find the issue number and date, and ranks search results. Settings and behaviour may still change.
+- **Scene indexers (Bookys, telecharger-magazines.org) + JDownloader** — **not validated**: search works, but the free hoster mirrors ask for a captcha or have no JDownloader plugin, so most downloads fail without a premium or debrid account in JDownloader.
+
+Setup: see the [README](https://github.com/sharkhunterr/pressarr#-service-setup).
+
+---
+
+## 📸 Screenshots
+
+| Magazine detail | Manual search |
+|-----------------|---------------|
+| ![Magazine detail](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/magazine-detail.png) | ![Manual search](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/manual-search.png) |
+
+| Calendar | Activity |
+|----------|----------|
+| ![Calendar](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/calendar.png) | ![Activity](https://raw.githubusercontent.com/sharkhunterr/pressarr/main/docs/images/screenshots/activity.png) |
 
 ---
 
@@ -126,6 +156,7 @@ docker image prune -f
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0, APScheduler |
 | Frontend | React 18, TypeScript 5, Tailwind CSS, Vite |
 | Data | SQLite (aiosqlite), WebSocket real-time |
+| AI | Ollama (text + vision models), EasyOCR / RapidOCR |
 
 **Platforms**: `linux/amd64`, `linux/arm64`
 
