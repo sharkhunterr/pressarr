@@ -225,20 +225,13 @@ async def create_magazine(db: AsyncSession, data: dict) -> Magazine:
     # newly-added title with ``monitoring_start_date`` in the past
     # immediately fetches its back-catalogue (one_shot grabs its
     # specific issue) — operator doesn't have to wait 6h for the
-    # scheduled tick. Fire-and-forget: failures don't block
-    # creation, they surface in the per-release ``status_message``.
+    # scheduled tick. It runs once the magazine is committed, in the
+    # background: failures don't block creation, they surface in the
+    # per-release ``status_message``.
     if fresh is not None and fresh.monitored:
-        try:
-            from app.dependencies import get_config
-            from app.services.auto_grab_service import _process_magazine
+        from app.services.auto_grab_service import grab_after_commit
 
-            await _process_magazine(fresh, db, get_config())
-        except Exception:
-            logger.warning(
-                "create_magazine: immediate scene auto-grab failed for %r",
-                fresh.title,
-                exc_info=True,
-            )
+        grab_after_commit(db, fresh.id)
 
     return fresh
 

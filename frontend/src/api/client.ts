@@ -18,6 +18,17 @@ export class ApiError extends Error {
   }
 }
 
+/** The ``detail`` FastAPI put in an error response, if any. */
+export function errorDetail(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null
+  try {
+    const detail = JSON.parse(err.message)?.detail
+    return typeof detail === 'string' ? detail : null
+  } catch {
+    return null
+  }
+}
+
 let apiKeyPromptResolve: ((key: string | null) => void) | null = null
 let apiKeyPromptVisible = false
 

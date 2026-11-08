@@ -21,18 +21,20 @@ indexer / no download client is enabled.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.magazine import Magazine
 from app.models.magazine_release import MagazineRelease
 from app.services.jdownloader_dispatcher import (
     JDownloaderDispatchError,
+    JDownloaderSetupError,
     dispatch_release,
 )
 from app.services.magazine_release_service import scan_magazine_releases
@@ -246,6 +248,8 @@ async def _process_magazine(
     the number of releases grabbed in this cycle (0 most of
     the time once the back-catalogue is drained)."""
 
+    if not getattr(config, "jdownloader_enabled", False):
+        return 0
     releases = await scan_magazine_releases(magazine, config, db)
     if not releases:
         return 0
@@ -327,6 +331,13 @@ async def _process_magazine(
                 logger.debug(
                     "Auto-grab: history event write failed", exc_info=True
                 )
+        except JDownloaderSetupError as e:
+            # Every other pick would fail the same way; they stay
+            # available for the next cycle.
+            logger.warning(
+                "Auto-grab stopped for magazine id=%s: %s", magazine.id, e
+            )
+            break
         except JDownloaderDispatchError as e:
             release.status = "failed"
             release.status_message = str(e)
@@ -441,3 +452,44 @@ async def _apply_ai_ranker(
             exc_info=True,
         )
         return [default_pick]
+
+
+# Scans started for newly added magazines; referenced until done.
+_background: set[asyncio.Task] = set()
+
+
+def grab_after_commit(db: AsyncSession, magazine_id: int) -> None:
+    """Scan and dispatch ``magazine_id`` in the background once
+    ``db`` commits it, so a newly added title fetches its
+    back-catalogue without waiting for the next cycle. A Bookys
+    scrape takes a minute: whoever adds the magazine does not wait
+    for it."""
+    from app.database import async_session_factory
+    from app.dependencies import get_config
+
+    if async_session_factory is None or not getattr(
+        get_config(), "jdownloader_enabled", False
+    ):
+        return
+
+    async def run() -> None:
+        try:
+            async with async_session_factory() as bg:
+                magazine = await bg.get(Magazine, magazine_id)
+                if magazine is not None and magazine.monitored:
+                    await _process_magazine(magazine, bg, get_config())
+                    await bg.commit()
+        except Exception:
+            logger.warning(
+                "Scene auto-grab of new magazine id=%s failed",
+                magazine_id,
+                exc_info=True,
+            )
+
+    def start(_session) -> None:
+        task = asyncio.get_running_loop().create_task(run())
+        _background.add(task)
+        task.add_done_callback(_background.discard)
+
+    event.listen(db.sync_session, "after_commit", start, once=True)
+

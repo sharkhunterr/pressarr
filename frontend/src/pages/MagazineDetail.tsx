@@ -75,6 +75,7 @@ import {
   type MagazineRelease,
 } from '@/api/search'
 import { getProfiles } from '@/api/quality'
+import { errorDetail } from '@/api/client'
 import { getRootFolders } from '@/api/system'
 import { IssueRow } from '@/components/IssueRow'
 import { IssueViewer } from '@/components/IssueViewer'
@@ -1099,8 +1100,8 @@ export default function MagazineDetail() {
       toast.success(t('issues.grabbed'))
       queryClient.invalidateQueries({ queryKey: ['activity-counters'] })
       queryClient.invalidateQueries({ queryKey: ['activity-list'] })
-    } catch {
-      toast.error(t('issues.grabError'))
+    } catch (err) {
+      toast.error(errorDetail(err) ?? t('issues.grabError'))
     } finally {
       setSceneGrabbing((s) => {
         const next = new Set(s)

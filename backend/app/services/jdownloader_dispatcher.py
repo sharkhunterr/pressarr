@@ -57,6 +57,13 @@ class JDownloaderDispatchError(RuntimeError):
     release, etc. Caller surfaces this to the operator."""
 
 
+
+class JDownloaderSetupError(JDownloaderDispatchError):
+    """JDownloader's setup, not the release, stopped the dispatch
+    (dispatcher off, folders missing): the release stays as it was
+    and can be grabbed once the setup is fixed."""
+
+
 def _slug(value: str, max_len: int = 80) -> str:
     """Filename-safe version of a release title. Collapses
     runs of non-[A-Za-z0-9._-] into single dashes and clamps
@@ -177,17 +184,17 @@ def dispatch_release(
     failure path. Caller still needs to commit the session."""
 
     if not getattr(config, "jdownloader_enabled", False):
-        raise JDownloaderDispatchError(
+        raise JDownloaderSetupError(
             "JDownloader dispatcher is disabled in the pressarr config"
         )
     folderwatch = (config.jdownloader_folderwatch or "").strip()
     if not folderwatch:
-        raise JDownloaderDispatchError(
+        raise JDownloaderSetupError(
             "jdownloader_folderwatch is not configured"
         )
     output_path = (config.jdownloader_output_path or "").strip()
     if not output_path:
-        raise JDownloaderDispatchError(
+        raise JDownloaderSetupError(
             "jdownloader_output_path is not configured"
         )
     # JD2 lives in its own container and sees the shared output
@@ -211,7 +218,7 @@ def dispatch_release(
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        raise JDownloaderDispatchError(
+        raise JDownloaderSetupError(
             f"Could not create folder-watch directory {folder}: {e!s}"
         ) from e
 
@@ -225,7 +232,7 @@ def dispatch_release(
     try:
         crawljob_path.write_text(payload, encoding="utf-8")
     except OSError as e:
-        raise JDownloaderDispatchError(
+        raise JDownloaderSetupError(
             f"Could not write {crawljob_path}: {e!s}"
         ) from e
 

@@ -809,6 +809,7 @@ async def grab_release(
     from app.models.magazine_release import MagazineRelease
     from app.services.jdownloader_dispatcher import (
         JDownloaderDispatchError,
+        JDownloaderSetupError,
         dispatch_release,
     )
     from app.services.magazine_release_service import serialise_release
@@ -855,6 +856,10 @@ async def grab_release(
                 await _asvc.mark_error(_sc_activity, str(e))
             except Exception:
                 pass
+        if isinstance(e, JDownloaderSetupError):
+            # JDownloader's setup is at fault, not the release: it
+            # stays grabbable once the setup is fixed.
+            raise HTTPException(status_code=409, detail=str(e)) from e
         # Persist the failure on the row so the UI can show
         # *why* it didn't dispatch, then surface 502 so the
         # caller knows the action was not retried. Also emit
