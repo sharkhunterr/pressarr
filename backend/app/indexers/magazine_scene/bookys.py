@@ -43,6 +43,7 @@ only.
 """
 
 import asyncio
+import html as html_entities
 import logging
 import re
 import unicodedata
@@ -349,7 +350,9 @@ class BookysIndexer(MagazineSceneIndexerBase):
         body = await self._get(dl_url)
         if not body:
             return None
-        for url in _URL_RE.findall(body):
+        for found in _URL_RE.findall(body):
+            # Read from the raw HTML: "&amp;" stands for "&".
+            url = html_entities.unescape(found)
             hoster = detect_hoster(url)
             if hoster:
                 return HosterLink(hoster=hoster, url=url)

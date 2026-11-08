@@ -76,7 +76,7 @@ PAGES = {
         "Le Monde des Ados - 4 Novembre 2026", "2026-11-04", "Pour les ados", [2]
     ),
     "/journaux/358434-le-monde/dl/1": "<a href='https://nitroflare.com/view/D0C7532'>go</a>",
-    "/journaux/358434-le-monde/dl/2": "<p>https://fileroy.com/0Pdzy/file</p>",
+    "/journaux/358434-le-monde/dl/2": "<p>https://fileroy.com/0Pdzy/file?af=1&amp;dl=2</p>",
 }
 
 
@@ -131,7 +131,7 @@ async def test_a_search_reads_the_results_table_and_resolves_each_hoster_link():
     assert r.source_url == f"{BASE}/journaux/358434-le-monde-du-samedi-7-novembre-2026"
     assert [(h.hoster, h.url) for h in r.hoster_links] == [
         ("nitroflare.com", "https://nitroflare.com/view/D0C7532"),
-        ("fileroy.com", "https://fileroy.com/0Pdzy/file"),
+        ("fileroy.com", "https://fileroy.com/0Pdzy/file?af=1&dl=2"),
     ]
     assert (r.file_format, r.language, r.size_bytes) == ("pdf", "fr", 32 * 1024 * 1024)
     assert r.published_at == "2026-11-07"
