@@ -151,9 +151,9 @@ export default function Library() {
   return (
     <div className="p-4 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h1 className="text-2xl font-bold text-zinc-100">{t('library.title')}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => setScanOpen(true)}>
             <FolderSearch className="size-4" />
             {t('library.scanLibrary')}
