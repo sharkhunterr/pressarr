@@ -779,6 +779,7 @@ async def list_releases(
 async def scan_releases(
     magazine_id: int,
     source: str | None = Query(None),
+    query: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     config=Depends(get_config),
 ):
@@ -787,7 +788,9 @@ async def scan_releases(
     against the same indexers + same title each time and
     upserts on (source, source_url). Pass ``?source=…`` to
     limit the scrape to a single indexer (UI uses this when
-    the operator clicks "Scan" inside one tab)."""
+    the operator clicks "Scan" inside one tab). ``?query=…``
+    searches that instead of the title and its aliases ("Le Monde
+    7 novembre"); the releases found must still be the magazine's."""
     from app.services.magazine_release_service import (
         scan_magazine_releases,
         serialise_release,
@@ -797,7 +800,7 @@ async def scan_releases(
     if magazine is None:
         raise HTTPException(404, "Magazine not found")
     releases = await scan_magazine_releases(
-        magazine, config, db, source=source
+        magazine, config, db, source=source, query=query
     )
     return [serialise_release(r) for r in releases]
 

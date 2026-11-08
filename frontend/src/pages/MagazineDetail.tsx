@@ -1021,7 +1021,7 @@ export default function MagazineDetail() {
 
   async function handleManualSearch(tab?: string) {
     const activeTab = tab || manualSearchTab
-    if (!manualSearchQuery.trim() && !isSceneTab(activeTab)) return
+    if (!manualSearchQuery.trim()) return
     setManualSearching(true)
     setManualSearchResults([])
     setSceneResults([])
@@ -1069,12 +1069,16 @@ export default function MagazineDetail() {
         setManualSearchCounts((c) => ({ ...c, indexers: r.length }))
       } else if (isSceneTab(activeTab)) {
         // Scene tabs scrape pressarr's own indexer (Bookys /
-        // tm.org) using the magazine's stored title + aliases
-        // — the operator-typed query is ignored on purpose so
-        // the orchestrator keeps full control over the
-        // search-string fan-out.
+        // tm.org). The magazine's own title fans out to its
+        // aliases on the server; anything else the operator
+        // typed is searched as is.
+        const q = manualSearchQuery.trim()
         setSceneResults(
-          await scanMagazineSceneReleases(magazineId, activeTab),
+          await scanMagazineSceneReleases(
+            magazineId,
+            activeTab,
+            q === magazine?.title ? undefined : q,
+          ),
         )
       }
     } catch {
@@ -1949,57 +1953,31 @@ export default function MagazineDetail() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Search bar — only meaningful on the three
-                free-text tabs. Scene-indexer tabs always scrape
-                with the magazine's stored title (+ aliases) so
-                the orchestrator stays in charge of the
-                search-string fan-out; their button just says
-                "Scan". */}
-            {!isSceneTab(manualSearchTab) ? (
-              <div className="flex gap-2 mt-3">
-                <Input
-                  value={manualSearchQuery}
-                  onChange={(e) => setManualSearchQuery(e.target.value)}
-                  placeholder={t('magazineDetail.searchPlaceholder')}
-                  className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleManualSearch()
-                  }}
-                />
-                <Button
-                  onClick={() => handleManualSearch()}
-                  disabled={manualSearching || !manualSearchQuery.trim()}
-                >
-                  {manualSearching ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Search className="size-4" />
-                  )}
-                  {t('common.search')}
-                </Button>
-              </div>
-            ) : (
-              <div className="flex gap-2 mt-3">
-                <div className="flex-1 text-xs text-zinc-400 self-center">
-                  Scrapes pressarr's configured{' '}
-                  {manualSearchTab === 'bookys'
-                    ? 'Bookys'
-                    : 'telecharger-magazines.org'}{' '}
-                  indexer for this magazine's title + aliases.
-                </div>
-                <Button
-                  onClick={() => handleManualSearch()}
-                  disabled={manualSearching}
-                >
-                  {manualSearching ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Search className="size-4" />
-                  )}
-                  Scan
-                </Button>
-              </div>
-            )}
+            {/* Search bar — the magazine's title to start with; the
+                operator can narrow it ("Le Monde 7 novembre"). Scene
+                tabs keep only the releases of this magazine. */}
+            <div className="flex gap-2 mt-3">
+              <Input
+                value={manualSearchQuery}
+                onChange={(e) => setManualSearchQuery(e.target.value)}
+                placeholder={t('magazineDetail.searchPlaceholder')}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleManualSearch()
+                }}
+              />
+              <Button
+                onClick={() => handleManualSearch()}
+                disabled={manualSearching || !manualSearchQuery.trim()}
+              >
+                {manualSearching ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Search className="size-4" />
+                )}
+                {t('common.search')}
+              </Button>
+            </div>
 
             {/* Scene-tab results — laid out like the indexer rows
                 below, but their own render path: the row model
@@ -2045,7 +2023,7 @@ export default function MagazineDetail() {
                         </div>
                       ) : sorted.length === 0 ? (
                         <div className="rounded border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
-                          No releases yet. Click "Scan" to query the indexer.
+                          {t('magazineDetail.manualSearchHint')}
                         </div>
                       ) : (
                         <div className="divide-y divide-zinc-800">

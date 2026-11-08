@@ -227,8 +227,12 @@ export const listMagazineSceneReleases = (
 export const scanMagazineSceneReleases = (
   magazineId: number,
   source?: string,
+  query?: string,
 ) => {
-  const qs = source ? `?source=${encodeURIComponent(source)}` : ''
+  const params = new URLSearchParams()
+  if (source) params.set('source', source)
+  if (query) params.set('query', query)
+  const qs = params.size ? `?${params}` : ''
   return apiFetch<MagazineRelease[]>(
     `/magazine/${magazineId}/releases/scan${qs}`,
     { method: 'POST' },

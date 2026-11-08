@@ -135,6 +135,7 @@ async def scan_magazine_releases(
     config,
     db: AsyncSession,
     source: str | None = None,
+    query: str | None = None,
 ) -> list[MagazineRelease]:
     """Run every enabled indexer against the magazine and
     persist the results. Returns the persisted rows (existing
@@ -154,8 +155,11 @@ async def scan_magazine_releases(
             magazine.title,
         )
         return []
-    queries = _queries_for_magazine(magazine)
-    if not queries:
+    titles = _queries_for_magazine(magazine)
+    # The operator's own search ("Le Monde 7 novembre") replaces the
+    # title and its aliases; what it finds is still checked against them.
+    queries = [query.strip()] if query and query.strip() else titles
+    if not queries or not titles:
         return []
     # A search for "Le Monde" also turns up "Le Monde des Ados": keep
     # what passes the gate the indexer search applies to a release.
@@ -184,7 +188,7 @@ async def scan_magazine_releases(
                 key = (r.source, r.source_url)
                 if key in collected:
                     continue
-                if max(title_match_score(r.title, t) for t in queries) < min_title:
+                if max(title_match_score(r.title, t) for t in titles) < min_title:
                     logger.debug(
                         "Scene release %r is not %r — skipped", r.title, magazine.title
                     )
