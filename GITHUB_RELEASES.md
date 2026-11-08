@@ -76,6 +76,8 @@ and covers when the filename is not enough.
 
 - **`PUID` / `PGID` / `UMASK`**: Pressarr takes `/config` over for that user and runs as that user. Without them, nothing changes (root).
 - The healthcheck runs in Python (the image has no `curl`).
+- PyTorch (for EasyOCR) is the CPU build: the image is about 2 GB instead of 6 GB.
+- The OCR engines (EasyOCR, RapidOCR) load in the image — they failed on a missing X11 library.
 
 ### 🎨 Interface
 
