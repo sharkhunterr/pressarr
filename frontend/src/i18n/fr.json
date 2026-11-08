@@ -794,6 +794,7 @@
     "badge": "Expérimental",
     "bookys": "Expérimental, non validé. La recherche fonctionne, mais les téléchargements échouent le plus souvent aujourd'hui : les miroirs de Bookys (nitroflare, upfiles, fileroy) demandent un captcha ou n'ont pas de plugin JDownloader, donc sans compte premium ou debrid dans JDownloader la plupart des grabs n'aboutissent pas. Le site change aussi souvent (Cloudflare, nouveau domaine).",
     "ai": "Expérimental. L'IA fonctionne (enrichissement des métadonnées, lecture des couvertures, classement des releases) mais ses réglages et son comportement peuvent encore changer. Elle demande un serveur Ollama local ; vérifiez ses décisions sur vos premiers imports.",
-    "bookysNoLogin": "Aucun compte nécessaire : Pressarr lit le site via FlareSolverr."
+    "bookysNoLogin": "Aucun compte nécessaire : Pressarr lit le site via FlareSolverr.",
+    "bookysCloudflare": "Bookys est derrière Cloudflare. Configurez FlareSolverr plus bas avant d’activer Bookys — sans lui, chaque recherche renvoie zéro release."
   }
 }

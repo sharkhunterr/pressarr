@@ -176,11 +176,7 @@ export default function MagazinePipelineSection() {
           <ExperimentalNotice>{t('experimental.bookys')}</ExperimentalNotice>
           <p className="text-xs text-zinc-400 flex items-start gap-1">
             <ShieldAlert className="size-3.5 mt-0.5 text-amber-400 flex-shrink-0" />
-            <span>
-              Bookys is behind Cloudflare. Configure FlareSolverr below
-              before turning Bookys on — without it, every scrape will
-              return zero releases.
-            </span>
+            <span>{t('experimental.bookysCloudflare')}</span>
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
