@@ -320,15 +320,67 @@ async def delete_magazine(
         return False
 
     if delete_files:
-        # TODO: implement actual file deletion from disk
-        logger.info(
-            "delete_files=True for magazine %d (not yet implemented)",
-            magazine_id,
-        )
+        await _delete_magazine_files(db, magazine)
 
     await db.delete(magazine)
     await db.flush()
     return True
+
+
+async def _delete_magazine_files(db: AsyncSession, magazine: Magazine) -> None:
+    """Remove a magazine's files from disk, then its folder.
+
+    Every file Pressarr tracks for the magazine goes first (it may live
+    outside the magazine folder when the naming template changed). Then
+    the folder ``<root>/<title>`` goes with what is left in it, as Sonarr
+    does — but never the root folder itself, nor a folder another
+    magazine of the same root would also use.
+    """
+    import shutil
+
+    from app.models.issue_file import IssueFile
+    from app.models.root_folder import RootFolder
+    from app.services.import_service import _sanitize_filename
+
+    paths = (
+        await db.execute(
+            select(IssueFile.path).where(IssueFile.magazine_id == magazine.id)
+        )
+    ).scalars().all()
+    for path in paths:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Could not delete %s: %s", path, exc)
+
+    root_folder = await db.get(RootFolder, magazine.root_folder_id)
+    folder_name = _sanitize_filename(magazine.title)
+    if root_folder is None or not folder_name:
+        return
+    root = Path(root_folder.path).resolve()
+    magazine_dir = (root / folder_name).resolve()
+    if magazine_dir.parent != root or not magazine_dir.is_dir():
+        return
+
+    others = (
+        await db.execute(
+            select(Magazine.title).where(
+                Magazine.root_folder_id == magazine.root_folder_id,
+                Magazine.id != magazine.id,
+            )
+        )
+    ).scalars().all()
+    if any(_sanitize_filename(title) == folder_name for title in others):
+        logger.warning(
+            "Kept %s: another magazine uses the same folder", magazine_dir
+        )
+        return
+
+    try:
+        shutil.rmtree(magazine_dir)
+        logger.info("Deleted folder %s of magazine %d", magazine_dir, magazine.id)
+    except OSError as exc:
+        logger.warning("Could not delete folder %s: %s", magazine_dir, exc)
 
 
 async def get_statistics(db: AsyncSession, magazine_id: int) -> dict:

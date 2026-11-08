@@ -138,18 +138,116 @@ class TestMagazineCrud:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_with_files_param(self, client: AsyncClient, seed_data):
-        seed = seed_data
-        create_resp = await client.post(
+    async def test_delete_with_files_removes_folder_and_files(
+        self, client: AsyncClient, seed_data, test_engine, tmp_path
+    ):
+        root_id = await _library_root(test_engine, tmp_path / "library")
+        resp = await client.post(
             "/api/v1/magazine",
-            json=_magazine_payload(seed, title="Delete With Files"),
+            json=_magazine_payload(seed_data, title="Le Monde", rootFolderId=root_id),
         )
-        mag_id = create_resp.json()["id"]
+        mag_id = resp.json()["id"]
+        folder = tmp_path / "library" / "Le Monde"
+        tracked = folder / "Le Monde - 1 (2026-08-25).pdf"
+        recovered = folder / "_pressarr_recovery" / "Le Monde - 2 (2026-08-26).pdf"
+        elsewhere = tmp_path / "old-layout" / "Le Monde - 3.pdf"
+        for f in (tracked, recovered, elsewhere):
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(b"%PDF")
+        await _track_files(test_engine, mag_id, tracked, recovered, elsewhere)
 
         resp = await client.delete(
             f"/api/v1/magazine/{mag_id}", params={"deleteFiles": "true"}
         )
+
         assert resp.status_code == 204
+        assert not folder.exists()
+        assert not elsewhere.exists()
+        assert (tmp_path / "library").is_dir()
+
+    @pytest.mark.asyncio
+    async def test_delete_without_files_keeps_them(
+        self, client: AsyncClient, seed_data, test_engine, tmp_path
+    ):
+        root_id = await _library_root(test_engine, tmp_path / "library")
+        resp = await client.post(
+            "/api/v1/magazine",
+            json=_magazine_payload(seed_data, title="Keep Me", rootFolderId=root_id),
+        )
+        mag_id = resp.json()["id"]
+        tracked = tmp_path / "library" / "Keep Me" / "Keep Me - 1.pdf"
+        tracked.parent.mkdir(parents=True)
+        tracked.write_bytes(b"%PDF")
+        await _track_files(test_engine, mag_id, tracked)
+
+        resp = await client.delete(f"/api/v1/magazine/{mag_id}")
+
+        assert resp.status_code == 204
+        assert tracked.exists()
+
+    @pytest.mark.asyncio
+    async def test_delete_with_files_keeps_a_shared_folder(
+        self, client: AsyncClient, seed_data, test_engine, tmp_path
+    ):
+        """'Le:Monde' and 'LeMonde' both land in <root>/LeMonde."""
+        root_id = await _library_root(test_engine, tmp_path / "library")
+        ids = []
+        for title in ("Le:Monde", "LeMonde"):
+            resp = await client.post(
+                "/api/v1/magazine",
+                json=_magazine_payload(seed_data, title=title, rootFolderId=root_id),
+            )
+            ids.append(resp.json()["id"])
+        folder = tmp_path / "library" / "LeMonde"
+        mine, theirs = folder / "mine.pdf", folder / "theirs.pdf"
+        folder.mkdir(parents=True)
+        mine.write_bytes(b"%PDF")
+        theirs.write_bytes(b"%PDF")
+        await _track_files(test_engine, ids[0], mine)
+        await _track_files(test_engine, ids[1], theirs)
+
+        resp = await client.delete(
+            f"/api/v1/magazine/{ids[0]}", params={"deleteFiles": "true"}
+        )
+
+        assert resp.status_code == 204
+        assert not mine.exists()
+        assert theirs.exists()
+
+
+async def _library_root(test_engine, path) -> int:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.models.root_folder import RootFolder
+
+    path.mkdir(parents=True, exist_ok=True)
+    factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as session:
+        root = RootFolder(path=str(path), is_default=False)
+        session.add(root)
+        await session.commit()
+        return root.id
+
+
+async def _track_files(test_engine, magazine_id: int, *paths) -> None:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.models.issue_file import IssueFile
+
+    factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as session:
+        for p in paths:
+            session.add(
+                IssueFile(
+                    magazine_id=magazine_id,
+                    path=str(p),
+                    relative_path=p.name,
+                    size=4,
+                    format="pdf",
+                    original_filename=p.name,
+                )
+            )
+        await session.commit()
 
 
 class TestMagazineUniqueness:
