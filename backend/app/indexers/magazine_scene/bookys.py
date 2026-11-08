@@ -89,6 +89,8 @@ class BookysIndexer(MagazineSceneIndexerBase):
         self._session_id: str | None = None
         self._session_lock = asyncio.Lock()
         self._logged_in = False
+        # Why the last login attempt failed, for the connection test.
+        self._login_error = "login refused"
 
     async def close(self) -> None:
         if self._flare and self._session_id:
@@ -115,11 +117,12 @@ class BookysIndexer(MagazineSceneIndexerBase):
             try:
                 self._session_id = await self._flare.create_session(sess_name)
                 return self._session_id
-            except FlareSolverrError:
+            except FlareSolverrError as e:
                 logger.warning(
                     "Bookys: FlareSolverr session creation failed — bypass "
                     "disabled for this run"
                 )
+                self._login_error = f"FlareSolverr unreachable ({e})"
                 return None
 
     async def _ensure_login(self) -> bool:
@@ -158,6 +161,7 @@ class BookysIndexer(MagazineSceneIndexerBase):
             )
         except FlareSolverrError as e:
             logger.warning("Bookys login round-trip failed: %s", e)
+            self._login_error = f"FlareSolverr could not get past the site's protection ({e})"
             return False
 
         if not _logged_in(sol, dle=form.dle):
@@ -166,6 +170,9 @@ class BookysIndexer(MagazineSceneIndexerBase):
                 "changed (form=%s, response status=%s)",
                 "dle" if form.dle else "token",
                 sol.get("status"),
+            )
+            self._login_error = (
+                "login refused — check the username and password"
             )
             return False
         self._logged_in = True
@@ -326,7 +333,7 @@ class BookysIndexer(MagazineSceneIndexerBase):
             return False, "Bookys: credentials not configured"
         ok = await self._ensure_login()
         if not ok:
-            return False, "Bookys: login refused"
+            return False, f"Bookys: {self._login_error}"
         return True, "Bookys: connected"
 
     # ------------------------------------------------------------------

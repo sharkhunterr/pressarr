@@ -68,3 +68,28 @@ async def test_the_old_dle_form_still_signs_in_with_its_cookie():
     assert await indexer(flare)._ensure_login() is True
     url, data = flare.posts[0]
     assert url == f"{BASE}/index.php?do=login" and "login_name=me%40x" in data
+
+
+class StuckFlare(FakeFlare):
+    """FlareSolverr that cannot solve the site's Cloudflare challenge."""
+
+    async def request_get(self, url, session=None):
+        from app.services.flaresolverr import FlareSolverrError
+
+        raise FlareSolverrError("Error solving the challenge. Timeout after 120.0 seconds.")
+
+
+@pytest.mark.asyncio
+async def test_the_connection_test_names_a_cloudflare_failure_not_a_refused_login():
+    ok, message = await indexer(StuckFlare(NEW_FORM, {})).test_connection()
+    assert ok is False
+    assert "protection" in message and "solving the challenge" in message
+    assert "refused" not in message
+
+
+@pytest.mark.asyncio
+async def test_the_connection_test_says_when_the_credentials_are_refused():
+    flare = FakeFlare(NEW_FORM, {"status": 200, "response": NEW_FORM, "cookies": []})
+    ok, message = await indexer(flare).test_connection()
+    assert ok is False
+    assert "refused" in message and "password" in message
