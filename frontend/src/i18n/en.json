@@ -95,6 +95,7 @@
     "title": "Add Magazine",
     "searchPlaceholder": "Search for a magazine...",
     "searchError": "Search failed.",
+    "searchingBookys": "Searching Bookys…",
     "inLibrary": "In Library",
     "manualAdd": "Manual Add",
     "manualAddTitle": "Add Magazine Manually",

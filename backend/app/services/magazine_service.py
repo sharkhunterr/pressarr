@@ -691,6 +691,60 @@ async def search_metadata(
     return all_results[:15]
 
 
+async def search_bookys_titles(
+    query: str, config, db: AsyncSession | None = None
+) -> list[MetadataSearchResult]:
+    """The newspapers and magazines Bookys turns up for ``query``,
+    shaped like the catalogue results: description, frequency
+    guessed from the issue dates, genre. Empty when Bookys is off."""
+    if not getattr(config, "bookys_enabled", False):
+        return []
+    from urllib.parse import urlsplit
+
+    from app.indexers.magazine_scene.bookys import BookysIndexer
+    from app.services.flaresolverr import build_client
+
+    indexer = BookysIndexer(
+        base_url=config.bookys_url,
+        username=config.bookys_username,
+        password=config.bookys_password,
+        flaresolverr=build_client(config),
+    )
+    try:
+        titles = await indexer.search_titles(query)
+    finally:
+        await indexer.close()
+
+    existing_slugs: set[str] = set()
+    if db is not None:
+        existing_slugs = {
+            row[0] for row in (await db.execute(select(Magazine.title_slug))).all()
+        }
+    out: list[MetadataSearchResult] = []
+    for t in titles:
+        provider_id = urlsplit(t.url).path.strip("/")
+        out.append(
+            MetadataSearchResult(
+                provider="bookys",
+                provider_id=provider_id,
+                title=t.title,
+                description=t.description,
+                frequency=t.frequency,
+                language=t.language,
+                categories=[t.genre] if t.genre else [],
+                already_in_library=generate_title_slug(t.title) in existing_slugs,
+                sources=[
+                    SourceInfo(
+                        provider="bookys",
+                        provider_id=provider_id,
+                        count=t.issue_count,
+                    )
+                ],
+            )
+        )
+    return out
+
+
 async def lookup_magazine_by_issn(
     issn: str,
     db: AsyncSession | None = None,

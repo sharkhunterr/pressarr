@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 
 import {
   searchMetadata,
+  searchBookysTitles,
   createMagazine,
   type MetadataSearchResult,
 } from '@/api/magazines'
@@ -42,6 +43,40 @@ const SOURCE_LABELS: Record<string, string> = {
   issn_portal: 'ISSN Portal',
   google_books: 'Google Books',
   internet_archive: 'Internet Archive',
+  bookys: 'Bookys',
+}
+
+function titleKey(title: string): string {
+  return title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+// A title both a catalogue and Bookys know is one result: the
+// catalogue's, with Bookys' issue count and what the catalogue lacks.
+function withBookys(
+  results: MetadataSearchResult[],
+  bookys: MetadataSearchResult[],
+): MetadataSearchResult[] {
+  const out = [...results]
+  for (const b of bookys) {
+    const i = out.findIndex((r) => titleKey(r.title) === titleKey(b.title))
+    if (i < 0) {
+      out.push(b)
+      continue
+    }
+    const r = out[i]
+    out[i] = {
+      ...r,
+      description: r.description ?? b.description,
+      frequency: r.frequency ?? b.frequency,
+      sources: [...r.sources, ...b.sources],
+    }
+  }
+  return out
 }
 
 export default function AddMagazine() {
@@ -51,7 +86,12 @@ export default function AddMagazine() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<MetadataSearchResult[]>([])
   const [searching, setSearching] = useState(false)
+  const [bookysResults, setBookysResults] = useState<MetadataSearchResult[]>([])
+  const [bookysSearching, setBookysSearching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Answers to an older query are dropped.
+  const searchRun = useRef(0)
+  const shown = withBookys(results, bookysResults)
 
   // Manual add dialog
   const [manualOpen, setManualOpen] = useState(false)
@@ -101,18 +141,33 @@ export default function AddMagazine() {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (query.trim().length < 2) {
+      searchRun.current++
       setResults([])
+      setBookysResults([])
+      setSearching(false)
+      setBookysSearching(false)
       return
     }
     debounceRef.current = setTimeout(async () => {
+      const run = ++searchRun.current
+      const current = () => run === searchRun.current
+      const q = query.trim()
       setSearching(true)
+      setBookysSearching(true)
+      setBookysResults([])
+      // Bookys answers on its own time: up to a minute when
+      // FlareSolverr first has to get past Cloudflare.
+      searchBookysTitles(q)
+        .then((data) => current() && setBookysResults(data))
+        .catch(() => {})
+        .finally(() => current() && setBookysSearching(false))
       try {
-        const data = await searchMetadata(query.trim())
-        setResults(data)
+        const data = await searchMetadata(q)
+        if (current()) setResults(data)
       } catch {
-        toast.error(t('addMagazine.searchError'))
+        if (current()) toast.error(t('addMagazine.searchError'))
       } finally {
-        setSearching(false)
+        if (current()) setSearching(false)
       }
     }, 500)
     return () => {
@@ -191,9 +246,9 @@ export default function AddMagazine() {
       </div>
 
       {/* Results */}
-      {results.length > 0 && (
+      {shown.length > 0 && (
         <div className="space-y-2 mb-6">
-          {results.map((result) => (
+          {shown.map((result) => (
             <div
               key={`${result.provider}-${result.providerId}`}
               className="flex items-center gap-4 rounded-md border border-zinc-800 bg-zinc-950 px-4 py-3"
@@ -259,8 +314,15 @@ export default function AddMagazine() {
         </div>
       )}
 
+      {bookysSearching && !searching && (
+        <p className="flex items-center justify-center gap-2 text-xs text-zinc-500 mb-4">
+          <Loader2 className="size-3 animate-spin" />
+          {t('addMagazine.searchingBookys')}
+        </p>
+      )}
+
       {/* No results */}
-      {query.trim().length >= 2 && !searching && results.length === 0 && (
+      {query.trim().length >= 2 && !searching && !bookysSearching && shown.length === 0 && (
         <p className="text-zinc-500 text-center py-4">{t('common.noResults')}</p>
       )}
 

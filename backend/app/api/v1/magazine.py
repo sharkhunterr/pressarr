@@ -127,6 +127,19 @@ async def lookup_metadata(
     )
 
 
+@router.get("/lookup/bookys", response_model=list[MetadataSearchResult])
+async def lookup_bookys(
+    query: str = Query(..., min_length=1),
+    config=Depends(get_config),
+    db: AsyncSession = Depends(get_db),
+):
+    """The titles Bookys turns up for ``query``, shaped like the
+    ``/lookup`` results. Asked apart from ``/lookup``: after a
+    restart its first search waits for FlareSolverr to get past
+    Cloudflare (10 to 60 s), the catalogues show meanwhile."""
+    return await magazine_service.search_bookys_titles(query, config, db=db)
+
+
 @router.get("/identity", response_model=MagazineIdentitySchema)
 async def lookup_identity(
     issn: str = Query(

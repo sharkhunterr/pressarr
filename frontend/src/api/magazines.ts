@@ -109,6 +109,8 @@ export interface MetadataSearchResult {
   frequency: string | null
   alreadyInLibrary: boolean
   sources: SourceInfo[]
+  language?: string | null
+  categories?: string[]
 }
 
 export const getMagazines = () =>
@@ -136,6 +138,11 @@ export const deleteMagazine = (id: number, deleteFiles?: boolean) =>
 
 export const searchMetadata = (query: string) =>
   apiFetch<MetadataSearchResult[]>(`/magazine/lookup?query=${encodeURIComponent(query)}`)
+
+// Asked apart from searchMetadata: the first Bookys search after a
+// restart waits for FlareSolverr to get past Cloudflare.
+export const searchBookysTitles = (query: string) =>
+  apiFetch<MetadataSearchResult[]>(`/magazine/lookup/bookys?query=${encodeURIComponent(query)}`)
 
 export const refreshMetadata = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}/refresh`, { method: 'POST' })
