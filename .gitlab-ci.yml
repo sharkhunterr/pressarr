@@ -60,6 +60,8 @@ stages:
     - pip install --upgrade pip
     - python -m venv .venv
     - . .venv/bin/activate
+    # PyTorch (EasyOCR) sans CUDA : ~4 Go de moins à télécharger et stocker sur le runner
+    - pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
     - pip install -r requirements.txt
     - pip install -r requirements-dev.txt
 
@@ -92,7 +94,7 @@ auto-fix:
   image: python:${PYTHON_VERSION}-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git nodejs npm libmupdf-dev && rm -rf /var/lib/apt/lists/*
-    - cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pip install -r requirements-dev.txt && cd ..
+    - cd backend && python -m venv .venv && . .venv/bin/activate && pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt && pip install -r requirements-dev.txt && cd ..
     - cd frontend && npm ci && cd ..
   script:
     - chmod +x scripts/ci-auto-fix.sh

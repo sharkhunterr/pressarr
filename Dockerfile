@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python deps
 COPY backend/requirements.txt .
+# PyTorch (EasyOCR) without CUDA: the container runs on CPU, and the CUDA build adds ~4 GB
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend
