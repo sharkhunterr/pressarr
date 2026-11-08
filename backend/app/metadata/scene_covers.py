@@ -56,7 +56,9 @@ async def find_scene_cover(
     if not q:
         return None
 
-    indexers = build_enabled_indexers(config)
+    # Bookys covers answer 403 outside its Cloudflare clearance: it
+    # never has one to offer, and scraping it costs dozens of pages.
+    indexers = [i for i in build_enabled_indexers(config) if i.name != "bookys"]
     if not indexers:
         return None
 

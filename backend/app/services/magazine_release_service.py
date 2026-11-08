@@ -39,6 +39,7 @@ from app.indexers.magazine_scene.telecharger_magazines import (
 from app.models.magazine import Magazine
 from app.models.magazine_release import MagazineRelease
 from app.services.flaresolverr import build_client as build_flaresolverr
+from app.services.title_match import title_match_score
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,13 @@ async def scan_magazine_releases(
     queries = _queries_for_magazine(magazine)
     if not queries:
         return []
+    # A search for "Le Monde" also turns up "Le Monde des Ados": keep
+    # what passes the gate the indexer search applies to a release.
+    override = getattr(magazine, "min_title_match_override", None)
+    min_title = float(
+        override if override is not None
+        else getattr(config, "wanted_search_min_title_match", 80.0)
+    )
 
     # Per (source, source_url) → release. The orchestrator
     # dedupes BEFORE hitting the DB so multiple queries against
@@ -174,8 +182,14 @@ async def scan_magazine_releases(
                 continue
             for r in releases:
                 key = (r.source, r.source_url)
-                if key not in collected:
-                    collected[key] = r
+                if key in collected:
+                    continue
+                if max(title_match_score(r.title, t) for t in queries) < min_title:
+                    logger.debug(
+                        "Scene release %r is not %r — skipped", r.title, magazine.title
+                    )
+                    continue
+                collected[key] = r
         try:
             await indexer.close()  # type: ignore[attr-defined]
         except Exception:
@@ -237,6 +251,7 @@ async def _upsert_releases(
             existing.language = r.language or existing.language
             existing.file_format = r.file_format or existing.file_format
             existing.size_bytes = r.size_bytes or existing.size_bytes
+            existing.published_at = r.published_at or existing.published_at
             existing.cover_url = r.cover_url or existing.cover_url
             existing.hoster_links = hoster_payload
             out.append(existing)

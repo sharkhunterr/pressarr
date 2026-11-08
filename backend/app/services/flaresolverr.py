@@ -89,7 +89,10 @@ class FlareSolverrClient:
     # HTTP-through-Chromium
     # ------------------------------------------------------------------
     async def request_get(
-        self, url: str, session: str | None = None
+        self,
+        url: str,
+        session: str | None = None,
+        session_ttl_minutes: int | None = None,
     ) -> dict[str, Any]:
         """GET ``url`` through the sidecar. Returns the
         ``solution`` payload — keys you'll likely use:
@@ -98,6 +101,10 @@ class FlareSolverrClient:
         - ``status``: HTTP status code from the target
         - ``response``: full rendered HTML
         - ``cookies``: list of ``{name, value, ...}`` dicts
+
+        A ``session`` the sidecar does not know is created on the
+        spot; ``session_ttl_minutes`` swaps it for a fresh one once
+        it is older than that.
         """
         body: dict[str, Any] = {
             "cmd": "request.get",
@@ -106,6 +113,8 @@ class FlareSolverrClient:
         }
         if session:
             body["session"] = session
+        if session_ttl_minutes:
+            body["session_ttl_minutes"] = session_ttl_minutes
         payload = await self._call(body)
         return payload.get("solution") or {}
 

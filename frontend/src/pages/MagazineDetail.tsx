@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { Fragment, useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -26,6 +26,7 @@ import {
   FolderOpen,
   Ban,
   Sparkles,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -138,6 +139,17 @@ function formatPublishDate(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+const SCENE_SOURCE_LABELS: Record<string, string> = {
+  bookys: 'Bookys',
+  telecharger_magazines: 'tm.org',
+}
+
+function sortScene(rows: MagazineRelease[], dir: 'asc' | 'desc'): MagazineRelease[] {
+  const time = (r: MagazineRelease) =>
+    r.publishedAt ? new Date(r.publishedAt).getTime() : r.year ? new Date(r.year, 0).getTime() : 0
+  return [...rows].sort((a, b) => (dir === 'asc' ? time(a) - time(b) : time(b) - time(a)))
 }
 
 function sortByDate(results: SearchResult[], dir: 'asc' | 'desc'): SearchResult[] {
@@ -1988,127 +2000,143 @@ export default function MagazineDetail() {
               </div>
             )}
 
-            {/* Scene-tab results — separate render path because
-                the row model (hoster_links, status lifecycle)
-                doesn't fit the SearchResult-shaped table the
-                three free-text tabs share. */}
-            {isSceneTab(manualSearchTab) && (
-              <div className="mt-3 flex-1 overflow-y-auto">
-                {sceneResults.length === 0 ? (
-                  <div className="rounded border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
-                    {manualSearching
-                      ? 'Scraping…'
-                      : 'No releases yet. Click "Scan" to query the indexer.'}
-                  </div>
-                ) : (
-                  <ul className="space-y-2">
-                    {sceneResults.map((r) => {
-                      const size = formatSize(r.sizeBytes)
-                      const isGrabbing = sceneGrabbing.has(r.id)
-                      // Allow re-grab on ``grabbed`` too so the
-                      // operator can re-dispatch when JD2 didn't
-                      // pick up the previous crawljob (e.g. Folder
-                      // Watch was off). Only ``imported`` hides
-                      // the button — by then the file is in the
-                      // library and there's nothing left to do.
-                      const canGrab = r.status !== 'imported'
-                      const grabLabel =
-                        r.status === 'grabbed' ? 'Re-grab' : 'Grab'
-                      return (
-                        <li
-                          key={r.id}
-                          className="rounded-md border border-zinc-700 bg-zinc-900/40 p-3"
+            {/* Scene-tab results — laid out like the indexer rows
+                below, but their own render path: the row model
+                (hoster links, status lifecycle) differs. */}
+            {isSceneTab(manualSearchTab) &&
+              (() => {
+                const sorted = manualSearchDateSort
+                  ? sortScene(sceneResults, manualSearchDateSort)
+                  : sceneResults
+                const nextDateSort =
+                  manualSearchDateSort === '' ? 'desc' : manualSearchDateSort === 'desc' ? 'asc' : ''
+                const dateSortLabel =
+                  manualSearchDateSort === 'desc'
+                    ? t('issues.sortDateDesc')
+                    : manualSearchDateSort === 'asc'
+                      ? t('issues.sortDateAsc')
+                      : t('issues.sortDefault')
+                return (
+                  <>
+                    {sceneResults.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                        <span className="text-xs text-zinc-500">
+                          {sceneResults.length} releases
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto h-6 px-2 text-xs text-zinc-400"
+                          onClick={() =>
+                            setManualSearchDateSort(nextDateSort as '' | 'asc' | 'desc')
+                          }
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-semibold text-zinc-100">
-                                {r.title}
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                                <Badge
-                                  variant={
-                                    r.status === 'imported'
-                                      ? 'default'
-                                      : r.status === 'grabbed'
-                                        ? 'secondary'
-                                        : r.status === 'failed'
-                                          ? 'destructive'
-                                          : 'outline'
-                                  }
-                                  className="text-[10px] uppercase tracking-wider"
-                                >
-                                  {r.status}
-                                </Badge>
-                                {r.issueLabel && (
-                                  <span className="rounded bg-zinc-700/60 px-1.5 py-0.5 font-mono text-zinc-200">
-                                    {r.issueLabel}
-                                  </span>
-                                )}
-                                {r.year && (
-                                  <span className="text-zinc-400">
-                                    {r.year}
-                                  </span>
-                                )}
-                                {r.fileFormat && (
-                                  <span className="uppercase text-zinc-400">
-                                    {r.fileFormat}
-                                  </span>
-                                )}
-                                {size && (
-                                  <span className="text-zinc-400">{size}</span>
-                                )}
-                              </div>
-                              {r.hosterLinks.length > 0 && (
-                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                  {r.hosterLinks.map((h) => (
-                                    <span
-                                      key={h.url}
-                                      className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-mono uppercase text-indigo-200 ring-1 ring-indigo-500/30"
-                                      title={h.url}
-                                    >
-                                      {h.hoster}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              {r.statusMessage && r.status === 'failed' && (
-                                <p className="mt-1 text-xs text-red-300">
-                                  {r.statusMessage}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <a
-                                href={r.sourceUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs text-indigo-400 hover:text-indigo-300"
+                          <ArrowDownUp className="size-3 mr-1" />
+                          {dateSortLabel}
+                        </Button>
+                      </div>
+                    )}
+                    <div className="mt-3 flex-1 overflow-y-auto">
+                      {manualSearching ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="size-6 animate-spin text-zinc-400" />
+                          <span className="ml-2 text-zinc-400">{t('issues.searching')}</span>
+                        </div>
+                      ) : sorted.length === 0 ? (
+                        <div className="rounded border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
+                          No releases yet. Click "Scan" to query the indexer.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-zinc-800">
+                          {sorted.map((r) => {
+                            const size = formatSize(r.sizeBytes)
+                            const isGrabbing = sceneGrabbing.has(r.id)
+                            // Allow re-grab on ``grabbed`` too so the
+                            // operator can re-dispatch when JD2 didn't
+                            // pick up the previous crawljob (e.g. Folder
+                            // Watch was off). Only ``imported`` hides
+                            // the button — by then the file is in the
+                            // library and there's nothing left to do.
+                            const canGrab = r.status !== 'imported'
+                            const grabLabel = r.status === 'grabbed' ? 'Re-grab' : t('issues.grab')
+                            const meta = [
+                              SCENE_SOURCE_LABELS[r.source] ?? r.source,
+                              size,
+                              r.fileFormat?.toUpperCase(),
+                              r.language,
+                              r.publishedAt ? formatPublishDate(r.publishedAt) : r.year,
+                            ].filter(Boolean)
+                            return (
+                              <div
+                                key={r.id}
+                                className="flex flex-wrap items-center justify-between gap-2 py-3 px-2 hover:bg-zinc-900/50 rounded"
                               >
-                                Open source →
-                              </a>
-                              {canGrab && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleSceneGrab(r)}
-                                  disabled={isGrabbing}
-                                >
-                                  {isGrabbing ? (
-                                    <Loader2 className="size-3 animate-spin" />
-                                  ) : (
-                                    <Download className="size-3" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm text-zinc-100 break-words">
+                                    {r.title}
+                                    {r.status !== 'available' && (
+                                      <Badge
+                                        variant={
+                                          r.status === 'imported'
+                                            ? 'default'
+                                            : r.status === 'grabbed'
+                                              ? 'secondary'
+                                              : 'destructive'
+                                        }
+                                        className="ml-2 align-middle text-[10px] uppercase tracking-wider"
+                                      >
+                                        {r.status}
+                                      </Badge>
+                                    )}
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-zinc-500">
+                                    {meta.map((m, i) => (
+                                      <Fragment key={i}>
+                                        {i > 0 && <span>|</span>}
+                                        <span>{m}</span>
+                                      </Fragment>
+                                    ))}
+                                  </div>
+                                  {r.hosterLinks.length > 0 && (
+                                    <p className="mt-1 text-xs text-zinc-500 break-words">
+                                      {r.hosterLinks.map((h) => h.hoster).join(' · ')}
+                                    </p>
                                   )}
-                                  {grabLabel}
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-            )}
+                                  {r.statusMessage && r.status === 'failed' && (
+                                    <p className="mt-1 text-xs text-red-300">{r.statusMessage}</p>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button variant="outline" size="sm" asChild>
+                                    <a href={r.sourceUrl} target="_blank" rel="noreferrer">
+                                      <ExternalLink className="size-3.5" />
+                                    </a>
+                                  </Button>
+                                  {canGrab && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleSceneGrab(r)}
+                                      disabled={isGrabbing}
+                                    >
+                                      {isGrabbing ? (
+                                        <Loader2 className="size-3.5 animate-spin" />
+                                      ) : (
+                                        <Download className="size-3.5" />
+                                      )}
+                                      {grabLabel}
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
 
             {/* Results area (the existing SearchResult render
                 path — only renders on the 3 free-text tabs;
