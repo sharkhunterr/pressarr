@@ -10,6 +10,7 @@ import {
   Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 
 import {
   getAISettings,
@@ -31,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { ExperimentalBadge, ExperimentalNotice } from '@/components/ExperimentalBadge'
 
 /** Local editable copy — every field non-optional so React inputs
  *  stay controlled. Populated from the server via `useEffect`, dumped
@@ -85,6 +87,7 @@ const DEFAULT: LocalState = {
 }
 
 export default function AISettingsPage() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [local, setLocal] = useState<LocalState>(DEFAULT)
   const [pagesStr, setPagesStr] = useState('1')
@@ -184,6 +187,7 @@ export default function AISettingsPage() {
           <h1 className="text-2xl font-bold text-zinc-100">
             Intelligence Artificielle
           </h1>
+          <ExperimentalBadge />
           {isDirty && (
             <span className="text-xs px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 animate-pulse">
               modifications non sauvegardées
@@ -210,6 +214,10 @@ export default function AISettingsPage() {
         (Ollama) et ranking des résultats de recherche. Toutes les
         données restent chez toi.
       </p>
+
+      <div className="mb-6">
+        <ExperimentalNotice>{t('experimental.ai')}</ExperimentalNotice>
+      </div>
 
       <div className="grid gap-6">
         {/* --- Ollama connection ------------------------------ */}

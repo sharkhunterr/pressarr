@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { ExperimentalBadge, ExperimentalNotice } from '@/components/ExperimentalBadge'
 
 // Reusable "magazine pipeline" config block — Bookys + tm.org
 // + FlareSolverr (bypass) + JDownloader 2 (folder-watch). The
@@ -25,8 +26,6 @@ import { Switch } from '@/components/ui/switch'
 // Mounted at the top of the Indexers settings page so it lives
 // alongside the Prowlarr indexer list (per operator review —
 // "the Indexers page is good, just put scene indexers there").
-
-const PWD_PLACEHOLDER = '***'
 
 export default function MagazinePipelineSection() {
   const { t } = useTranslation()
@@ -148,7 +147,9 @@ export default function MagazinePipelineSection() {
       {/* ──────────────── Bookys ──────────────── */}
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-zinc-100">Bookys</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            Bookys <ExperimentalBadge />
+          </CardTitle>
           <div className="flex items-center gap-3">
             <Switch
               checked={bookysEnabled}
@@ -172,6 +173,7 @@ export default function MagazinePipelineSection() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <ExperimentalNotice>{t('experimental.bookys')}</ExperimentalNotice>
           <p className="text-xs text-zinc-400 flex items-start gap-1">
             <ShieldAlert className="size-3.5 mt-0.5 text-amber-400 flex-shrink-0" />
             <span>
@@ -190,28 +192,7 @@ export default function MagazinePipelineSection() {
                 className="bg-zinc-950 border-zinc-700 text-zinc-100"
               />
             </div>
-            <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Username</label>
-              <Input
-                value={bookysUsername}
-                onChange={(e) => setBookysUsername(e.target.value)}
-                className="bg-zinc-950 border-zinc-700 text-zinc-100"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="text-xs text-zinc-400 mb-1 block">
-                Password{' '}
-                <span className="text-zinc-500">
-                  ({PWD_PLACEHOLDER} = keep current)
-                </span>
-              </label>
-              <Input
-                type="password"
-                value={bookysPassword}
-                onChange={(e) => setBookysPassword(e.target.value)}
-                className="bg-zinc-950 border-zinc-700 text-zinc-100"
-              />
-            </div>
+            <p className="self-end text-xs text-zinc-500">{t('experimental.bookysNoLogin')}</p>
           </div>
         </CardContent>
       </Card>

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 
 import { getActivityCounters } from '@/api/activity'
+import { ExperimentalBadge } from '@/components/ExperimentalBadge'
 
 const MAIN_NAV = [
   { path: '/', labelKey: 'nav.library', icon: BookOpen },
@@ -51,7 +52,7 @@ const SETTINGS_NAV = [
   { path: '/settings/root-folders', labelKey: 'nav.settingsRootFolders', icon: FolderOpen },
   { path: '/settings/naming', labelKey: 'nav.settingsNaming', icon: FileText },
   { path: '/settings/metadata', labelKey: 'nav.settingsMetadata', icon: Database },
-  { path: '/settings/ai', labelKey: 'nav.settingsAI', icon: Sparkles },
+  { path: '/settings/ai', labelKey: 'nav.settingsAI', icon: Sparkles, experimental: true },
   { path: '/settings/system', labelKey: 'nav.settingsSystem', icon: Monitor },
 ]
 
@@ -179,7 +180,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     }
                   >
                     <item.icon className="size-3.5 shrink-0" />
-                    {t(item.labelKey)}
+                    <span className="flex-1">{t(item.labelKey)}</span>
+                    {'experimental' in item && <ExperimentalBadge className="px-1 text-[9px]" />}
                   </NavLink>
                 ))}
               </div>
