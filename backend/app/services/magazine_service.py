@@ -71,10 +71,13 @@ async def download_cover(url: str) -> bytes | None:
     Wikimedia's SVG logos are asked for as a PNG rendering."""
     import httpx
 
+    from app.metadata.wikidata import USER_AGENT
+
     if "wikimedia.org/wiki/Special:FilePath/" in url and url.lower().endswith(".svg"):
         url += "?width=500"
     async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-        resp = await client.get(url, headers={"User-Agent": "Pressarr"})
+        # Wikimedia refuses requests without a descriptive User-Agent.
+        resp = await client.get(url, headers={"User-Agent": USER_AGENT})
     content_type = resp.headers.get("content-type", "").split(";")[0].strip()
     if resp.status_code != 200 or content_type not in ("image/jpeg", "image/png", "image/webp"):
         return None
