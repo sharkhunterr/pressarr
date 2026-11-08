@@ -35,5 +35,9 @@ EXPOSE 8585
 ENV PRESSARR__CONFIG_PATH=/config/pressarr.yml
 ENV PRESSARR__DB_PATH=/config/pressarr.db
 
+# PUID/PGID: start as root, then drop to that user
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
 # Entrypoint
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8585"]

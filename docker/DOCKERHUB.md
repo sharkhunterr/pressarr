@@ -22,6 +22,8 @@ services:
       - ./downloads:/downloads
     environment:
       - TZ=Europe/Paris
+      - PUID=1000
+      - PGID=1000
     restart: unless-stopped
 ```
 
@@ -77,6 +79,8 @@ docker compose up -d
 | `PRESSARR__DB_PATH` | `/config/pressarr.db` | Database path |
 | `PRESSARR__CONFIG_PATH` | `/config/pressarr.yml` | Config file path |
 | `TZ` | `UTC` | Container timezone |
+| `PUID` / `PGID` | root | User and group Pressarr runs as (see below) |
+| `UMASK` | — | Umask of the files Pressarr writes, e.g. `002` |
 
 ### Volumes
 
@@ -88,7 +92,7 @@ docker compose up -d
 
 ### Running as a user (PUID/PGID)
 
-The image runs as root and does not read `PUID` / `PGID`: set Compose's `user: "1000:1000"` (or `docker run --user 1000:1000`) with your own UID:GID, and give that user write access to the three volumes (`chown -R 1000:1000 config magazines downloads`).
+Set `PUID` / `PGID` to your own UID/GID (`id -u` / `id -g`), and optionally `UMASK` (e.g. `002`). At start the container takes `/config` over for that user and runs Pressarr as that user; `/magazines` and `/downloads` are left as they are, and the log warns when that user cannot write to them (`chown -R 1000:1000 magazines downloads` on the host). Without `PUID` / `PGID`, Pressarr runs as root, as before. Compose's `user:` also works, with all three volumes already writable by that user.
 
 ---
 

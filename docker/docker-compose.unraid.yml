@@ -10,6 +10,9 @@ services:
       - "8585:8585"
     environment:
       - TZ=Europe/Paris
+      # Unraid's nobody:users
+      - PUID=99
+      - PGID=100
       - PRESSARR__LOG_LEVEL=info
     volumes:
       # Persistent data storage in appdata

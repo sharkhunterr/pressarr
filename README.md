@@ -128,6 +128,8 @@ services:
       - ./downloads:/downloads
     environment:
       - TZ=Europe/Paris
+      - PUID=1000
+      - PGID=1000
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8585/api/v1/system/status', timeout=5)"]
@@ -152,6 +154,7 @@ docker run -d \
   -v $(pwd)/magazines:/magazines \
   -v $(pwd)/downloads:/downloads \
   -e TZ=Europe/Paris \
+  -e PUID=1000 -e PGID=1000 \
   sharkhunterr/pressarr:latest
 ```
 
@@ -170,6 +173,8 @@ All settings can be overridden with `PRESSARR__` prefixed environment variables.
 | `PRESSARR__DB_PATH` | `/config/pressarr.db` | SQLite database path |
 | `PRESSARR__CONFIG_PATH` | `/config/pressarr.yml` | YAML config file path |
 | `TZ` | `UTC` | Container timezone |
+| `PUID` / `PGID` | root | User and group Pressarr runs as (see below) |
+| `UMASK` | — | Umask of the files Pressarr writes, e.g. `002` |
 
 ### First Launch
 
@@ -395,18 +400,25 @@ Change language anytime from Settings → General (kept in each browser; by defa
 
 ### Running as a user (PUID/PGID)
 
-The image runs as root by default and does not read `PUID` / `PGID`. To run it as your own user — needed on most NAS and CIFS/NFS mounts — set Compose's `user:` (or `docker run --user`), and make sure that user can write to the three volumes:
+Set `PUID` and `PGID` to your own UID/GID (`id -u` / `id -g`) — needed on most NAS and CIFS/NFS mounts:
 
 ```yaml
 services:
   pressarr:
     image: sharkhunterr/pressarr:latest
-    user: "1000:1000"   # your UID:GID (`id -u` / `id -g`)
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002   # optional
 ```
 
+At start, the container takes `/config` over for that user, then runs Pressarr as that user. `/magazines` and `/downloads` are left as they are (they can be large or on a network share): the log warns when that user cannot write to them, in which case:
+
 ```bash
-sudo chown -R 1000:1000 ./config ./magazines ./downloads
+sudo chown -R 1000:1000 ./magazines ./downloads
 ```
+
+Without `PUID` / `PGID`, Pressarr runs as root, as before. Compose's `user: "1000:1000"` (or `docker run --user`) also works; Pressarr then cannot take `/config` over, so all three volumes must already be writable by that user.
 
 Your download client must write to `/downloads` with a UID/GID Pressarr can read, so that imports can move the files.
 
