@@ -96,6 +96,9 @@ class MagazineRelease(Base):
     # goes wrong ("1fichier captcha", "all hosters returned
     # 404", …). Surfaced in the UI.
     status_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # JSON list of the hosters already sent to JDownloader for the
+    # current grab, so a failed mirror hands over to the next one.
+    tried_hosters: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     discovered_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()

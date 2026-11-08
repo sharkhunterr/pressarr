@@ -245,6 +245,8 @@ def _migrate_add_columns(connection) -> None:
         ("magazine", "auto_grab_threshold_override", "REAL"),
         # JSON : groupes d'issues combinées (remplace weekend_days).
         ("magazine", "issue_groups", "TEXT"),
+        # JSON : hébergeurs déjà envoyés à JDownloader pour ce grab.
+        ("magazine_release", "tried_hosters", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:

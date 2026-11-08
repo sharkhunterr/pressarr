@@ -45,6 +45,7 @@ export default function MagazinePipelineSection() {
   const [jdEnabled, setJdEnabled] = useState(false)
   const [jdFolderwatch, setJdFolderwatch] = useState('')
   const [jdOutputPath, setJdOutputPath] = useState('')
+  const [jdApiUrl, setJdApiUrl] = useState('')
   const [initialised, setInitialised] = useState(false)
   // Per-tester loading flags so spinners don't block each
   // other when the operator hits multiple at once.
@@ -70,6 +71,7 @@ export default function MagazinePipelineSection() {
         setJdEnabled(data.jdownloaderEnabled)
         setJdFolderwatch(data.jdownloaderFolderwatch)
         setJdOutputPath(data.jdownloaderOutputPath)
+        setJdApiUrl(data.jdownloaderApiUrl ?? '')
         setInitialised(true)
       }
       return data
@@ -90,6 +92,7 @@ export default function MagazinePipelineSection() {
         jdownloaderEnabled: jdEnabled,
         jdownloaderFolderwatch: jdFolderwatch,
         jdownloaderOutputPath: jdOutputPath,
+        jdownloaderApiUrl: jdApiUrl,
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['sceneIndexersSettings'] })
@@ -350,6 +353,23 @@ export default function MagazinePipelineSection() {
                 placeholder="/downloads/jd2/complete"
                 className="bg-zinc-950 border-zinc-700 text-zinc-100"
               />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400 mb-1 block">
+                API URL (follow downloads)
+              </label>
+              <Input
+                value={jdApiUrl}
+                onChange={(e) => setJdApiUrl(e.target.value)}
+                placeholder="http://jdownloader2:3128"
+                className="bg-zinc-950 border-zinc-700 text-zinc-100"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                JDownloader&apos;s local API (Advanced settings: RemoteAPI
+                DeprecatedApiEnabled, port 3128). Shows each download&apos;s
+                progress in Activity, tries the next mirror when one fails and
+                imports the file with the AI analysis.
+              </p>
             </div>
           </div>
         </CardContent>

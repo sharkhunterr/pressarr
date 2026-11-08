@@ -281,6 +281,7 @@ class SceneIndexersResource(CamelModel):
     jdownloader_enabled: bool
     jdownloader_folderwatch: str
     jdownloader_output_path: str
+    jdownloader_api_url: str
 
 
 class SceneIndexersUpdateResource(CamelModel):
@@ -295,6 +296,7 @@ class SceneIndexersUpdateResource(CamelModel):
     jdownloader_enabled: bool | None = None
     jdownloader_folderwatch: str | None = None
     jdownloader_output_path: str | None = None
+    jdownloader_api_url: str | None = None
 
 
 def _serialise_scene_indexers(config) -> SceneIndexersResource:
@@ -310,6 +312,7 @@ def _serialise_scene_indexers(config) -> SceneIndexersResource:
         jdownloader_enabled=config.jdownloader_enabled,
         jdownloader_folderwatch=config.jdownloader_folderwatch,
         jdownloader_output_path=config.jdownloader_output_path,
+        jdownloader_api_url=config.jdownloader_api_url,
     )
 
 
@@ -353,6 +356,8 @@ async def save_scene_indexers(
         config.jdownloader_folderwatch = body.jdownloader_folderwatch
     if body.jdownloader_output_path is not None:
         config.jdownloader_output_path = body.jdownloader_output_path
+    if body.jdownloader_api_url is not None:
+        config.jdownloader_api_url = body.jdownloader_api_url.strip().rstrip("/")
     config.save()
     return _serialise_scene_indexers(config)
 

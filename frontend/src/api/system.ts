@@ -148,6 +148,7 @@ export interface SceneIndexersSettings {
   jdownloaderEnabled: boolean
   jdownloaderFolderwatch: string
   jdownloaderOutputPath: string
+  jdownloaderApiUrl: string
 }
 
 export const getSceneIndexers = () =>

@@ -111,12 +111,14 @@ _HOSTER_PREFERENCE: tuple[str, ...] = (
 )
 
 
-def _pick_best_hoster_url(release: MagazineRelease) -> str | None:
-    """Pick the single best hoster URL for ``release`` according
-    to ``_HOSTER_PREFERENCE``. Returns None when the release
-    has no hosters at all. The dispatcher writes only this URL
-    into the .crawljob so JD2 doesn't download the same file
-    once per mirror."""
+def _pick_best_hoster(
+    release: MagazineRelease, exclude: set[str] = frozenset()
+) -> tuple[str, str] | None:
+    """Pick the single best ``(hoster, url)`` for ``release``
+    according to ``_HOSTER_PREFERENCE``, leaving out the hosters in
+    ``exclude``. Returns None when none is left. The dispatcher
+    writes only this URL into the .crawljob so JD2 doesn't download
+    the same file once per mirror."""
     try:
         data = json.loads(release.hoster_links or "[]")
     except Exception:
@@ -125,7 +127,7 @@ def _pick_best_hoster_url(release: MagazineRelease) -> str | None:
     for entry in data:
         url = (entry or {}).get("url")
         hoster = ((entry or {}).get("hoster") or "").lower()
-        if isinstance(url, str) and url:
+        if isinstance(url, str) and url and hoster not in exclude:
             entries.append((hoster, url))
     if not entries:
         return None
@@ -133,7 +135,15 @@ def _pick_best_hoster_url(release: MagazineRelease) -> str | None:
         h: i for i, h in enumerate(_HOSTER_PREFERENCE)
     }
     entries.sort(key=lambda e: rank.get(e[0], len(_HOSTER_PREFERENCE)))
-    return entries[0][1]
+    return entries[0]
+
+
+def tried_hosters(release: MagazineRelease) -> list[str]:
+    """Hosters already sent to JDownloader for the current grab."""
+    try:
+        return list(json.loads(release.tried_hosters or "[]"))
+    except Exception:
+        return []
 
 
 def _build_crawljob(
@@ -148,9 +158,10 @@ def _build_crawljob(
     for multi-URL jobs."""
     text_urls = "\n".join(urls)
     package_name = magazine_title or release.title or "magazine"
+    # With its extension: the importer reads the format from it.
     filename = _slug(
         f"{release.id}-{release.issue_label or release.title}"
-    )
+    ) + f".{(release.file_format or 'pdf').lower()}"
     # JD2's CrawlJobStorable parses values via Boolean.parseBoolean
     # which is case-insensitive for "true". In practice some older
     # FolderWatch versions appeared to be fussier about case, so
@@ -176,6 +187,7 @@ def dispatch_release(
     release: MagazineRelease,
     magazine: Magazine,
     config,
+    next_mirror: bool = False,
 ) -> Path:
     """Write the ``.crawljob`` file for ``release`` into the
     configured folder-watch directory. Returns the path of the
@@ -207,11 +219,17 @@ def dispatch_release(
         getattr(config, "jdownloader_output_path_in_jd2", "") or output_path
     ).strip()
 
-    best_url = _pick_best_hoster_url(release)
-    if not best_url:
+    # A new grab starts over; ``next_mirror`` skips the hosters that
+    # already failed for this one.
+    tried = tried_hosters(release) if next_mirror else []
+    best = _pick_best_hoster(release, exclude=set(tried))
+    if not best:
         raise JDownloaderDispatchError(
-            "Release has no hoster URLs to dispatch"
+            "No mirror left to try: " + ", ".join(tried)
+            if tried
+            else "Release has no hoster URLs to dispatch"
         )
+    hoster, best_url = best
     urls = [best_url]
 
     folder = Path(folderwatch)
@@ -238,8 +256,9 @@ def dispatch_release(
 
     release.status = "grabbed"
     release.grabbed_at = datetime.utcnow()
+    release.tried_hosters = json.dumps([*tried, hoster])
     release.status_message = (
-        f"Dispatched to JDownloader 2 via {crawljob_path.name}"
+        f"Dispatched to JDownloader 2 via {crawljob_path.name} ({hoster})"
     )
 
     logger.info(

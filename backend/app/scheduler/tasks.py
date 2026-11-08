@@ -542,13 +542,14 @@ async def scene_auto_grab():
 
 
 async def scene_import():
-    """Walk JDownloader 2's output directory and move completed
-    files into the magazine library, flipping the matching
-    ``MagazineRelease`` row from ``grabbed`` to ``imported``.
+    """Follow the downloads dispatched to JDownloader 2 through its
+    API and import the finished ones like torrents; without the API,
+    walk JD2's output directory and move completed files into the
+    magazine library, flipping the matching ``MagazineRelease`` row
+    from ``grabbed`` to ``imported``.
 
-    Cadence is short (every 90s) because most magazines are
-    PDF and finish in a minute or two — operator feedback is
-    way better when the status chip flips quickly.
+    Cadence is short (every 30s) so the download progress stays
+    live and the status chip flips quickly.
     """
     if not async_session_factory:
         return
@@ -557,7 +558,17 @@ async def scene_import():
             from app.dependencies import get_config
             from app.services.scene_importer import run_scene_import
 
-            stats = await run_scene_import(db, get_config())
+            config = get_config()
+            if getattr(config, "jdownloader_api_url", ""):
+                # JD2's API tells where each download stands: followed
+                # and imported like a torrent.
+                from app.services.jdownloader_tracker import (
+                    track_scene_downloads,
+                )
+
+                await track_scene_downloads(db, config)
+                return
+            stats = await run_scene_import(db, config)
             if stats["imported"]:
                 logger.info(
                     "Scene importer: imported=%d scanned=%d skipped=%d",

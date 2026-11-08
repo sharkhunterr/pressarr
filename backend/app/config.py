@@ -124,6 +124,13 @@ class Config:
         # this; the dispatcher writes this value verbatim into the
         # crawljob so the path is whatever JD2 expects.
         self.jdownloader_output_path_in_jd2: str = "/jdownloader/downloads"
+        # JD2's local API (Settings > Advanced > RemoteAPI: "deprecated
+        # API", port 3128 — no MyJDownloader account needed), e.g.
+        # ``http://jdownloader2:3128``. Lets pressarr follow each
+        # dispatched download (progress, offline mirror, captcha) and
+        # import it like a torrent. Empty: dispatch only, the output
+        # folder is swept for finished files.
+        self.jdownloader_api_url: str = ""
 
         # Import mode: copy, move, or copy_delete
         self.import_mode: str = "copy"
@@ -420,6 +427,9 @@ class Config:
         self.jdownloader_output_path_in_jd2 = jd.get(
             "output_path_in_jd2", self.jdownloader_output_path_in_jd2
         )
+        self.jdownloader_api_url = (
+            jd.get("api_url", self.jdownloader_api_url) or ""
+        ).rstrip("/")
 
         self.import_mode = data.get("import_mode", self.import_mode)
         self.download_path = data.get("download_path", self.download_path)
@@ -612,6 +622,7 @@ class Config:
                     "folderwatch": self.jdownloader_folderwatch,
                     "output_path": self.jdownloader_output_path,
                     "output_path_in_jd2": self.jdownloader_output_path_in_jd2,
+                    "api_url": self.jdownloader_api_url,
                 },
             },
             "scheduler": {

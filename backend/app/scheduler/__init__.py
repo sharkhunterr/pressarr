@@ -107,14 +107,14 @@ def _register_tasks() -> None:
         replace_existing=True,
     )
 
-    # Scene importer — short cadence so the status chip flips
-    # from "grabbed" to "imported" within a couple of minutes
-    # of JD2 finishing the download. Cheap when the JD2 output
-    # folder is empty.
+    # Scene downloads — short cadence so the progress shown in
+    # Activity stays live and the status chip flips from "grabbed"
+    # to "imported" soon after JD2 finishes. Cheap when nothing is
+    # grabbed.
     scheduler.add_job(
         scene_import,
         "interval",
-        seconds=90,
+        seconds=30,
         id="scene_import",
         name="Scene magazine importer",
         replace_existing=True,
