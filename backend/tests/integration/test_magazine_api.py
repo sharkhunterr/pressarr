@@ -357,3 +357,30 @@ class TestMagazineListFiltering:
         resp = await client.get("/api/v1/magazine", params={"monitored": "false"})
         titles = [m["title"] for m in resp.json()]
         assert "Unmonitored Mag" in titles
+
+
+@pytest.mark.asyncio
+async def test_the_cover_shown_by_the_add_search_is_kept(client: AsyncClient, seed_data, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    from app.services import magazine_service
+
+    logo = io.BytesIO()
+    Image.new("RGBA", (40, 20), (0, 0, 0, 0)).save(logo, "PNG")
+
+    async def download_cover(url):
+        assert url == "https://example.test/logo.png"
+        return logo.getvalue()
+
+    monkeypatch.setattr(magazine_service, "download_cover", download_cover)
+    resp = await client.post(
+        "/api/v1/magazine",
+        json=_magazine_payload(seed_data, coverUrl="https://example.test/logo.png"),
+    )
+
+    cover = resp.json()["coverPath"]
+    assert cover.endswith("science-magazine-custom.jpg")
+    # The transparent background comes out white, not black.
+    assert Image.open(cover).getpixel((0, 0)) == (255, 255, 255)

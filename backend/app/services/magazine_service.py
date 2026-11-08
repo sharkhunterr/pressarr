@@ -54,10 +54,31 @@ def save_cover_image(image_bytes: bytes, covers_dir: Path, title_slug: str) -> s
     if img.width > 500:
         ratio = 500 / img.width
         img = img.resize((500, int(img.height * ratio)), Image.LANCZOS)
+    if img.mode in ("RGBA", "LA", "P"):
+        # A logo's transparent background would turn black in a JPEG.
+        img = img.convert("RGBA")
+        background = Image.new("RGB", img.size, "white")
+        background.paste(img, mask=img.getchannel("A"))
+        img = background
     img = img.convert("RGB")
     dest = covers_dir / f"{title_slug}-custom.jpg"
     img.save(dest, "JPEG", quality=85)
     return str(dest)
+
+
+async def download_cover(url: str) -> bytes | None:
+    """The image at ``url``, or None when it is not a JPEG, PNG or WebP.
+    Wikimedia's SVG logos are asked for as a PNG rendering."""
+    import httpx
+
+    if "wikimedia.org/wiki/Special:FilePath/" in url and url.lower().endswith(".svg"):
+        url += "?width=500"
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        resp = await client.get(url, headers={"User-Agent": "Pressarr"})
+    content_type = resp.headers.get("content-type", "").split(";")[0].strip()
+    if resp.status_code != 200 or content_type not in ("image/jpeg", "image/png", "image/webp"):
+        return None
+    return resp.content
 
 
 async def list_magazines(

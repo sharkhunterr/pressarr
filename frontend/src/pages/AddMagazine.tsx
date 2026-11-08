@@ -215,6 +215,7 @@ export default function AddMagazine() {
         monitoringStartDate: monitoringStartDate || undefined,
         metadataProvider: selectedResult?.provider ?? undefined,
         metadataProviderId: selectedResult?.providerId ?? undefined,
+        coverUrl: selectedResult?.coverUrl ?? undefined,
         searchForMissingIssues: searchForMissing,
       })
       toast.success(t('addMagazine.added'))

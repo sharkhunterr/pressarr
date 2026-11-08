@@ -153,6 +153,8 @@ class MagazineCreateResource(CamelModel):
     quality_profile_id: int
     metadata_provider_id: str | None = None
     metadata_provider: str | None = None
+    # The cover the add search showed, saved with the magazine.
+    cover_url: str | None = None
     excluded_days: list[int] | None = None
     release_weekday: int | None = None
     date_tolerance_days: int | None = None

@@ -206,6 +206,7 @@ async def get_magazine(
 async def create_magazine(
     body: MagazineCreateResource,
     db: AsyncSession = Depends(get_db),
+    config=Depends(get_config),
 ):
     """Create a new magazine. Returns 409 if title slug already exists.
 
@@ -221,10 +222,22 @@ async def create_magazine(
     """
     try:
         magazine = await magazine_service.create_magazine(
-            db, body.model_dump(exclude={"search_for_missing_issues"})
+            db, body.model_dump(exclude={"search_for_missing_issues", "cover_url"})
         )
     except ValueError as e:
         raise HTTPException(409, str(e))
+
+    if body.cover_url and magazine is not None and not magazine.cover_path:
+        # Best-effort: a cover that cannot be fetched leaves "No cover".
+        try:
+            image = await magazine_service.download_cover(body.cover_url)
+            if image:
+                magazine.cover_path = magazine_service.save_cover_image(
+                    image, Path(config.config_path).parent / "covers", magazine.title_slug
+                )
+                await db.commit()
+        except Exception:
+            logger.warning("create_magazine: cover %s not saved", body.cover_url, exc_info=True)
 
     # Génération immédiate du backlog + forecasts. Sans ça, un magazine
     # nouvellement ajouté avec start_date dans le passé restait vide

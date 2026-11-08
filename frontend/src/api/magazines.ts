@@ -119,7 +119,9 @@ export const getMagazines = () =>
 export const getMagazine = (id: number) =>
   apiFetch<Magazine>(`/magazine/${id}`)
 
-export const createMagazine = (data: Partial<Magazine> & { searchForMissingIssues?: boolean }) =>
+export const createMagazine = (
+  data: Partial<Magazine> & { searchForMissingIssues?: boolean; coverUrl?: string },
+) =>
   apiFetch<Magazine>('/magazine', {
     method: 'POST',
     body: JSON.stringify(data),
