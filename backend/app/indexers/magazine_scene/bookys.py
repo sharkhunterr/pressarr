@@ -4,28 +4,27 @@ The current Bookys host (``www7.bookys-ebooks.com`` since
 October 2026 — ``www6`` redirects there — the
 operator-configured default) is a Laravel site behind
 Cloudflare's "Just a moment…" JS challenge. A plain ``httpx``
-GET gets a 403 with the interstitial HTML — no real content.
+GET gets a 403 — and a plain client carrying the clearance
+cookie a browser earned is soon refused too ("Access denied",
+error 1106).
 
-FlareSolverr (same sidecar grabarr uses) only solves that
-challenge: one ``request.get`` hands back the ``cf_clearance``
-cookie and the User-Agent it was issued to. Everything else runs
-on a plain ``httpx`` client carrying both — the clearance holds
-as long as Pressarr and FlareSolverr leave from the same public
-IP. Logging in through FlareSolverr's own ``request.post`` cannot
-work: it submits from a ``data:`` page, so the browser withholds
-the SameSite session cookie and Laravel answers "Page Expired".
+So every page goes through one FlareSolverr session — a real
+Chromium tab: the first request solves the challenge (10 to 60
+s), the next ones take about half a second. They run one at a
+time, which also keeps the site from answering 429.
+
+No account is needed: the search, the release pages and their
+``/dl/`` pages are public. (Signing in could not work through
+FlareSolverr anyway: its ``request.post`` submits from a
+``data:`` page, the browser withholds the SameSite session
+cookie and Laravel answers "Page Expired".) The username and
+password stay in the settings but are not used.
 
 Flow:
 
-1. FlareSolverr ``request.get`` on ``/login`` → clearance + UA.
-2. ``GET /login`` → the form's action and its one-shot
-   ``_token``; ``POST`` ``_token`` / ``username`` / ``password``
-   / ``remember``. Success = a page with a logout link and no
-   password field. A refusal reads "Aucun utilisateur trouvé
-   pour les identifiants fournis".
-3. ``GET /search?q=…`` → the ``#search_table`` rows; only the
+1. ``GET /search?q=…`` → the ``#search_table`` rows; only the
    ``/journaux/`` and ``/magazines/`` entries are kept.
-4. ``GET`` each release page → its download table (Type,
+2. ``GET`` each release page → its download table (Type,
    Format, Langue, Taille, Part), one ``…/dl/<id>`` link per
    hoster; each ``/dl/`` page holds the real hoster URL.
 
@@ -38,8 +37,8 @@ import asyncio
 import logging
 import re
 from collections.abc import Iterable
+from urllib.parse import quote
 
-import httpx
 from lxml import etree, html
 
 from app.indexers.magazine_scene._html_utils import (
@@ -69,17 +68,12 @@ _RELEASE_RE = re.compile(r"/(?:journaux|magazines)/\d+-[\w-]+/?$")
 _DL_RE = re.compile(r"/dl/\d+/?$")
 _URL_RE = re.compile(r"""https?://[^\s"'<>]+""")
 _SEARCH_LIMIT = 8
-# Release + /dl/ pages fetched at once — a search fans out to
-# about 8 releases × 3 hosters, and the site answers 429 past
-# a couple of parallel requests.
-_CONCURRENCY = 2
-_RETRIES_ON_429 = 3
 _LANGUAGES = {"français": "fr", "francais": "fr", "anglais": "en"}
 
 
 class BookysIndexer(MagazineSceneIndexerBase):
-    """Bookys HTML scraper: FlareSolverr for the Cloudflare
-    clearance, plain httpx for the rest."""
+    """Bookys HTML scraper, every page through one FlareSolverr
+    session."""
 
     name = "bookys"
 
@@ -91,108 +85,69 @@ class BookysIndexer(MagazineSceneIndexerBase):
         flaresolverr: FlareSolverrClient | None,
     ):
         self.base_url = base_url.rstrip("/")
+        # Kept for the settings round-trip; the site needs no account.
         self.username = username
         self.password = password
         self._flare = flaresolverr
-        # Built lazily from the FlareSolverr clearance, closed by close().
-        self._client: httpx.AsyncClient | None = None
-        self._login_lock = asyncio.Lock()
-        self._fetch_slots = asyncio.Semaphore(_CONCURRENCY)
-        self._logged_in = False
-        # Why the last login attempt failed, for the connection test.
-        self._login_error = "login refused"
+        # One Chromium tab per indexer instance, created lazily,
+        # destroyed by close(); one request at a time in it.
+        self._session_id: str | None = None
+        self._session_lock = asyncio.Lock()
+        self._tab = asyncio.Lock()
+        # A scan searches the title and its aliases: the same
+        # release pages come back, fetch them once.
+        self._releases: dict[str, MagazineSceneRelease | None] = {}
+        # Why the last page could not be fetched, for the connection test.
+        self._error = "site unreachable"
 
     async def close(self) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        if self._flare and self._session_id:
+            await self._flare.destroy_session(self._session_id)
+            self._session_id = None
         if self._flare:
             await self._flare.close()
 
     # ------------------------------------------------------------------
-    # Auth
+    # Pages
     # ------------------------------------------------------------------
-    async def _ensure_client(self) -> httpx.AsyncClient | None:
-        """An httpx client carrying the Cloudflare clearance
-        FlareSolverr obtained, or ``None`` when it could not."""
-        if self._client is not None:
-            return self._client
+    async def _ensure_session(self) -> str | None:
         if not self._flare:
-            self._login_error = "FlareSolverr endpoint not configured"
+            self._error = "FlareSolverr endpoint not configured"
             return None
-        try:
-            sol = await self._flare.request_get(f"{self.base_url}/login")
-        except FlareSolverrError as e:
-            logger.warning("Bookys: FlareSolverr failed: %s", e)
-            self._login_error = (
-                f"FlareSolverr could not get past the site's protection ({e})"
-            )
-            return None
-        self._client = httpx.AsyncClient(
-            headers={
-                "User-Agent": sol.get("userAgent") or "",
-                "Accept-Language": "fr-FR,fr;q=0.9",
-            },
-            cookies={
-                c["name"]: c.get("value", "")
-                for c in sol.get("cookies") or []
-                if c.get("name")
-            },
-            follow_redirects=True,
-            timeout=30.0,
-        )
-        return self._client
-
-    async def _ensure_login(self) -> bool:
-        if not self.username or not self.password:
-            self._login_error = "credentials not configured"
-            return False
-        if self._logged_in:
-            return True
-        async with self._login_lock:
-            if self._logged_in:
-                return True
-            client = await self._ensure_client()
-            if client is None:
-                return False
+        if self._session_id is not None:
+            return self._session_id
+        async with self._session_lock:
+            if self._session_id is not None:
+                return self._session_id
             try:
-                page = await client.get(f"{self.base_url}/login")
-                if _blocked(page):
-                    self._login_error = (
-                        "Cloudflare refused the clearance FlareSolverr "
-                        "obtained — Pressarr and FlareSolverr must reach "
-                        "the site from the same public IP"
-                    )
-                    return False
-                form = _login_form(page.text, self.base_url)
-                answer = await client.post(
-                    form.action,
-                    data={
-                        "_token": form.token or "",
-                        "username": self.username,
-                        "password": self.password,
-                        "remember": "on",
-                    },
-                    headers={"Referer": f"{self.base_url}/login"},
+                self._session_id = await self._flare.create_session(
+                    f"pressarr-bookys-{id(self) & 0xFFFFFF:x}"
                 )
-            except httpx.HTTPError as e:
-                logger.warning("Bookys login round-trip failed: %s", e)
-                self._login_error = f"site unreachable ({e})"
-                return False
+            except FlareSolverrError as e:
+                self._error = f"FlareSolverr unreachable ({e})"
+                return None
+            return self._session_id
 
-            if not _signed_in(answer.text):
-                logger.warning(
-                    "Bookys login failed — credentials wrong or site auth "
-                    "changed (response status=%s)",
-                    answer.status_code,
+    async def _get(self, url: str) -> str | None:
+        """The page's HTML, or ``None`` (reason in ``_error``)."""
+        session = await self._ensure_session()
+        if session is None or self._flare is None:
+            return None
+        async with self._tab:
+            try:
+                sol = await self._flare.request_get(url, session=session)
+            except FlareSolverrError as e:
+                logger.warning("Bookys: FlareSolverr failed on %s: %s", url, e)
+                self._error = (
+                    f"FlareSolverr could not get past the site's protection ({e})"
                 )
-                self._login_error = (
-                    "login refused — check the username and password"
-                )
-                return False
-            self._logged_in = True
-            logger.info("Bookys login OK as %s", self.username)
-            return True
+                return None
+        status = sol.get("status")
+        if status != 200:
+            logger.debug("Bookys fetch %s answered %s", url, status)
+            self._error = f"the site answered {status}"
+            return None
+        return sol.get("response") or None
 
     # ------------------------------------------------------------------
     # Search
@@ -200,40 +155,31 @@ class BookysIndexer(MagazineSceneIndexerBase):
     async def search(self, query: str) -> list[MagazineSceneRelease]:
         if not query.strip():
             return []
-        if not await self._ensure_login():
+        page = await self._get(f"{self.base_url}/search?q={quote(query)}")
+        if page is None:
+            logger.warning("Bookys search failed for %r: %s", query, self._error)
             return []
-        assert self._client is not None
-
-        try:
-            resp = await self._client.get(
-                f"{self.base_url}/search", params={"q": query}
-            )
-        except httpx.HTTPError as e:
-            logger.warning("Bookys search failed for %r: %s", query, e)
-            return []
-        listing_urls = self._parse_listing_urls(resp.text)[:_SEARCH_LIMIT]
+        listing_urls = self._parse_listing_urls(page)[:_SEARCH_LIMIT]
         if not listing_urls:
             logger.debug("Bookys returned no results for %r", query)
             return []
 
-        details = await asyncio.gather(
-            *(self._fetch_release(u) for u in listing_urls),
-            return_exceptions=True,
-        )
         out: list[MagazineSceneRelease] = []
-        for d in details:
-            if isinstance(d, Exception):
-                logger.debug("Bookys release fetch failed", exc_info=d)
-                continue
-            if d is not None:
-                out.append(d)
+        for url in listing_urls:
+            if url not in self._releases:
+                try:
+                    self._releases[url] = await self._fetch_release(url)
+                except Exception:
+                    logger.debug("Bookys release fetch failed: %s", url, exc_info=True)
+                    self._releases[url] = None
+            release = self._releases[url]
+            if release is not None:
+                out.append(release)
         return out
 
     def _parse_listing_urls(self, html_text: str) -> list[str]:
         """Release links of the search results table, in the
         site's order — the side columns list unrelated releases."""
-        if not html_text:
-            return []
         try:
             tree = html.fromstring(html_text)
         except (ValueError, etree.ParserError):
@@ -250,24 +196,6 @@ class BookysIndexer(MagazineSceneIndexerBase):
     # ------------------------------------------------------------------
     # Release detail
     # ------------------------------------------------------------------
-    async def _get(self, url: str) -> str | None:
-        assert self._client is not None
-        for attempt in range(_RETRIES_ON_429 + 1):
-            async with self._fetch_slots:
-                try:
-                    resp = await self._client.get(url)
-                except httpx.HTTPError as e:
-                    logger.debug("Bookys fetch failed: %s (%s)", url, e)
-                    return None
-                if resp.status_code != 429 or attempt == _RETRIES_ON_429:
-                    break
-                # Wait while holding the slot: the whole scrape slows down.
-                await asyncio.sleep(_retry_after(resp, attempt))
-        if resp.status_code != 200:
-            logger.debug("Bookys fetch %s answered %s", url, resp.status_code)
-            return None
-        return resp.text
-
     async def _fetch_release(
         self, url: str
     ) -> MagazineSceneRelease | None:
@@ -301,12 +229,10 @@ class BookysIndexer(MagazineSceneIndexerBase):
             logger.debug("Bookys release %s exposed no download links", url)
             return None
 
-        resolved = await asyncio.gather(
-            *(self._resolve_dl(dl) for dl, _ in rows)
-        )
         hosters: list[HosterLink] = []
         seen: set[str] = set()
-        for link in resolved:
+        for dl, _ in rows:
+            link = await self._resolve_dl(dl)
             if link and link.url not in seen:
                 seen.add(link.url)
                 hosters.append(link)
@@ -356,12 +282,12 @@ class BookysIndexer(MagazineSceneIndexerBase):
     async def test_connection(self) -> tuple[bool, str]:
         if not self._flare:
             return False, "Bookys: FlareSolverr endpoint not configured"
-        if not self.username or not self.password:
-            return False, "Bookys: credentials not configured"
-        ok = await self._ensure_login()
-        if not ok:
-            return False, f"Bookys: {self._login_error}"
-        return True, "Bookys: connected"
+        page = await self._get(f"{self.base_url}/search?q=le")
+        if page is None:
+            return False, f"Bookys: {self._error}"
+        if "search_table" not in page:
+            return False, "Bookys: the search page changed — the scraper needs an update"
+        return True, "Bookys: connected (no account needed)"
 
     # ------------------------------------------------------------------
     # Helpers
@@ -390,60 +316,3 @@ class BookysIndexer(MagazineSceneIndexerBase):
                 if s:
                     return s
         return None
-
-
-class _LoginForm:
-    """The login form a Bookys page shows: where it posts and its
-    one-shot ``_token``."""
-
-    def __init__(self, action: str, token: str | None):
-        self.action = action
-        self.token = token
-
-
-def _login_form(page_html: str, base_url: str) -> _LoginForm:
-    """Read the ``username`` / ``password`` form of ``page_html``."""
-    default = _LoginForm(f"{base_url}/login", None)
-    if not page_html.strip():
-        return default
-    try:
-        tree = html.fromstring(page_html)
-    except (ValueError, etree.ParserError):
-        return default
-    for form in tree.xpath("//form"):
-        names = set(form.xpath(".//input/@name"))
-        if "username" in names and "password" in names:
-            token = form.xpath(".//input[@name='_token']/@value")
-            action = (form.get("action") or "").strip()
-            if action and not action.startswith("http"):
-                action = f"{base_url}/{action.lstrip('/')}"
-            return _LoginForm(action or default.action, token[0] if token else None)
-    return default
-
-
-def _signed_in(page_html: str) -> bool:
-    """A signed-in page offers a logout and no password field."""
-    if not page_html.strip():
-        return False
-    try:
-        tree = html.fromstring(page_html)
-    except (ValueError, etree.ParserError):
-        return False
-    has_logout = bool(
-        tree.xpath("//a[contains(@href,'logout')] | //form[contains(@action,'logout')]")
-    )
-    return has_logout and not tree.xpath("//input[@type='password']")
-
-
-def _retry_after(resp: httpx.Response, attempt: int) -> float:
-    """Seconds to wait after a 429: the site's ``Retry-After``
-    when it gives one (capped), else 1 s, 2 s, 4 s."""
-    try:
-        return min(float(resp.headers.get("retry-after", "")), 10.0)
-    except ValueError:
-        return float(2**attempt)
-
-
-def _blocked(resp: httpx.Response) -> bool:
-    """Cloudflare still challenging despite the clearance."""
-    return resp.status_code == 403 and resp.headers.get("cf-mitigated") == "challenge"
