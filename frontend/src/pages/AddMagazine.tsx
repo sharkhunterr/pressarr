@@ -34,6 +34,16 @@ import {
 
 import { shortenPath } from '@/lib/utils'
 
+// Catalogue names are proper nouns: the same in every language.
+const SOURCE_LABELS: Record<string, string> = {
+  wikidata: 'Wikidata',
+  zdb: 'ZDB',
+  bnf: 'BnF',
+  issn_portal: 'ISSN Portal',
+  google_books: 'Google Books',
+  internet_archive: 'Internet Archive',
+}
+
 export default function AddMagazine() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -205,16 +215,14 @@ export default function AddMagazine() {
 
               {/* Info */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-zinc-100 truncate">
-                    {result.title}
-                  </p>
+                <p className="text-sm font-medium text-zinc-100 truncate">
+                  {result.title}
+                </p>
+                <div className="flex flex-wrap items-center gap-1 mt-1">
                   {result.sources.map((s) => {
-                    const label = s.provider === 'internet_archive'
-                      ? t('addMagazine.sourceInternetArchive')
-                      : t('addMagazine.sourceGoogleBooks')
+                    const label = SOURCE_LABELS[s.provider] ?? s.provider
                     return (
-                      <Badge key={s.provider} variant="outline" className="text-xs shrink-0">
+                      <Badge key={s.provider} variant="outline" className="text-xs">
                         {s.count > 1 ? `${label} (${s.count})` : label}
                       </Badge>
                     )

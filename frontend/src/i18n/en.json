@@ -124,9 +124,7 @@
     "monitoringStartDate": "Monitoring Start Date",
     "searchForMissing": "Search for missing issues on add",
     "added": "Magazine added successfully.",
-    "addError": "Failed to add magazine.",
-    "sourceGoogleBooks": "Google Books",
-    "sourceInternetArchive": "Internet Archive"
+    "addError": "Failed to add magazine."
   },
   "magazineDetail": {
     "editTitle": "Edit Magazine",
