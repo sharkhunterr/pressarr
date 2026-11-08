@@ -444,6 +444,24 @@ async def set_status(activity_id: int, status: str) -> None:
     await _retry_on_lock(_do)
 
 
+async def reopen(activity_id: int) -> None:
+    """Remet en running une activité interrompue par un redémarrage,
+    pour qu'un tracker reprenne la même ligne (et ses étapes) au lieu
+    d'en ouvrir une nouvelle."""
+    async def _do():
+        async with _write_lock:
+            async with _session_factory()() as session:
+                row = (await session.execute(
+                    select(Activity).where(Activity.id == activity_id)
+                )).scalars().first()
+                if not row:
+                    return
+                row.status = "running"
+                row.completed_at = None
+                await session.commit()
+    await _retry_on_lock(_do)
+
+
 async def cancel(activity_id: int) -> None:
     async def _do():
         async with _write_lock:

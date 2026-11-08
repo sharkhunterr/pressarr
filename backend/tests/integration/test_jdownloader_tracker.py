@@ -244,3 +244,15 @@ async def test_a_link_removed_from_jdownloader_fails_the_release(grabbed, jd):
 
     release = await release_row(grabbed)
     assert (release.status, release.status_message) == ("failed", "JDownloader n'a plus ce lien")
+
+
+@pytest.mark.asyncio
+async def test_a_restart_resumes_the_same_activity(grabbed, jd):
+    FakeJD.downloads = [link(grabbed, running=True, bytesLoaded=10, status="Downloading")]
+    await follow(jd)
+    before = await download_activity(grabbed)
+    await activity_service.mark_interrupted_at_boot()
+    await follow(jd)
+
+    after = await download_activity(grabbed)
+    assert (after.id, after.status, after.completed_at) == (before.id, "running", None)

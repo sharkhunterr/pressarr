@@ -304,7 +304,7 @@ function ActivityCard({
   const [expanded, setExpanded] = useState(false)
 
   const isRunning = row.status === 'queued' || row.status === 'running'
-  const elapsedMs = useLiveElapsed(row.startedAt, isRunning)
+  const elapsedMs = useLiveElapsed(row.startedAt, row.completedAt, isRunning)
   const progressClamped = Math.min(100, Math.max(0, row.progress))
 
   return (
@@ -545,7 +545,11 @@ function formatDuration(ms: number): string {
   return rem ? `${m}m ${rem}s` : `${m}m`
 }
 
-function useLiveElapsed(startedIso: string | null, isRunning: boolean): number {
+function useLiveElapsed(
+  startedIso: string | null,
+  completedIso: string | null,
+  isRunning: boolean,
+): number {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (!isRunning) return
@@ -553,7 +557,9 @@ function useLiveElapsed(startedIso: string | null, isRunning: boolean): number {
     return () => window.clearInterval(id)
   }, [isRunning])
   if (!startedIso) return 0
-  return Math.max(0, now - new Date(startedIso).getTime())
+  // A finished activity lasted until it completed, not until now.
+  const end = !isRunning && completedIso ? new Date(completedIso).getTime() : now
+  return Math.max(0, end - new Date(startedIso).getTime())
 }
 
 

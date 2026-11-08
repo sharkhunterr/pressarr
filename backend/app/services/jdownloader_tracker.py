@@ -137,6 +137,13 @@ async def _follow(
     links: list[tuple[str, dict]],
     packages: dict[int, str],
 ) -> None:
+    # A restart cancels the running activities: pick this one up again,
+    # with the mirrors already tried, rather than open a new one.
+    previous = await activity_service.find_by_external_id(
+        "download", f"jd:{release.id}", live_only=False
+    )
+    if previous is not None and (await activity_service.get(previous)).status == "cancelled":
+        await activity_service.reopen(previous)
     aid = await activity_service.create(
         kind="download",
         title=release.title,
